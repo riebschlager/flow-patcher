@@ -1,14 +1,20 @@
 import { useContext } from 'react';
-import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from '@xyflow/react';
+import { BaseEdge, EdgeLabelRenderer, getBezierPath, type Edge, type EdgeProps } from '@xyflow/react';
+import { CABLE_STYLES, PORT_COLORS } from './ports';
+import type { PortType } from './registry';
 import { PatchActions } from './SpikeNode';
 
-/** An audio cable. When selected it shows a × at its midpoint, so it can be deleted without a keyboard. */
-export function CableEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, selected }: EdgeProps) {
+export type CableData = { portType: PortType };
+
+/** A cable styled by the type it carries. When selected it shows a × at its midpoint, so it can be deleted without a keyboard. */
+export function CableEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, selected, data }: EdgeProps<Edge<CableData>>) {
   const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
   const { removeCable } = useContext(PatchActions);
+  const type = data?.portType ?? 'audio';
+  const cable = CABLE_STYLES[type];
   return (
     <>
-      <BaseEdge path={path} interactionWidth={24} style={{ stroke: 'var(--fp-audio)', strokeOpacity: selected ? 1 : 0.7, strokeWidth: 3, strokeLinecap: 'round' }} />
+      <BaseEdge path={path} interactionWidth={24} style={{ stroke: PORT_COLORS[type], strokeOpacity: selected ? 1 : 0.7, strokeWidth: cable.width, strokeDasharray: cable.dash, strokeLinecap: cable.cap ?? 'butt' }} />
       {selected && (
         <EdgeLabelRenderer>
           <button

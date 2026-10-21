@@ -1,15 +1,37 @@
-import { ramp } from './audio';
+import { blip } from './nodes/blip';
+import { clock } from './nodes/clock';
+import { output } from './nodes/output';
+import { tone } from './nodes/tone';
 
 // The spike's node registry. Each node type declares its ports and knobs and
-// builds its own Web Audio graph. Later M0 tasks add their nodes to `registry`.
+// builds its instance: Web Audio nodes for Audio ports, query() for Event and
+// Note ports, functions of time for Signal ports. Later M0 tasks add theirs.
 
-export type PortDef = { name: string; label: string };
-export type KnobDef = { name: string; label: string; min: number; max: number; default: number; curve?: 'lin' | 'log'; unit?: string };
+export type PortType = 'audio' | 'event' | 'note' | 'signal';
+export type PortDef = { name: string; label: string; type: PortType };
+export type KnobDef = { name: string; label: string; min: number; max: number; default: number; curve?: 'lin' | 'log'; step?: number; unit?: string };
+
+/** A timestamped message on the audio clock. Fields beyond `time` depend on the source. */
+export type SpikeEvent = { time: number; [field: string]: unknown };
+
+/** What a node sees of its inputs during one query. */
+export type Inputs = {
+  /** This window's events on an Event/Note input, merged from every cable in time order. */
+  events(port: string): SpikeEvent[];
+  /** The summed Signal on an input, or null when nothing is cabled. */
+  signal(port: string): ((t: number) => number) | null;
+};
 
 export type Instance = {
-  inputs: Record<string, AudioNode>;
-  outputs: Record<string, AudioNode>;
-  /** Set a knob's value live; implementations ramp, never jump. */
+  inputs?: Record<string, AudioNode>;
+  outputs?: Record<string, AudioNode>;
+  /**
+   * Events on each Event/Note output in [t0, t1), computed from absolute time; nodes never own timers.
+   * Sinks schedule their sound here. A zero-width window is the immediate path for live input.
+   */
+  query?(t0: number, t1: number, inputs: Inputs): Record<string, SpikeEvent[]> | void;
+  signals?: Record<string, (t: number) => number>;
+  /** Set a knob's value live; audio params ramp, never jump. */
   set(knob: string, value: number): void;
   dispose(): void;
 };
@@ -23,74 +45,10 @@ export type NodeType = {
   create(ctx: AudioContext): Instance;
 };
 
-/** Placeholder sound source until the real instruments land. */
-const tone: NodeType = {
-  type: 'tone',
-  label: 'Tone',
-  inputs: [],
-  outputs: [{ name: 'out', label: 'Out' }],
-  knobs: [
-    { name: 'pitch', label: 'Pitch', min: 40, max: 2000, default: 220, curve: 'log', unit: 'Hz' },
-    { name: 'level', label: 'Level', min: 0, max: 1, default: 0.3 },
-  ],
-  create(ctx) {
-    const osc = new OscillatorNode(ctx, { type: 'sawtooth', frequency: 220 });
-    const gain = new GainNode(ctx, { gain: 0.3 });
-    osc.connect(gain);
-    osc.start();
-    return {
-      inputs: {},
-      outputs: { out: gain },
-      set(knob, value) {
-        if (knob === 'pitch') ramp(osc.frequency, value);
-        if (knob === 'level') ramp(gain.gain, value);
-      },
-      dispose() {
-        osc.stop();
-        osc.disconnect();
-        gain.disconnect();
-      },
-    };
-  },
-};
+/** Which output types may feed which inputs. Notes are events too. */
+export const canConnect = (from: PortType, to: PortType) => from === to || (from === 'note' && to === 'event');
 
-/** Master gain to the speakers. The analyser feeds the debug level meter (window.spike.level()). */
-const output: NodeType = {
-  type: 'output',
-  label: 'Output',
-  inputs: [{ name: 'in', label: 'In' }],
-  outputs: [],
-  knobs: [{ name: 'level', label: 'Level', min: 0, max: 1, default: 0.5 }],
-  create(ctx) {
-    const gain = new GainNode(ctx, { gain: 0.5 });
-    gain.connect(ctx.destination);
-    gain.connect(analyser(ctx));
-    return {
-      inputs: { in: gain },
-      outputs: {},
-      set(knob, value) {
-        if (knob === 'level') ramp(gain.gain, value);
-      },
-      dispose() {
-        gain.disconnect();
-      },
-    };
-  },
-};
-
-export const registry: NodeType[] = [tone, output];
+export const registry: NodeType[] = [clock, blip, tone, output];
 export const nodeType = (type: string) => registry.find((t) => t.type === type)!;
-
-// One analyser shared by every Output node, so the spike can report whether sound is flowing.
-let meter: AnalyserNode | null = null;
-function analyser(ctx: AudioContext) {
-  return (meter ??= new AnalyserNode(ctx, { fftSize: 2048 }));
-}
-
-/** RMS of what reaches the Output nodes, 0 when nothing does. */
-export function outputLevel() {
-  if (!meter) return 0;
-  const buf = new Float32Array(meter.fftSize);
-  meter.getFloatTimeDomainData(buf);
-  return Math.sqrt(buf.reduce((sum, v) => sum + v * v, 0) / buf.length);
-}
+export const portOf = (type: string, dir: 'in' | 'out', name: string | null | undefined) =>
+  nodeType(type)[dir === 'in' ? 'inputs' : 'outputs'].find((p) => p.name === name);

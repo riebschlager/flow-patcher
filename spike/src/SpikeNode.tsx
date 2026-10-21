@@ -46,12 +46,12 @@ export function SpikeNodeView({ id, data, selected }: NodeProps<SpikeNode>) {
       )}
       {def.inputs.map((p, i) => (
         <Handle key={p.name} id={p.name} type="target" position={Position.Left} className="spike-handle" style={{ top: portTop(i) }}>
-          <span className="spike-port" />
+          <span className={`spike-port spike-port--${p.type}`} />
         </Handle>
       ))}
       {def.outputs.map((p, i) => (
         <Handle key={p.name} id={p.name} type="source" position={Position.Right} className="spike-handle" style={{ top: portTop(i) }}>
-          <span className="spike-port" />
+          <span className={`spike-port spike-port--${p.type}`} />
         </Handle>
       ))}
     </div>
