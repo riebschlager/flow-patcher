@@ -1,6 +1,6 @@
 import { getCtx } from './audio';
 import type { LivePatch } from './live-graph';
-import { stats } from './stats';
+import { recordStall, stats } from './stats';
 
 const WAKE = 0.025; // seconds between wakes
 const LOOKAHEAD = 0.12; // seconds queried ahead of now
@@ -14,6 +14,8 @@ const HIDDEN_LOOKAHEAD = 1.25; // background tabs wake about once a second
 export class Scheduler {
   private horizon: number | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** performance.now() and currentTime at the last wake, to tell a blocked main thread from a jump in the audio clock. */
+  private last: { wall: number; audio: number } | null = null;
 
   constructor(private patch: LivePatch) {}
 
@@ -31,12 +33,18 @@ export class Scheduler {
       return;
     }
     const now = ctx.currentTime;
+    const wall = performance.now();
+    const last = this.last;
+    this.last = { wall, audio: now };
     if (this.horizon === null) this.horizon = now;
     if (this.horizon < now) {
       const missed = Math.ceil((now - this.horizon) / WAKE);
       stats.skipped += missed;
-      if (performance.now() < stats.rewiringUntil) stats.rewireSkipped += missed;
-      console.log(`[spike] stall: skipped ${missed} windows (${((now - this.horizon) * 1000).toFixed(0)} ms)`);
+      if (wall < stats.rewiringUntil) stats.rewireSkipped += missed;
+      // A blocked main thread moves both clocks by the same long gap; an audio clock jump moves only currentTime.
+      const gaps = last ? { wallMs: wall - last.wall, audioMs: (now - last.audio) * 1000 } : null;
+      recordStall(missed, gaps);
+      console.log(`[spike] stall: skipped ${missed} windows (${((now - this.horizon) * 1000).toFixed(0)} ms)${gaps ? `; since the last wake, wall clock ${gaps.wallMs.toFixed(0)} ms, audio clock ${gaps.audioMs.toFixed(0)} ms` : ''}`);
       this.horizon = now;
     }
     const t1 = now + (document.hidden ? HIDDEN_LOOKAHEAD : LOOKAHEAD);
