@@ -30,6 +30,7 @@ Gate: tap-to-sound ≤ 20 ms on every reference device, and no audible gap while
 | Device | Taps (n) | Tap-to-sound median / worst | Output latency | Rewires, windows skipped | Fluid step mean / p95 / max (grid) |
 | --- | --- | --- | --- | --- | --- |
 | Headless Chromium 156, Playwright on Chris's Mac (provisional, three runs) | 30 each | 15.5 / 20.2; 16.1 / 21.7; 10.5 / 20.4 ms | 216 ms (headless) | 20 + 20 edits, 0 skipped | 7.8 / 7.9 / 8.0 ms (149×233) |
+| Desktop Chrome 156, MacBook (1496×851 @2x), fluid in a Worker | 54 | 11.6 / 14.8 ms | 216 ms (base 5.8 ms) | 16 edits, 0 skipped | 7.8 / 8.0 / 15.4 ms (157×222) |
 | Desktop Chrome 156, MacBook (1496×851 @2x), fluid on the main thread | 50 | 17.2 / 27.4 ms | 216 ms (base 5.8 ms) | 14 edits, 0 skipped, no gap heard | 7.8 / 8.0 / 15.0 ms (157×222) |
 | Android phone | | | | | |
 | Surface tablet | | | | | |
@@ -65,7 +66,7 @@ Full demo patch, headless Chromium, 40 taps per run, two runs each, alternating:
 | Worker | 10.3, 10.3 ms | **12.6, 12.5 ms** | 8.1 / 9.6, 7.8 / 8.0 ms | 2.3 ms |
 | Main thread | 10.4, 10.4 ms | 20.6, 20.5 ms | 7.7 / 7.9 ms | 2.2 ms |
 
-The step costs about the same in both places. Off the main thread it no longer delays taps, and the worst case falls back to what Pointer → Chord Tone → Voice → Output alone measures. The main thread keeps only the Renderer's ~2 ms draw. The desktop Chrome row above was taken before this change, on the main-thread path.
+The step costs about the same in both places. Off the main thread it no longer delays taps, and the worst case falls back to what Pointer → Chord Tone → Voice → Output alone measures. The main thread keeps only the Renderer's ~2 ms draw. Desktop Chrome confirms it. With the fluid in a Worker, the worst tap fell from 27.4 to 14.8 ms and the median from 17.2 to 11.6 ms (the two desktop rows above).
 
 ## What felt fun, and what didn't
 
