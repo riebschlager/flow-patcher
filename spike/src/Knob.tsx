@@ -2,13 +2,15 @@ import { useRef } from 'react';
 import type { KnobDef } from './registry';
 
 // Knob position is 0–1; the knob's curve maps it to a value.
-const toValue = (k: KnobDef, p: number) =>
-  k.curve === 'log' ? k.min * Math.pow(k.max / k.min, p) : k.min + (k.max - k.min) * p;
+const toValue = (k: KnobDef, p: number) => {
+  const v = k.curve === 'log' ? k.min * Math.pow(k.max / k.min, p) : k.min + (k.max - k.min) * p;
+  return k.step ? Math.round(v / k.step) * k.step : v;
+};
 const toPos = (k: KnobDef, v: number) =>
   k.curve === 'log' ? Math.log(v / k.min) / Math.log(k.max / k.min) : (v - k.min) / (k.max - k.min);
 
 const format = (k: KnobDef, v: number) =>
-  `${v >= 100 ? v.toFixed(0) : v.toFixed(2)}${k.unit ? ` ${k.unit}` : ''}`;
+  `${v >= 100 || k.step ? v.toFixed(0) : v.toFixed(2)}${k.unit ? ` ${k.unit}` : ''}`;
 
 const SWEEP = 270; // degrees of travel
 const R = 15;
@@ -38,7 +40,8 @@ export function Knob({ knob, value, onChange }: { knob: KnobDef; value: number; 
     const next = Math.min(1, Math.max(0, drag.current.pos + (drag.current.y - e.clientY) / pixels));
     // Rebase so switching Shift mid-drag doesn't jump.
     drag.current = { ...drag.current, y: e.clientY, pos: next };
-    onChange(toValue(knob, next));
+    const value = toValue(knob, next);
+    if (value !== toValue(knob, pos)) onChange(value);
   };
   const onPointerUp = (e: React.PointerEvent) => {
     if (drag.current?.id === e.pointerId) drag.current = null;
