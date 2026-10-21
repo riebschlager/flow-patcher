@@ -16,7 +16,7 @@ export const PatchActions = createContext<{
 /** Center of port row i from the node's top edge: header 30 + divider 1 + padding 4 + half a 22px row. */
 const portTop = (i: number) => 46 + i * 22;
 
-export function SpikeNodeView({ id, data, selected }: NodeProps<SpikeNode>) {
+export function SpikeNodeView({ id, data, selected, deletable }: NodeProps<SpikeNode>) {
   const def = nodeType(data.type);
   const { setKnob, setText } = useContext(PatchActions);
   const { deleteElements } = useReactFlow();
@@ -27,7 +27,7 @@ export function SpikeNodeView({ id, data, selected }: NodeProps<SpikeNode>) {
       <div className="spike-node__header">
         {def.label}
         {/* Touch has no Delete key; this routes through the same onDelete as the keyboard. */}
-        {selected && (
+        {selected && deletable !== false && (
           <button className="spike-node__delete nodrag" onClick={() => void deleteElements({ nodes: [{ id }] })} aria-label="Delete node">×</button>
         )}
       </div>

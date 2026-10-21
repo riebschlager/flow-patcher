@@ -77,6 +77,8 @@ export type Instance = {
 export type NodeType = {
   type: string;
   label: string;
+  /** Exactly one per patch once added: the add menu disables it and it can't be deleted. */
+  unique?: boolean;
   inputs: PortDef[];
   outputs: PortDef[];
   knobs: KnobDef[];
