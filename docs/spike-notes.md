@@ -28,7 +28,7 @@ Gate: tap-to-sound ≤ 20 ms on every reference device, and no audible gap while
 | Device | Taps (n) | Tap-to-sound median / worst | Output latency | Rewires, windows skipped | Fluid step mean / p95 / max (grid) |
 | --- | --- | --- | --- | --- | --- |
 | Headless Chromium 156, Playwright on Chris's Mac (provisional, three runs) | 30 each | 15.5 / 20.2; 16.1 / 21.7; 10.5 / 20.4 ms | 216 ms (headless) | 20 + 20 edits, 0 skipped | 7.8 / 7.9 / 8.0 ms (149×233) |
-| Desktop Chrome 156, MacBook (1496×851 @2x) | 50 | 17.2 / 27.4 ms | 216 ms (base 5.8 ms) | not yet measured | 7.8 / 8.0 / 15.0 ms (157×222) |
+| Desktop Chrome 156, MacBook (1496×851 @2x) | 50 | 17.2 / 27.4 ms | 216 ms (base 5.8 ms) | 14 edits, 0 skipped | 7.8 / 8.0 / 15.0 ms (157×222) |
 | Android phone | | | | | |
 | Surface tablet | | | | | |
 
