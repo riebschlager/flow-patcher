@@ -49,15 +49,15 @@ The graph runs on one clock, the Web Audio clock. Musical nodes are pure functio
 
 **Window queries.** A single scheduler wakes every 25 ms. It asks the graph for every event in the next window, from `now` to `now + 120 ms` (the lookahead Flow already uses). Each Event node implements `query(t0, t1, inputs) → events[]`, similar to Strudel/Tidal patterns. A node never owns a timer. Generators such as Clock, Euclidean and Arpeggio compute their events from absolute time, so seeking, looping and live edits are deterministic.
 
-**Live input is already in the past.** A pointerdown arrives at `now`, while the scheduler is working 120 ms ahead. Input events are stamped with `ctx.currentTime` plus a small safety offset (5 ms) and pushed straight down their cables. The scheduler does not wait for them. They pass through the same node code with `query` called on a zero-width window. As a result, a tap is scheduled within 20 ms of the touch: the offset plus the platform's input delay, which the M0 spike measured at up to about 11 ms on Android. Generated material keeps its full lookahead ([ADR 0017](decisions/0017-immediate-offset-and-catch-up.md)).
+**Live input is already in the past.** A pointerdown arrives at `now`, while the scheduler is working 120 ms ahead. Input events are stamped with `ctx.currentTime` plus a small safety offset (5 ms) and pushed straight down their cables. The scheduler does not wait for them. They pass through the same node code with `query` called on a zero-width window (stateful nodes downstream also re-run, below). As a result, a tap is scheduled within 20 ms of the touch: the offset plus the platform's input delay, which the M0 spike measured at up to about 11 ms on Android. Generated material keeps its full lookahead ([ADR 0017](decisions/0017-immediate-offset-and-catch-up.md)).
 
-**Live and scheduled events meet out of order.** Immediate events carry times earlier than the scheduler's horizon, so a node fed by both a Clock and live input sees time go backwards. Stateless nodes don't care. For stateful nodes this is open for M1: one option is for the engine, not each node, to keep immediate-path state apart from scheduled state and merge the two by time.
+**Live and scheduled events meet out of order.** Immediate events carry times earlier than the scheduler's horizon, so a node fed by both a Clock and live input sees time go backwards. Stateless nodes don't care. For stateful nodes the engine rewinds: it snapshots their state at window boundaries, and when an immediate event lands at time t it restores the latest snapshot before t, replays the affected downstream nodes up to t to rebuild their state, re-runs them from t to the horizon with the event included, and replaces the events they had scheduled after t. Results then depend only on event times, not on when the scheduler woke, so recordings replay exactly. Node authors write nothing special, but node state must be cloneable plain data. If re-running breaks the tap budget, the fallback is to apply live state changes from the next window and accept that replays may differ ([ADR 0019](decisions/0019-live-events-rewind.md)).
 
-**The transport.** Clock writes a shared beat position: a transport that Progression, and anything else counting beats, reads at an event's time. When the tempo or division changes, the beat and Phase re-anchor where the new plan takes effect, and keep the old anchor for reads before that time, so a Phase read never jumps. Open for M1: whether the transport travels on a cable or is patch-wide, and what zero or two Clocks mean.
+**The transport.** Clock has a Transport output: a Value carrying the beat position for any queried time. Progression, and anything else counting beats, has a Transport input and reads it at an event's time. Two Clocks are fine, since each reader follows its own cable. A reader with no Transport cable stays at beat 0 (Progression holds its first chord) and shows a "no transport" hint. When the tempo or division changes, the beat and Phase re-anchor at the change time, and keep the old anchor for reads before that time, so a Phase read never jumps ([ADR 0018](decisions/0018-transport-on-a-cable.md)).
 
 **Signals are sampled, not streamed.** When an Event node needs a Signal input (a velocity knob modulated by pointer y), it samples the Signal at each event's timestamp. Frame-rate signals (pointer, fluid) are held and linearly interpolated. Audio-param targets get `setTargetAtTime` ramps.
 
-**Visual nodes run on the frame clock.** Each animation frame, the visual graph reads the events whose timestamps fell in the frame interval. That includes events scheduled earlier, so a splash appears as its note sounds. It then steps the fluid and renders. The frame clock runs behind `currentTime` by the output latency, so splashes land when their notes are heard, not when they are rendered.
+**Visual nodes run on the frame clock.** Each animation frame, the visual graph reads the events whose timestamps fell in the frame interval. That includes events scheduled earlier, so a splash appears as its note sounds. It then steps the fluid and renders. The frame clock runs behind `currentTime` by the output latency, so splashes land when their notes are heard, not when they are rendered. Immediate-path events skip that shift and reach visual nodes at once, so a tap's own splash appears under the finger ([ADR 0020](decisions/0020-tap-splash-skips-latency-shift.md)).
 
 **The main thread stays free.** No main-thread task runs longer than about 4 ms *(tune)* while a patch plays, so a pointerdown never waits long for its handler. Fluid solving and coloring run off the main thread ([ADR 0016](decisions/0016-main-thread-budget.md)).
 
@@ -136,7 +136,7 @@ The v1 catalog has about 60 small nodes in eight families. Canvas sources and re
 
 | Node | What it does |
 | --- | --- |
-| Clock | BPM, swing and a rate multiplier; emits ticks at a chosen division and a Phase signal, and writes the transport's beat position |
+| Clock | BPM, swing and a rate multiplier; emits ticks at a chosen division and a Phase signal, and outputs the beat position on its Transport port |
 | Euclidean ★ | Hits and steps knobs, Rotate; outputs hits on clock ticks |
 | Step Sequencer ★ | 16-step grid with off/ghost/hit/accent velocities (Flow's beat studio lane) |
 | Probability ★ | Passes each event with chance p, from a separate seeded random stream |
@@ -150,7 +150,7 @@ The v1 catalog has about 60 small nodes in eight families. Canvas sources and re
 
 | Node | What it does |
 | --- | --- |
-| Progression ★ | Parses chord strings (maj9, m9, dim7, sus2…); outputs the current chord as a Value, changing on the transport's beat |
+| Progression ★ | Parses chord strings (maj9, m9, dim7, sus2…); outputs the current chord as a Value, changing on the beat of its Transport input |
 | Scale | Root and mode; outputs a pitch set |
 | Chord Tone ★ | Maps a Signal (such as pointer x) to a chord tone across an octave range (Flow's horizontal pitch) |
 | Arpeggio ★ | Up, down, up/down, outside-in or random-without-repeat, over a pool of 1–16 notes |
@@ -202,7 +202,7 @@ Visuals use a fixed set of music-shaped building blocks, centered on one fluid f
 
 The Fluid node owns Flow's solver, ported to the GPU as WebGL2 shader passes: semi-Lagrangian advection, 20 Gauss-Seidel pressure iterations, vorticity confinement, and the aspect-following grid capped at 35,000 cells on desktop. It outputs a Field. Other nodes write into it or read from it:
 
-- **Writers:** Splat (dye + impulse at a point, from any Event with x/y), Force (a continuous push following a Signal pair), Stir (Flow's percussion roll, sweep and eddy impulses), Clear / Fade.
+- **Writers:** Splat (dye + impulse at a point, from any Event with x/y; a tap's splash lands at once, a scheduled one with its sound, see Timing), Force (a continuous push following a Signal pair), Stir (Flow's percussion roll, sweep and eddy impulses), Clear / Fade.
 - **Readers:** Probe (density, speed and curl at a point, as Signals), Region Stats (average density or motion over a zone), Density Onset (fires an Event when local density crosses a threshold). Readers return the previous frame's value; see Feedback, under Timing.
 - **Knobs:** vorticity, dissipation (color persistence), viscosity, grid budget.
 
@@ -223,7 +223,7 @@ A patch has at most one Fluid node. Running the solver on the GPU frees the main
 | Lighting ★ | Chord atmosphere: color cast, light direction and energy, from a chord Value |
 | Renderer ★ | WebGL2 display with bloom, refraction and grain, falling back to Canvas2D. One per patch |
 
-Visual nodes read events by timestamp on the frame clock, so a Ripple fed by a note appears as the note is heard, even though the note was scheduled 120 ms earlier. Every overlay obeys reduced-motion: it keeps color, drops added motion.
+Visual nodes read events by timestamp on the frame clock, so a Ripple fed by a note appears as the note is heard, even though the note was scheduled 120 ms earlier. A tap's own events skip that latency shift and appear at once (Timing). Every overlay obeys reduced-motion: it keeps color, drops added motion.
 
 ### Escape hatch, later
 
@@ -356,7 +356,7 @@ Generated material goes through the scheduler's 120 ms lookahead. Canvas input t
 
 ### Hot patching
 
-An edit produces a new plan. The scheduler swaps plans at the next window boundary. Nodes keep their state when their id survives the edit: arpeggio position, held notes, per-channel recognizer state. Future events already scheduled from removed or changed nodes are cancelled; notes already sounding finish their release.
+An edit produces a new plan. The scheduler swaps plans at the next window boundary. Nodes keep their state when their id survives the edit: arpeggio position, held notes, per-channel recognizer state. Future events already scheduled from removed or changed nodes are cancelled; notes already sounding finish their release. Live input cancels and replaces scheduled events the same way when it rewinds a node's state (Timing).
 
 ### Budgets
 
@@ -394,7 +394,7 @@ The biggest risk is scope: TouchDesigner and cables.gl took years. The fixed vis
 | --- | --- | --- |
 | Scope creep on visuals | "Any visual" turns into a shader IDE | Fixed set of building blocks in v1; Shader node is post-v1 and local-only |
 | Window queries feel wrong for live input | Taps must feel immediate, not 120 ms late | Zero-width immediate path for input events (Timing). M0 measured a worst tap of 14.6–16.2 ms on the reference devices, and taps felt immediate |
-| Bluetooth output latency | Over Bluetooth, a tap's sound and splash arrive 200+ ms late | Nothing the patch can fix. Open: whether a tap's own splash should skip the output-latency shift, so it appears under the finger at once |
+| Bluetooth output latency | Over Bluetooth, a tap's sound and splash arrive 200+ ms late | Nothing the patch can fix for sound. A tap's own splash skips the output-latency shift and appears under the finger at once, so over Bluetooth it comes before its sound; scheduled splashes stay synced to theirs ([ADR 0020](decisions/0020-tap-splash-skips-latency-shift.md)) |
 | Channel model is awkward | Most cables carry one channel, yet every node pays for N | Single-channel fast path; Merge/Split hidden until needed |
 | Pointer ownership is confusing | Pinch also paints; right-drag also drops notes | Pass outputs with claim + Cancel; example patches that show the pattern |
 | GPU readback stalls or weak mobile GPUs | Reader nodes need field values on the CPU; a synchronous read blocks the frame | Async readback one frame late; CPU solver as fallback on weak devices |
@@ -408,3 +408,6 @@ The biggest risk is scope: TouchDesigner and cables.gl took years. The fixed vis
 - [x] Web MIDI is in v1.
 - [x] A patch has a single canvas.
 - [x] Community comes after v1.
+- [x] The transport travels on a cable from Clock; there is no patch-wide transport ([ADR 0018](decisions/0018-transport-on-a-cable.md)).
+- [x] Live events rewind stateful nodes and re-query, so results depend only on event times ([ADR 0019](decisions/0019-live-events-rewind.md)).
+- [x] A tap's own splash skips the output-latency shift ([ADR 0020](decisions/0020-tap-splash-skips-latency-shift.md)).
