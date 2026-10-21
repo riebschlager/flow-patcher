@@ -21,6 +21,9 @@ Short records of settled calls. Read the relevant ones before changing anything 
 | [0015](0015-migrations-in-m4.md) | Patch migrations start in M4 |
 | [0016](0016-main-thread-budget.md) | Keep the main thread free while a patch plays; fluid work in a Worker until the GPU solver |
 | [0017](0017-immediate-offset-and-catch-up.md) | A 5 ms immediate-path offset, and catch-up for late scheduler wakes (amends 0008) |
+| [0018](0018-transport-on-a-cable.md) | The transport travels on a cable from Clock; a reader with no cable stays at beat 0 |
+| [0019](0019-live-events-rewind.md) | Live events rewind state and re-query, so results depend only on event times |
+| [0020](0020-tap-splash-skips-latency-shift.md) | A tap's own splash skips the output-latency shift |
 
 ## Adding a decision
 Copy the shape of an existing file: number, title, `Status: Accepted · <date>`, then Context (if needed), Decision and Consequences. Keep it under a page. If it replaces an older record, set the old one's status to `Superseded by NNNN`. If it changes only part of an older record, set the old one's status to `Amended by NNNN` and leave its text as written; the new record says what changed.
