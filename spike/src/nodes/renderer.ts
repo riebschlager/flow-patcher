@@ -1,6 +1,6 @@
 import { createFluidColorizer, renderFluidPixels } from '../flow/fluid-renderer.js';
 import type { NodeType } from '../registry';
-import { dyeOf } from './fluid';
+import { dyeOf, FluidProxy } from './fluid';
 import { stage } from '../stage';
 import { recordRender, stats } from '../stats';
 
@@ -33,19 +33,30 @@ export const renderer: NodeType = {
           canvas.width = bw;
           canvas.height = bh;
         }
-        ctx.fillStyle = BACKGROUND;
-        ctx.fillRect(0, 0, bw, bh);
         // Splat's Write is a Field too, so it can be cabled here; only a Fluid draws.
-        const sim = inputs.fields('field').map(dyeOf).find((d) => d !== null);
-        if (!sim) return;
+        // The worker path arrives colored; the main-thread path (?fluid=main) is colored here.
+        const fields = inputs.fields('field');
+        const colored = fields.find((f): f is FluidProxy => f instanceof FluidProxy)?.image;
+        const sim = colored ? null : fields.map(dyeOf).find((d) => d !== null);
         const start = performance.now();
-        if (ink.width !== sim.w || ink.height !== sim.h || !pixels) {
-          ink.width = sim.w;
-          ink.height = sim.h;
-          pixels = inkCtx.createImageData(sim.w, sim.h);
+        if (!colored && !sim) {
+          ctx.fillStyle = BACKGROUND;
+          ctx.fillRect(0, 0, bw, bh);
+          return;
         }
-        renderFluidPixels(sim, pixels.data, performance.now() / 1000, colorize);
-        inkCtx.putImageData(pixels, 0, 0);
+        const { w, h } = (colored ?? sim)!;
+        if (ink.width !== w || ink.height !== h) {
+          ink.width = w;
+          ink.height = h;
+        }
+        if (colored) {
+          // Wraps the worker's buffer without copying; it goes back to the worker with the next step.
+          inkCtx.putImageData(new ImageData(colored.pixels as Uint8ClampedArray<ArrayBuffer>, w, h), 0, 0);
+        } else {
+          if (pixels?.width !== w || pixels.height !== h) pixels = inkCtx.createImageData(w, h);
+          renderFluidPixels(sim, pixels.data, performance.now() / 1000, colorize);
+          inkCtx.putImageData(pixels, 0, 0);
+        }
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(ink, 0, 0, bw, bh);

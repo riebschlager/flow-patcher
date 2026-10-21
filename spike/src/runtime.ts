@@ -56,8 +56,8 @@ type LongFrameScript = { duration: number; invoker?: string; sourceFunctionName?
 try {
   new PerformanceObserver((list) => {
     for (const entry of list.getEntries() as (PerformanceEntry & { scripts?: LongFrameScript[] })[]) {
-      const top = entry.scripts?.reduce((a, b) => (b.duration > a.duration ? b : a));
-      const where = top ? `${top.invoker ?? '?'} ${top.sourceFunctionName || ''} ${top.sourceURL?.split('/').pop()?.split('?')[0] ?? ''} ${top.duration.toFixed(0)} ms`.replace(/\s+/g, ' ').trim() : 'no script: layout, paint or GC';
+      const top = entry.scripts?.length ? entry.scripts.reduce((a, b) => (b.duration > a.duration ? b : a)) : undefined;
+      const where = top ? `${top.invoker ?? '?'} ${top.sourceFunctionName || ''} ${top.sourceURL?.split('/').pop()?.split('?')[0] ?? ''} ${top.duration.toFixed(0)} ms`.replace(/\s+/g, ' ').trim() : 'no attributed script';
       recordLongFrame(entry.duration, where);
       console.log(`[spike] long frame ${entry.duration.toFixed(0)} ms: ${where}`);
     }

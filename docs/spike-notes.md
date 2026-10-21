@@ -41,8 +41,8 @@ Gate: tap-to-sound ≤ 20 ms on every reference device, and no audible gap while
 - **No frames over 50 ms**, yet 7 windows were skipped. So the skips may not be the main thread at all. They could be the audio clock jumping forward, for example after an audio-device underrun. The report now records, for each skip, how far the wall clock and the audio clock moved since the previous wake. A 500 ms Stall reads 521/522 ms, both moving together.
 - **Run 3 shows the skips are late timers, not audio clock jumps.** Each of the 4 skips moved the wall and audio clocks alike, by 131–149 ms, and there were still no frames over 50 ms. So nothing ran long. The 25 ms wake timer waited behind many short tasks (frames, input, fluid messages), or was throttled, until it was about 20 ms past the 120 ms lookahead. Each such wake drops one window's events: the scheduler skips them rather than playing them late, so a beat can go missing without any stall. Two implications:
   - The lookahead needs margin over the slowest reference device's timer jitter.
-  - A small overrun should play late rather than drop. Skipping is meant for real stalls.
-- **The Renderer takes 6.4–7.0 ms mean and 10.1–11.2 ms p95 on the main thread**, against 2.2 ms on the Mac. It's the largest main-thread cost left, and why the worst tap (19.9 ms) sits at the gate. Moving the colorizing into the worker, or drawing with WebGL, would remove most of it.
+  - A small overrun should play late rather than drop. Skipping is meant for real stalls. The spike now does this: a wake up to 100 ms past the horizon queries what it missed, and those events play late. The report counts these as "late wakes". Headless, 170 ms blocks are caught up, overrunning by up to 72 ms, and 250 ms blocks still skip.
+- **The Renderer takes 6.4–7.0 ms mean and 10.1–11.2 ms p95 on the main thread**, against 2.2 ms on the Mac. It's the largest main-thread cost left, and why the worst tap (19.9 ms) sits at the gate. Colorizing is most of it, so it now runs in the worker as well. Headless, main-thread render fell from 2.1 ms to under 0.2 ms, and the worst tap from 20.4 to 10.7 ms. Colorizing costs the worker about 3 ms per step on the Mac.
 
 **The Android phone misses the tap gate with no long frames** (17.0 ms median, 23.0 ms worst, 0 frames over 50 ms). What the gate measures is the immediate path's fixed 10 ms offset plus the time from the touch's own timestamp to our handler. On the phone that second part is about 7 ms median and 13 ms worst. Nothing of ours blocks the thread, so it's Android's input pipeline. Two consequences:
 - The offset is the only part of the measurement we control. `?offset=<ms>` sets it, and the report shows it. Headless, 5 ms gives a 5.3 ms median and 0 ms gives 0.3 ms: the measurement moves one for one.
@@ -71,7 +71,8 @@ The immediate path itself adds 10 ms by design. The rest is how long the pointer
 To test that, the spike's Fluid now steps Flow's CPU solver in a Worker:
 - Each frame, the main thread posts the grid, the knobs and the splats due.
 - The worker steps and hands the dye back in transferred buffers.
-- The Renderer draws the last dye that came back, so visuals run at least one frame behind the main-thread solver, and more when a step takes longer than a frame.
+- The worker also colors the dye with Flow's colorizer, and hands back RGBA pixels in a transferred buffer.
+- The Renderer only puts those pixels and scales them onto the canvas, so visuals run at least one frame behind the main-thread solver, and more when a step takes longer than a frame.
 - `?fluid=main` keeps the old path.
 
 Full demo patch, headless Chromium, 40 taps per run, two runs each, alternating:

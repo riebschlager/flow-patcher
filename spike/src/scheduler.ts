@@ -5,11 +5,14 @@ import { recordStall, stats } from './stats';
 const WAKE = 0.025; // seconds between wakes
 const LOOKAHEAD = 0.12; // seconds queried ahead of now
 const HIDDEN_LOOKAHEAD = 1.25; // background tabs wake about once a second
+/** A wake this far past the horizon still queries the missed time and plays it late; only longer gaps are stalls that skip. */
+const CATCH_UP = 0.1;
 
 /**
  * The one scheduler: every 25 ms it queries the patch for [horizon, now + lookahead).
- * Windows are contiguous, so each moment is queried exactly once. After a stall the missed
- * windows are skipped, never burst.
+ * Windows are contiguous, so each moment is queried exactly once. A wake that runs a little late
+ * (under CATCH_UP) queries what it missed and those events play late. After a longer stall the
+ * missed windows are skipped, never burst.
  */
 export class Scheduler {
   private horizon: number | null = null;
@@ -37,7 +40,10 @@ export class Scheduler {
     const last = this.last;
     this.last = { wall, audio: now };
     if (this.horizon === null) this.horizon = now;
-    if (this.horizon < now) {
+    if (this.horizon < now && now - this.horizon <= CATCH_UP) {
+      stats.caughtUp++;
+      stats.caughtUpMaxMs = Math.max(stats.caughtUpMaxMs, (now - this.horizon) * 1000);
+    } else if (this.horizon < now) {
       const missed = Math.ceil((now - this.horizon) / WAKE);
       stats.skipped += missed;
       if (wall < stats.rewiringUntil) stats.rewireSkipped += missed;

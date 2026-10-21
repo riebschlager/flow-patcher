@@ -9,8 +9,10 @@ import { recordFluidStep, stats } from '../stats';
 export type Sim = { splat(x: number, y: number, color: number[], size?: number, dx?: number, dy?: number): void };
 /** What a writer's Field output is: apply everything due before audio time t to the fluid. */
 export type FieldWriter = (sim: Sim, t: number) => void;
-/** What the Renderer draws: the dye on a w × h grid. */
+/** What the Renderer colors on the main-thread path: the dye on a w × h grid. */
 export type Dye = { w: number; h: number; r: Float32Array; g: Float32Array; b: Float32Array };
+/** What the worker path hands the Renderer: the dye already colored, as RGBA on a w × h grid. */
+export type Colored = { w: number; h: number; pixels: Uint8ClampedArray };
 
 const LOG_EVERY = 5000; // ms
 
@@ -19,19 +21,18 @@ const inWorker = () => new URLSearchParams(location.search).get('fluid') !== 'ma
 
 /**
  * The Fluid's Field output when the solver runs in a Worker: writers queue splats on it, and the Renderer
- * reads the dye from the worker's last reply, one frame behind the main-thread solver.
+ * draws the pixels from the worker's last reply, at least one frame behind the main-thread solver.
  */
 export class FluidProxy implements Sim {
-  dye: Dye | null = null;
+  image: Colored | null = null;
   splats: SplatArgs[] = [];
   splat(x: number, y: number, color: number[], size = 0.05, dx = 0, dy = 0) {
     this.splats.push([x, y, color[0], color[1], color[2], size, dx, dy]);
   }
 }
 
-/** The dye a Field carries, or null if it isn't a Fluid (a Splat's Write cabled to the Renderer by mistake). */
-export const dyeOf = (field: unknown): Dye | null =>
-  field instanceof Fluid ? (field as unknown as Dye) : field instanceof FluidProxy ? field.dye : null;
+/** The dye a main-thread Fluid carries, or null for anything else. */
+export const dyeOf = (field: unknown): Dye | null => (field instanceof Fluid ? (field as unknown as Dye) : null);
 
 /**
  * Flow's CPU solver. Each frame it sizes its grid to the performance canvas, lets its writers add what's
@@ -115,18 +116,14 @@ export const fluid: NodeType = {
     // (the solver caps a step at 35 ms), and their splats wait in the proxy, so a slow device steps less often rather than queueing work.
     let busy = false;
     let owed = 0;
-    let spare: Float32Array[] | null = null;
+    let spare: Uint8ClampedArray | null = null;
     thread.onmessage = (e: MessageEvent<StepReply>) => {
       busy = false;
-      const { ms, ...dye } = e.data;
-      // One Dye object for the node's life: the Renderer caches its geometry per object.
-      if (proxy.dye) {
-        spare = [proxy.dye.r, proxy.dye.g, proxy.dye.b];
-        Object.assign(proxy.dye, dye);
-      } else {
-        proxy.dye = dye;
-      }
-      recordStep(ms, dye.w, dye.h);
+      const { ms, colorMs, w, h, pixels } = e.data;
+      if (proxy.image) spare = proxy.image.pixels;
+      proxy.image = { w, h, pixels };
+      stats.colorMs = colorMs;
+      recordStep(ms, w, h);
     };
     // A failed step loses its buffers, but the next frame sends another, so the fluid doesn't freeze.
     const failed = (message: string) => {
@@ -144,8 +141,8 @@ export const fluid: NodeType = {
         owed += dt;
         if (busy) return;
         busy = true;
-        const request: StepRequest = { dt: owed, grid: { ...grid }, params: { ...params }, splats: proxy.splats, recycle: spare };
-        thread.postMessage(request, spare ? { transfer: spare.map((a) => a.buffer) } : {});
+        const request: StepRequest = { dt: owed, grid: { ...grid }, params: { ...params }, splats: proxy.splats, time: performance.now() / 1000, recycle: spare };
+        thread.postMessage(request, spare ? { transfer: [spare.buffer] } : {});
         proxy.splats = [];
         spare = null;
         owed = 0;

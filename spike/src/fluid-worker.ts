@@ -1,8 +1,9 @@
+import { createFluidColorizer, renderFluidPixels } from './flow/fluid-renderer.js';
 import { Fluid } from './flow/fluid.js';
 
-// Flow's CPU solver off the main thread, so a step never delays a tap's pointerdown.
+// Flow's CPU solver and colorizer off the main thread, so neither delays a tap's pointerdown.
 // Each message from the Fluid node is one frame's work: grid, knobs, the splats due, then a step.
-// The reply is the dye after the step, in buffers transferred rather than copied.
+// The reply is the dye after the step, colored into RGBA pixels, in a buffer transferred rather than copied.
 
 /** x, y, r, g, b, size, dx, dy: one Fluid.splat call. */
 export type SplatArgs = [number, number, number, number, number, number, number, number];
@@ -12,16 +13,19 @@ export type StepRequest = {
   grid: { w: number; h: number };
   params: { swirl: number; persistence: number; drag: number };
   splats: SplatArgs[];
-  /** Last frame's dye buffers, handed back for reuse. */
-  recycle: Float32Array[] | null;
+  /** The main thread's clock in seconds, for the colorizer's shimmer. */
+  time: number;
+  /** Last frame's pixel buffer, handed back for reuse. */
+  recycle: Uint8ClampedArray | null;
 };
 
-export type StepReply = { w: number; h: number; r: Float32Array; g: Float32Array; b: Float32Array; ms: number };
+export type StepReply = { w: number; h: number; pixels: Uint8ClampedArray; ms: number; colorMs: number };
 
 let sim: Fluid | null = null;
+const colorize = createFluidColorizer('classic');
 
 self.onmessage = (e: MessageEvent<StepRequest>) => {
-  const { dt, grid, params, splats, recycle } = e.data;
+  const { dt, grid, params, splats, time, recycle } = e.data;
   sim ??= new Fluid(grid.w, grid.h);
   sim.resize(grid.w, grid.h);
   Object.assign(sim, params);
@@ -29,13 +33,9 @@ self.onmessage = (e: MessageEvent<StepRequest>) => {
   const start = performance.now();
   sim.step(dt);
   const ms = performance.now() - start;
-  const s = sim;
-  const dye = sim as unknown as Record<'r' | 'g' | 'b', Float32Array>; // Fluid creates its arrays in a loop, so TS can't see them
-  const [r, g, b] = (['r', 'g', 'b'] as const).map((k, i) => {
-    const buf = recycle?.[i]?.length === s.n ? recycle[i] : new Float32Array(s.n);
-    buf.set(dye[k]);
-    return buf;
-  });
-  const reply: StepReply = { w: s.w, h: s.h, r, g, b, ms };
-  self.postMessage(reply, { transfer: [r.buffer, g.buffer, b.buffer] });
+  const pixels = recycle?.length === sim.n * 4 ? recycle : new Uint8ClampedArray(sim.n * 4);
+  renderFluidPixels(sim, pixels, time, colorize);
+  const colorMs = performance.now() - start - ms;
+  const reply: StepReply = { w: sim.w, h: sim.h, pixels, ms, colorMs };
+  self.postMessage(reply, { transfer: [pixels.buffer] });
 };
