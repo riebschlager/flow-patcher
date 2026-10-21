@@ -28,13 +28,13 @@ Gate: tap-to-sound ≤ 20 ms on every reference device, and no audible gap while
 | Device | Taps (n) | Tap-to-sound median / worst | Output latency | Rewires, windows skipped | Fluid step mean / p95 / max (grid) |
 | --- | --- | --- | --- | --- | --- |
 | Headless Chromium 156, Playwright on Chris's Mac (provisional, three runs) | 30 each | 15.5 / 20.2; 16.1 / 21.7; 10.5 / 20.4 ms | 216 ms (headless) | 20 + 20 edits, 0 skipped | 7.8 / 7.9 / 8.0 ms (149×233) |
-| Desktop Chrome | | | | | |
+| Desktop Chrome 156, MacBook (1496×851 @2x) | 50 | 17.2 / 27.4 ms | 216 ms (base 5.8 ms) | not yet measured | 7.8 / 8.0 / 15.0 ms (157×222) |
 | Android phone | | | | | |
 | Surface tablet | | | | | |
 
 The headless row is a stand-in until Chris fills in the reference devices. Headless output latency doesn't reflect real hardware.
 
-**In headless Chromium the full patch fails the tap gate on the worst case** (20.2–21.7 ms against ≤ 20 ms), while every median passes. Medians vary from run to run (10.5–16.1 ms), so read the worst case and the median together.
+**The full patch fails the tap gate on the worst case**: 20.2–21.7 ms in headless Chromium, and 27.4 ms in desktop Chrome, against ≤ 20 ms. Every median passes; desktop Chrome's is 17.2 ms. Medians vary from run to run (10.5–16.1 ms), so read the worst case and the median together.
 
 ### Tap latency and the fluid
 
