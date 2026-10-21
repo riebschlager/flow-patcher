@@ -6,9 +6,12 @@ type Wire = Cable & { type: PortType };
 
 const FADE = 0.01; // seconds; each audio cable fades in and out so rewiring never clicks
 
+/** Wires that order run(): events and notes, and values, which are read at event times. Signals and Fields don't. */
+const isEventWire = (w: Wire) => w.type !== 'signal' && w.type !== 'field';
+
 /**
  * The live side of the patch: one Instance per node, one fading GainNode per audio cable,
- * and the Event/Note/Signal wires that run() walks each scheduler window.
+ * the Event/Note/Signal/Value wires that run() walks each scheduler window, and the Field wires frame() walks each animation frame.
  */
 export class LivePatch {
   private nodes = new Map<string, Instance>();
@@ -79,7 +82,7 @@ export class LivePatch {
       if (id === source) return true;
       if (seen.has(id)) continue;
       seen.add(id);
-      for (const w of this.wires.values()) if (w.source === id && w.type !== 'signal') stack.push(w.target);
+      for (const w of this.wires.values()) if (w.source === id && isEventWire(w)) stack.push(w.target);
     }
     return false;
   }
@@ -90,7 +93,7 @@ export class LivePatch {
    * With `seed`, only the seed's downstream nodes run, fed the seed's events: the immediate path for live input.
    */
   run(t0: number, t1: number, seed?: { node: string; port: string; events: SpikeEvent[] }) {
-    const eventWires = [...this.wires.values()].filter((w) => w.type !== 'signal');
+    const eventWires = [...this.wires.values()].filter(isEventWire);
     const outs = new Map<string, Record<string, SpikeEvent[]>>();
     const downstream = seed ? this.reachable(seed.node, eventWires) : null;
     if (seed) outs.set(seed.node, { [seed.port]: seed.events });
@@ -98,6 +101,17 @@ export class LivePatch {
       const instance = this.nodes.get(id);
       if (!instance?.query || (downstream && (id === seed!.node || !downstream.has(id)))) continue;
       outs.set(id, instance.query(t0, t1, this.inputsOf(id, outs, eventWires)) ?? {});
+    }
+  }
+
+  /**
+   * One animation frame: every node with frame() runs in Field order, so writers come before the Fluid they feed
+   * and the Fluid steps before the Renderer reads it.
+   */
+  frame(t0: number, t1: number, dt: number) {
+    const fieldWires = [...this.wires.values()].filter((w) => w.type === 'field');
+    for (const id of this.order(fieldWires)) {
+      this.nodes.get(id)?.frame?.(t0, t1, dt, this.inputsOf(id, new Map(), []));
     }
   }
 
@@ -132,19 +146,24 @@ export class LivePatch {
         const w = eventWires.findLast((w) => w.type === 'value' && w.target === id && w.targetHandle === port);
         return (w && this.nodes.get(w.source)?.values?.[w.sourceHandle ?? '']) ?? null;
       },
+      fields: (port) =>
+        [...this.wires.values()]
+          .filter((w) => w.type === 'field' && w.target === id && w.targetHandle === port)
+          .map((w) => this.nodes.get(w.source)?.fields?.[w.sourceHandle ?? ''])
+          .filter((f) => f !== undefined),
     };
   }
 
-  /** Node ids in dependency order along event wires (Kahn's algorithm); wouldCycle keeps the graph acyclic. */
-  private order(eventWires: Wire[]) {
+  /** Node ids in dependency order along the given wires (Kahn's algorithm); wouldCycle keeps the graph acyclic. */
+  private order(wires: Wire[]) {
     const indegree = new Map([...this.nodes.keys()].map((id) => [id, 0]));
-    for (const w of eventWires) indegree.set(w.target, (indegree.get(w.target) ?? 0) + 1);
+    for (const w of wires) indegree.set(w.target, (indegree.get(w.target) ?? 0) + 1);
     const ready = [...indegree].filter(([, n]) => n === 0).map(([id]) => id);
     const order: string[] = [];
     while (ready.length) {
       const id = ready.shift()!;
       order.push(id);
-      for (const w of eventWires) {
+      for (const w of wires) {
         if (w.source !== id) continue;
         const n = indegree.get(w.target)! - 1;
         indegree.set(w.target, n);

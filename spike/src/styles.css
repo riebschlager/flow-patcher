@@ -67,6 +67,7 @@ button { font: inherit; color: inherit; }
 .spike-port--event { width: 9px; height: 9px; border-radius: 1.5px; background: var(--fp-event); transform: rotate(45deg); }
 .spike-port--note { width: 9px; height: 9px; border-radius: 1.5px; background: var(--fp-surface-node); transform: rotate(45deg); box-shadow: inset 0 0 0 2.5px var(--fp-note), 0 0 0 2px var(--fp-surface-node); }
 .spike-port--signal { width: 10px; height: 10px; border-radius: 50%; background: var(--fp-signal); }
+.spike-port--field { width: 10px; height: 10px; border-radius: 2px; background: var(--fp-field); }
 .spike-port--value { width: 10px; height: 10px; border-radius: 50%; background: var(--fp-surface-node); box-shadow: inset 0 0 0 2px var(--fp-value), 0 0 0 2px var(--fp-surface-node); }
 
 .knob { display: flex; flex-direction: column; align-items: center; gap: 1px; user-select: none; }

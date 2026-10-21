@@ -1,3 +1,4 @@
+import { getCtx } from './audio';
 import { LivePatch } from './live-graph';
 import { OUTPUT_CEILING, outputLevel, readOutput } from './nodes/output';
 import { Scheduler } from './scheduler';
@@ -7,6 +8,27 @@ import { stats } from './stats';
 // reload of the UI doesn't start a second scheduler.
 export const live = new LivePatch();
 export const scheduler = new Scheduler(live);
+
+let framing = false;
+
+/**
+ * The frame loop: each animation frame hands the visual nodes the audio-clock interval since the last one,
+ * so events scheduled ahead land in the frame where their sound starts. Started with the first node, like the scheduler.
+ */
+export function startFrames() {
+  if (framing) return;
+  framing = true;
+  let last: { audio: number; wall: number } | null = null;
+  const tick = (wall: number) => {
+    const audio = getCtx().currentTime;
+    // dt as Flow's tick computes it; the solver clamps it again.
+    const dt = last ? Math.min(0.033, (wall - last.wall) / 1000) || 0.016 : 0.016;
+    live.frame(last?.audio ?? audio, audio, dt);
+    last = { audio, wall };
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
 
 // The peak meter's poll. Its analysers hold ~0.7 s, so a 200 ms poll sees every sample (a hidden tab's 1 s throttle won't).
 // Peaks are polled, so a guard hit counts 200 ms polls with clipping in the last ~0.7 s, not clipped samples.

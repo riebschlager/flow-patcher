@@ -2,18 +2,24 @@ import { blip } from './nodes/blip';
 import { chordTone } from './nodes/chord-tone';
 import { clock } from './nodes/clock';
 import { euclidean } from './nodes/euclidean';
+import { fluid } from './nodes/fluid';
 import { output } from './nodes/output';
 import { pointer } from './nodes/pointer';
 import { progression } from './nodes/progression';
+import { renderer } from './nodes/renderer';
 import { sampledVoice } from './nodes/sampled-voice';
+import { splat } from './nodes/splat';
 import { tone } from './nodes/tone';
 
 // The spike's node registry. Each node type declares its ports and knobs and
 // builds its instance: Web Audio nodes for Audio ports, query() for Event and
-// Note ports, functions of time for Signal and Value ports. Later M0 tasks add theirs.
+// Note ports, functions of time for Signal and Value ports, frame() and shared objects for Field ports.
 
-/** Value: rarely changing data such as a chord, read at each event's time and never scheduled. */
-export type PortType = 'audio' | 'event' | 'note' | 'signal' | 'value';
+/**
+ * Value: rarely changing data such as a chord, read at each event's time and never scheduled.
+ * Field: a fluid, or a writer into one, shared by reference and used on the frame clock.
+ */
+export type PortType = 'audio' | 'event' | 'note' | 'signal' | 'value' | 'field';
 export type PortDef = { name: string; label: string; type: PortType };
 export type KnobDef = {
   name: string; label: string; min: number; max: number; default: number;
@@ -38,6 +44,8 @@ export type Inputs = {
   signal(port: string): ((t: number) => number) | null;
   /** The Value on an input at time t (the last cable wins), or null when nothing is cabled. */
   value(port: string): ((t: number) => unknown) | null;
+  /** The Field objects on an input, one per cable. */
+  fields(port: string): unknown[];
 };
 
 /** A pointer event on the performance canvas, normalized; y = 0 is the top. */
@@ -65,6 +73,13 @@ export type Instance = {
   signals?: Record<string, (t: number) => number>;
   /** Value outputs as functions of time, valid for any time the node has already been queried up to. */
   values?: Record<string, (t: number) => unknown>;
+  /** Field outputs, shared by reference; read during frame(). */
+  fields?: Record<string, unknown>;
+  /**
+   * Called once per animation frame, in Field order, for the audio-clock interval [t0, t1) the frame covers.
+   * dt is the frame's wall-clock length in seconds, which keeps running while audio is suspended.
+   */
+  frame?(t0: number, t1: number, dt: number, inputs: Inputs): void;
   /** Source nodes turn canvas input into events on their output ports; they take the immediate path. */
   canvas?(input: CanvasInput): { port: string; fields: Record<string, unknown> }[];
   /** Set a knob's value live; audio params ramp, never jump. */
@@ -89,7 +104,7 @@ export type NodeType = {
 /** Which output types may feed which inputs. Notes are events too. */
 export const canConnect = (from: PortType, to: PortType) => from === to || (from === 'note' && to === 'event');
 
-export const registry: NodeType[] = [pointer, clock, euclidean, progression, chordTone, sampledVoice, blip, tone, output];
+export const registry: NodeType[] = [pointer, clock, euclidean, progression, chordTone, sampledVoice, blip, tone, output, splat, fluid, renderer];
 export const nodeType = (type: string) => registry.find((t) => t.type === type)!;
 export const portOf = (type: string, dir: 'in' | 'out', name: string | null | undefined) =>
   nodeType(type)[dir === 'in' ? 'inputs' : 'outputs'].find((p) => p.name === name);

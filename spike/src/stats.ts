@@ -16,6 +16,13 @@ export const stats = {
   preGuard: 0,
   preGuardMax: 0,
   guardHits: 0,
+  /** Fluid step time in ms: a running average, and the highest since load. Logged every 5 s with the grid. */
+  fluidMs: 0,
+  fluidMaxMs: 0,
+  /** The fluid grid, e.g. "224×156". */
+  fluidGrid: '',
+  /** How far past their time splats landed, in ms, since the fluid's last log line: at most a frame when in sync. */
+  splatLag: { count: 0, total: 0, max: 0 },
   /** Audio times of the last 256 events sinks scheduled, to spot gaps and doubles. */
   sunk: [] as number[],
   /** Tap-to-sound log lines, newest first. */
