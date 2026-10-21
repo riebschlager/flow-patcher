@@ -1,6 +1,6 @@
 import { createFluidColorizer, renderFluidPixels } from '../flow/fluid-renderer.js';
-import { Fluid } from '../flow/fluid.js';
 import type { NodeType } from '../registry';
+import { dyeOf } from './fluid';
 import { stage } from '../stage';
 import { stats } from '../stats';
 
@@ -36,7 +36,7 @@ export const renderer: NodeType = {
         ctx.fillStyle = BACKGROUND;
         ctx.fillRect(0, 0, bw, bh);
         // Splat's Write is a Field too, so it can be cabled here; only a Fluid draws.
-        const sim = inputs.fields('field').find((f) => f instanceof Fluid);
+        const sim = inputs.fields('field').map(dyeOf).find((d) => d !== null);
         if (!sim) return;
         const start = performance.now();
         if (ink.width !== sim.w || ink.height !== sim.h || !pixels) {

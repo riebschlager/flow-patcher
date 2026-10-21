@@ -19,6 +19,8 @@ export const stats = {
   /** Fluid step time in ms: a running average, and the highest since load. Logged every 5 s with the grid. */
   fluidMs: 0,
   fluidMaxMs: 0,
+  /** Where the solver steps: 'worker' by default, 'main thread' with ?fluid=main. */
+  fluidMode: '',
   /** The fluid grid, e.g. "224×156". */
   fluidGrid: '',
   /** Renderer draw time in ms since the fluid's last log line, to tell render cost from solver cost. */
@@ -87,7 +89,7 @@ export function report(ctx: AudioContext) {
     `screen: ${window.innerWidth}×${window.innerHeight} @${window.devicePixelRatio}x, sample rate ${ctx.sampleRate} Hz, base latency ${ms(ctx.baseLatency * 1000)} ms, output latency ${ms(stats.outputLatencyMs)} ms`,
     `tap-to-sound (warm, gate ≤ 20 ms): n ${taps.length}, median ${ms(quantile(taps, 0.5))} ms, worst ${ms(taps.length ? Math.max(...taps) : NaN)} ms`,
     `rewiring with the Clock running: ${stats.rewires} cable edits, ${stats.rewireSkipped} windows skipped while rewiring (${stats.skipped} skipped overall, ${stats.late} late, ${stats.windows} windows)`,
-    `fluid step (last ${stats.fluidSteps.length} frames): mean ${ms(mean(stats.fluidSteps))} ms, p95 ${ms(quantile(stats.fluidSteps, 0.95))} ms, max since reset ${ms(stats.fluidMaxMs)} ms, grid ${stats.fluidGrid || 'none'}`,
+    `fluid step (${stats.fluidMode || 'none'}, last ${stats.fluidSteps.length} steps): mean ${ms(mean(stats.fluidSteps))} ms, p95 ${ms(quantile(stats.fluidSteps, 0.95))} ms, max since reset ${ms(stats.fluidMaxMs)} ms, grid ${stats.fluidGrid || 'none'}`,
     `voices: peak ${stats.peakVoices}; guard hits ${stats.guardHits}`,
   ].join('\n');
 }
