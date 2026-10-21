@@ -147,10 +147,11 @@ function Editor() {
     const portType = portsOf(c).from?.type;
     if (!portType) return;
     const id = `${c.source}.${c.sourceHandle}->${c.target}.${c.targetHandle}`;
+    const exists = getEdges().some((e) => e.id === id);
     live.connect({ id, ...c }, portType); // no-op if this cable already exists
-    rewireEnd(true);
+    rewireEnd(!exists);
     setEdges((es) => (es.some((e) => e.id === id) ? es : addEdge({ ...c, id, type: 'cable', data: { portType } }, es)));
-  }, [portsOf, setEdges]);
+  }, [portsOf, setEdges, getEdges]);
 
   // Keyboard deletes and node deletes both land here; LivePatch ignores ids it no longer has.
   const onDelete = useCallback(({ nodes: ns, edges: es }: { nodes: SpikeNode[]; edges: Edge[] }) => {

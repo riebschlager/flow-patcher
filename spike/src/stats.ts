@@ -68,7 +68,7 @@ export function recordFluidStep(ms: number) {
 
 /** Clear the gate measurements, so a run starts from zero once the patch is warm. */
 export function resetMeasurements() {
-  Object.assign(stats, { skipped: 0, late: 0, tapMs: [], rewires: 0, rewireSkipped: 0, fluidMaxMs: 0, fluidSteps: [], peakVoices: 0, guardHits: 0 });
+  Object.assign(stats, { windows: 0, skipped: 0, late: 0, rewiringUntil: 0, tapMs: [], rewires: 0, rewireSkipped: 0, fluidMaxMs: 0, fluidSteps: [], peakVoices: 0, guardHits: 0 });
 }
 
 const quantile = (xs: number[], q: number) => {
@@ -76,6 +76,7 @@ const quantile = (xs: number[], q: number) => {
   const sorted = [...xs].sort((a, b) => a - b);
   return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
 };
+const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
 const ms = (v: number) => (Number.isFinite(v) ? v.toFixed(1) : '—');
 
 /** The gate measurements as text to paste into docs/spike-notes.md. */
@@ -86,7 +87,7 @@ export function report(ctx: AudioContext) {
     `screen: ${window.innerWidth}×${window.innerHeight} @${window.devicePixelRatio}x, sample rate ${ctx.sampleRate} Hz, base latency ${ms(ctx.baseLatency * 1000)} ms, output latency ${ms(stats.outputLatencyMs)} ms`,
     `tap-to-sound (warm, gate ≤ 20 ms): n ${taps.length}, median ${ms(quantile(taps, 0.5))} ms, worst ${ms(taps.length ? Math.max(...taps) : NaN)} ms`,
     `rewiring with the Clock running: ${stats.rewires} cable edits, ${stats.rewireSkipped} windows skipped while rewiring (${stats.skipped} skipped overall, ${stats.late} late, ${stats.windows} windows)`,
-    `fluid step: avg ${ms(stats.fluidMs)} ms, p95 ${ms(quantile(stats.fluidSteps, 0.95))} ms, max ${ms(stats.fluidMaxMs)} ms, grid ${stats.fluidGrid || 'none'}`,
+    `fluid step (last ${stats.fluidSteps.length} frames): mean ${ms(mean(stats.fluidSteps))} ms, p95 ${ms(quantile(stats.fluidSteps, 0.95))} ms, max since reset ${ms(stats.fluidMaxMs)} ms, grid ${stats.fluidGrid || 'none'}`,
     `voices: peak ${stats.peakVoices}; guard hits ${stats.guardHits}`,
   ].join('\n');
 }

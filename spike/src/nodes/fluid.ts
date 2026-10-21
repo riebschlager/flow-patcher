@@ -61,7 +61,7 @@ export const fluid: NodeType = {
         if (knob === 'dissipation') sim.persistence = 1 - value;
         if (knob === 'viscosity') sim.drag = 0.994 - value * 0.06;
       },
-      // Unreachable while unique nodes can't be deleted.
+      // Runs when Demo replaces the patch; the new Fluid sets these again on its first frame.
       dispose() {
         stats.fluidGrid = '';
         stats.fluidMs = 0;

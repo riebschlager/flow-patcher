@@ -55,7 +55,7 @@ export const renderer: NodeType = {
         stats.render.max = Math.max(stats.render.max, ms);
       },
       set() {},
-      // Unique nodes can't be deleted, so there's nothing to clear.
+      // Nothing to clear: the next Renderer, or none, owns the canvas from the next frame.
       dispose() {},
     };
   },
