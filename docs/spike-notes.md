@@ -33,7 +33,9 @@ Gate: tap-to-sound ≤ 20 ms on every reference device, and no audible gap while
 | Desktop Chrome 156, MacBook (1496×851 @2x), fluid in a Worker | 54 | 11.6 / 14.8 ms | 216 ms (base 5.8 ms) | 16 edits, 0 skipped | 7.8 / 8.0 / 15.4 ms (157×222) |
 | Desktop Chrome 156, MacBook (1496×851 @2x), fluid on the main thread | 50 | 17.2 / 27.4 ms | 216 ms (base 5.8 ms) | 14 edits, 0 skipped, no gap heard | 7.8 / 8.0 / 15.0 ms (157×222) |
 | Android phone | | | | | |
-| Surface tablet | | | | | |
+| Surface tablet, Chrome 155 on Windows (1368×777 @2x), fluid in a Worker | 56 | 13.0 / 24.8 ms | 48 ms (base 10.0 ms) | 14 edits, 3 skipped (8 overall) | 14.5 / 22.7 / 31.5 ms (157×222) |
+
+**The Surface misses both checks, even with the fluid in a Worker.** Its worst tap is 24.8 ms, and 3 windows were skipped while rewiring (8 overall). A skip needs the main thread blocked for more than about 120 ms. The fluid step is slow there, 14.5 ms mean and 22.7 ms p95, but it runs in the worker. So something else blocks the main thread. The report now lists long main-thread frames, with the script that ran longest in each, and the Renderer's draw time, so the next Surface run can show the cause.
 
 The headless row is a stand-in until Chris fills in the reference devices. Headless output latency doesn't reflect real hardware.
 

@@ -2,7 +2,7 @@ import { createFluidColorizer, renderFluidPixels } from '../flow/fluid-renderer.
 import type { NodeType } from '../registry';
 import { dyeOf } from './fluid';
 import { stage } from '../stage';
-import { stats } from '../stats';
+import { recordRender, stats } from '../stats';
 
 const BACKGROUND = '#070b11'; // Flow's canvas fill
 
@@ -53,6 +53,7 @@ export const renderer: NodeType = {
         stats.render.count++;
         stats.render.total += ms;
         stats.render.max = Math.max(stats.render.max, ms);
+        recordRender(ms);
       },
       set() {},
       // Nothing to clear: the next Renderer, or none, owns the canvas from the next frame.

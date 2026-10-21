@@ -42,6 +42,11 @@ export const stats = {
   rewiringUntil: 0,
   /** The last 600 fluid step times in ms, for the report's p95. */
   fluidSteps: [] as number[],
+  /** The last 600 Renderer draw times in ms. */
+  renderSteps: [] as number[],
+  /** Main-thread frames over 50 ms (Chrome's long animation frames), and the slowest, with the script that ran longest in each. */
+  longFrames: 0,
+  slowest: [] as { ms: number; at: number; script: string }[],
 };
 
 const REWIRE_TAIL = 1000; // ms after a cable edit that skipped windows still count against it
@@ -63,6 +68,17 @@ export function rewireEnd(edited: boolean) {
   if (edited) stats.rewires++;
 }
 
+export function recordRender(ms: number) {
+  stats.renderSteps.push(ms);
+  if (stats.renderSteps.length > 600) stats.renderSteps.shift();
+}
+
+/** A main-thread frame over 50 ms. Keeps the five slowest since reset. */
+export function recordLongFrame(ms: number, script: string) {
+  stats.longFrames++;
+  stats.slowest = [...stats.slowest, { ms, at: performance.now(), script }].sort((a, b) => b.ms - a.ms).slice(0, 5);
+}
+
 export function recordFluidStep(ms: number) {
   stats.fluidSteps.push(ms);
   if (stats.fluidSteps.length > 600) stats.fluidSteps.shift();
@@ -70,7 +86,7 @@ export function recordFluidStep(ms: number) {
 
 /** Clear the gate measurements, so a run starts from zero once the patch is warm. */
 export function resetMeasurements() {
-  Object.assign(stats, { windows: 0, skipped: 0, late: 0, rewiringUntil: 0, tapMs: [], rewires: 0, rewireSkipped: 0, fluidMaxMs: 0, fluidSteps: [], peakVoices: 0, guardHits: 0 });
+  Object.assign(stats, { windows: 0, skipped: 0, late: 0, rewiringUntil: 0, tapMs: [], rewires: 0, rewireSkipped: 0, fluidMaxMs: 0, fluidSteps: [], renderSteps: [], longFrames: 0, slowest: [], peakVoices: 0, guardHits: 0 });
 }
 
 const quantile = (xs: number[], q: number) => {
@@ -90,6 +106,8 @@ export function report(ctx: AudioContext) {
     `tap-to-sound (warm, gate ≤ 20 ms): n ${taps.length}, median ${ms(quantile(taps, 0.5))} ms, worst ${ms(taps.length ? Math.max(...taps) : NaN)} ms`,
     `rewiring with the Clock running: ${stats.rewires} cable edits, ${stats.rewireSkipped} windows skipped while rewiring (${stats.skipped} skipped overall, ${stats.late} late, ${stats.windows} windows)`,
     `fluid step (${stats.fluidMode || 'none'}, last ${stats.fluidSteps.length} steps): mean ${ms(mean(stats.fluidSteps))} ms, p95 ${ms(quantile(stats.fluidSteps, 0.95))} ms, max since reset ${ms(stats.fluidMaxMs)} ms, grid ${stats.fluidGrid || 'none'}`,
+    `render (main thread, last ${stats.renderSteps.length} frames): mean ${ms(mean(stats.renderSteps))} ms, p95 ${ms(quantile(stats.renderSteps, 0.95))} ms, max ${ms(stats.renderSteps.length ? Math.max(...stats.renderSteps) : NaN)} ms`,
+    `long frames (> 50 ms on the main thread): ${stats.longFrames}${stats.slowest.length ? '; slowest: ' + stats.slowest.map((f) => `${f.ms.toFixed(0)} ms (${f.script})`).join(', ') : ''}`,
     `voices: peak ${stats.peakVoices}; guard hits ${stats.guardHits}`,
   ].join('\n');
 }
