@@ -84,6 +84,7 @@ The step costs about the same in both places. Off the main thread it no longer d
 - Not fun:
 - Rewiring live:
 - Taps on each device:
+  - Android phone: immediate through the phone's speaker. Over Bluetooth the delay is visible and audible.
 
 ## What the spike taught
 
