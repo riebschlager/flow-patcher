@@ -32,11 +32,12 @@ Gate: tap-to-sound ≤ 20 ms on every reference device, and no audible gap while
 | Headless Chromium 156, Playwright on Chris's Mac (provisional, three runs) | 30 each | 15.5 / 20.2; 16.1 / 21.7; 10.5 / 20.4 ms | 216 ms (headless) | 20 + 20 edits, 0 skipped | 7.8 / 7.9 / 8.0 ms (149×233) |
 | Desktop Chrome 156, MacBook (1496×851 @2x), fluid in a Worker | 54 | 11.6 / 14.8 ms | 216 ms (base 5.8 ms) | 16 edits, 0 skipped | 7.8 / 8.0 / 15.4 ms (157×222) |
 | Desktop Chrome 156, MacBook (1496×851 @2x), fluid on the main thread | 50 | 17.2 / 27.4 ms | 216 ms (base 5.8 ms) | 14 edits, 0 skipped, no gap heard | 7.8 / 8.0 / 15.0 ms (157×222) |
-| Android phone, Chrome 155 on Android 10 (411×782 @2.625x), fluid in a Worker | 81 | 17.0 / 23.0 ms | 264 ms (base 2.7 ms) | 12 edits, 0 skipped | 6.1 / 7.7 / 10.8 ms (149×107) |
+| Android phone, Chrome 155 on Android 10 (411×782 @2.625x), fluid in a Worker, run 1 (Bluetooth) | 81 | 17.0 / 23.0 ms | 264 ms (base 2.7 ms) | 12 edits, 0 skipped | 6.1 / 7.7 / 10.8 ms (149×107) |
+| Android phone, run 2: phone speaker, colouring in the worker, catch-up on | 68 | 16.5 / 21.3 ms | 16 ms (base 2.7 ms) | 20 edits, 0 skipped | 5.0 / 6.1 / 16.8 ms (149×107), plus 2.4 ms colouring |
 | Surface tablet, Chrome 155 on Windows (1368×777 @2x), fluid in a Worker, run 1 | 56 | 13.0 / 24.8 ms | 48 ms (base 10.0 ms) | 14 edits, 3 skipped (8 overall) | 14.5 / 22.7 / 31.5 ms (157×222) |
 | Surface tablet, run 2 | 52 | 11.8 / 19.9 ms | 48 ms (base 10.0 ms) | 11 edits, 1 skipped (7 overall) | 16.2 / 25.6 / 29.7 ms (157×222) |
 | Surface tablet, run 3 | 92 | 11.7 / 24.9 ms | 48 ms (base 10.0 ms) | 15 edits, 2 skipped (4 overall) | 12.3 / 18.5 / 31.0 ms (157×222) |
-| Surface tablet, run 4: colouring in the worker, catch-up on | 65 | 11.6 / 14.6 ms | 40 ms (base 10.0 ms) | 20 edits, 0 skipped (8 late wakes caught up, largest 29 ms) | 19.4 / 28.3 / 36.4 ms (157×222), plus 11.6 ms colouring |
+| Surface tablet, run 4: colouring in the worker, catch-up on | 65 | 11.6 / 14.6 ms | 40 ms (base 10.0 ms) | 20 edits, 0 skipped (8 late wakes caught up, largest 29 ms), no gaps or flams heard | 19.4 / 28.3 / 36.4 ms (157×222), plus 11.6 ms colouring |
 
 **The Surface misses both checks, even with the fluid in a Worker.** Its worst tap is 24.8 ms, and 3 windows were skipped while rewiring (8 overall). In runs 1–3 a skip needed the main thread blocked for more than about 120 ms, the lookahead. With the catch-up below, it now takes about 220 ms. The fluid step is slow there, 14.5 ms mean and 22.7 ms p95, but it runs in the worker. Run 2 added main-thread diagnostics:
 - **No frames over 50 ms**, yet 7 windows were skipped. So the skips may not be the main thread at all. They could be the audio clock jumping forward, for example after an audio-device underrun. The report now records, for each skip, how far the wall clock and the audio clock moved since the previous wake. A 500 ms Stall reads 521/522 ms, both moving together.
@@ -50,7 +51,7 @@ Gate: tap-to-sound ≤ 20 ms on every reference device, and no audible gap while
 - The offset is the only part of the measurement we control. `?offset=<ms>` sets it, and the report shows it. Headless, 5 ms gives a 5.3 ms median and 0 ms gives 0.3 ms: the measurement moves one for one.
 - The spike can't show whether a smaller offset is safe. The `late` counter compares a note's time with `currentTime`, which doesn't move within one event handler, so the counter stays 0 even at offset 0. Too small an offset shows up as uneven timing between taps, which has to be judged by ear.
 
-The phone also reports 264 ms output latency (Chris's Mac Chrome: 216 ms; the Surface: 48 ms). That is on top of every tap and is far larger than anything the gate measures.
+Run 1 was over Bluetooth, which reported 264 ms output latency, against 16 ms on the phone's speaker in run 2. That is on top of every tap and is far larger than anything the gate measures. Run 2, on the current build, still misses with 0.1 ms of main-thread render and no long frames. So the remainder is Android's input delay, about 6.5 ms median and 11 ms worst, plus the 10 ms offset.
 
 The headless row is a stand-in until Chris fills in the reference devices. Headless output latency doesn't reflect real hardware.
 
