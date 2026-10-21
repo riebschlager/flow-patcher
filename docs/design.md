@@ -32,14 +32,15 @@ A **patch** is a graph of **nodes** joined by **cables**. Each node has typed in
 | Note | An Event subtype: pitch, velocity, duration, plus optional articulation (attack, pan, filter) | Audio-clock time | Arpeggio output, chord-tone picker output |
 | Signal | A continuous number, sampled whenever it is needed | Control rate, about 60 Hz, interpolated for audio | Pointer x, LFO, fluid density at a point |
 | Audio | A Web Audio signal | Audio rate | Voice output, effect sends, the master bus |
-| Field | A 2D grid shared by reference (velocity plus dye) | Frame rate | The fluid simulation |
-| Value | Static configuration that changes rarely | When edited | A chord progression string, a scale, a palette |
+| Field | A 2D grid shared by reference (velocity plus dye). Writers feed the Fluid through their Write output into its Writers input | Frame rate | The fluid simulation, a Splat's Write |
+| Value | Data that changes rarely, read at each event's time and never scheduled. Its source answers for any time it has already been queried up to | Read at event times | The current chord, a scale, a palette |
 
 Rules for connections:
 
 - **Adapters do conversions.** Event → Signal is Sample & Hold or Envelope; Signal → Event is Threshold or Change. The editor offers to insert one when you drag an incompatible cable.
 - **Every Event, Note and Signal port carries channels.** A pointer is really N pointers: up to 5 touches plus a mouse and a pen. Each event has a `channel` id and nodes keep per-channel state. Merge and Split nodes combine and separate channels. This is built in from day one, because adding it later would mean rewriting every node.
 - **One output can feed many inputs.** Several cables can feed one Event input; their events merge in time order. Several cables into a Signal input are summed. Into a parameter, the cable is added to the knob's base value and scaled by a per-cable depth attenuator, as in modular synths.
+- **Parameters are numbers or text.** Most are knobs and menus. Some are text, such as a chord string, and a preset menu can fill a text parameter; editing the text by hand sets the menu back to Custom.
 - **Subpatches** wrap a group of nodes as one node with exposed ports and knobs. Presets and the node library build on them.
 
 ## Timing and evaluation
@@ -48,15 +49,21 @@ The graph runs on one clock, the Web Audio clock. Musical nodes are pure functio
 
 **Window queries.** A single scheduler wakes every 25 ms. It asks the graph for every event in the next window, from `now` to `now + 120 ms` (the lookahead Flow already uses). Each Event node implements `query(t0, t1, inputs) → events[]`, similar to Strudel/Tidal patterns. A node never owns a timer. Generators such as Clock, Euclidean and Arpeggio compute their events from absolute time, so seeking, looping and live edits are deterministic.
 
-**Live input is already in the past.** A pointerdown arrives at `now`, while the scheduler is working 120 ms ahead. Input events are stamped with `ctx.currentTime` plus a small safety offset (about 10 ms) and pushed straight down their cables. The scheduler does not wait for them. They pass through the same node code with `query` called on a zero-width window. As a result, a tap is heard within about 10–20 ms, while generated material keeps its full lookahead.
+**Live input is already in the past.** A pointerdown arrives at `now`, while the scheduler is working 120 ms ahead. Input events are stamped with `ctx.currentTime` plus a small safety offset (5 ms) and pushed straight down their cables. The scheduler does not wait for them. They pass through the same node code with `query` called on a zero-width window. As a result, a tap is scheduled within 20 ms of the touch: the offset plus the platform's input delay, which the M0 spike measured at up to about 11 ms on Android. Generated material keeps its full lookahead ([ADR 0017](decisions/0017-immediate-offset-and-catch-up.md)).
+
+**Live and scheduled events meet out of order.** Immediate events carry times earlier than the scheduler's horizon, so a node fed by both a Clock and live input sees time go backwards. Stateless nodes don't care. For stateful nodes this is open for M1: one option is for the engine, not each node, to keep immediate-path state apart from scheduled state and merge the two by time.
+
+**The transport.** Clock writes a shared beat position: a transport that Progression, and anything else counting beats, reads at an event's time. When the tempo or division changes, the beat and Phase re-anchor where the new plan takes effect, and keep the old anchor for reads before that time, so a Phase read never jumps. Open for M1: whether the transport travels on a cable or is patch-wide, and what zero or two Clocks mean.
 
 **Signals are sampled, not streamed.** When an Event node needs a Signal input (a velocity knob modulated by pointer y), it samples the Signal at each event's timestamp. Frame-rate signals (pointer, fluid) are held and linearly interpolated. Audio-param targets get `setTargetAtTime` ramps.
 
-**Visual nodes run on the frame clock.** Each animation frame, the visual graph reads the events whose timestamps fell in the frame interval. That includes events scheduled earlier, so a splash appears as its note sounds. It then steps the fluid and renders.
+**Visual nodes run on the frame clock.** Each animation frame, the visual graph reads the events whose timestamps fell in the frame interval. That includes events scheduled earlier, so a splash appears as its note sounds. It then steps the fluid and renders. The frame clock runs behind `currentTime` by the output latency, so splashes land when their notes are heard, not when they are rendered.
+
+**The main thread stays free.** No main-thread task runs longer than about 4 ms *(tune)* while a patch plays, so a pointerdown never waits long for its handler. Fluid solving and coloring run off the main thread ([ADR 0016](decisions/0016-main-thread-budget.md)).
 
 **Feedback is explicit.** Cycles are allowed, but each cycle must pass through a delay edge. Any Field → Signal read (for example Fluid Probe) counts as one implicitly: it returns the previous frame's value. A cycle with no delay is rejected when you connect it, and the cable flashes red.
 
-**Lifetimes.** Hidden tabs extend the lookahead to 1.25 s, as Flow does now. Stalls skip missed windows rather than bursting them. The runtime limits polyphony (64 voices), events per window, feedback gain and output peak, whatever the patch asks for.
+**Lifetimes.** Hidden tabs extend the lookahead to 1.25 s, as Flow does now. A wake up to 100 ms past its horizon queries the stretch it missed and plays it late, moved to start now so its events keep their spacing. Longer stalls skip their windows rather than bursting them ([ADR 0017](decisions/0017-immediate-offset-and-catch-up.md)). The runtime limits polyphony (64 voices), events per window, feedback gain and output peak, whatever the patch asks for.
 
 ## Canvas event sources
 
@@ -129,7 +136,7 @@ The v1 catalog has about 60 small nodes in eight families. Canvas sources and re
 
 | Node | What it does |
 | --- | --- |
-| Clock | BPM, swing and a rate multiplier; emits ticks at a chosen division and a Phase signal |
+| Clock | BPM, swing and a rate multiplier; emits ticks at a chosen division and a Phase signal, and writes the transport's beat position |
 | Euclidean ★ | Hits and steps knobs, Rotate; outputs hits on clock ticks |
 | Step Sequencer ★ | 16-step grid with off/ghost/hit/accent velocities (Flow's beat studio lane) |
 | Probability ★ | Passes each event with chance p, from a separate seeded random stream |
@@ -143,7 +150,7 @@ The v1 catalog has about 60 small nodes in eight families. Canvas sources and re
 
 | Node | What it does |
 | --- | --- |
-| Progression ★ | Parses chord strings (maj9, m9, dim7, sus2…); outputs the current chord as a Value, changing on a beat count |
+| Progression ★ | Parses chord strings (maj9, m9, dim7, sus2…); outputs the current chord as a Value, changing on the transport's beat |
 | Scale | Root and mode; outputs a pitch set |
 | Chord Tone ★ | Maps a Signal (such as pointer x) to a chord tone across an octave range (Flow's horizontal pitch) |
 | Arpeggio ★ | Up, down, up/down, outside-in or random-without-repeat, over a pool of 1–16 notes |
@@ -185,7 +192,7 @@ The v1 catalog has about 60 small nodes in eight families. Canvas sources and re
 | Delay ★ | Tempo-synced filtered feedback delay, divisions from 1/64 to two bars; feedback capped at 0.42 |
 | Filter | Low-pass, high-pass or band-pass; cutoff and Q modulatable |
 | Pan / Gain / Mixer | Basic routing and levels |
-| Output ★ | Makeup gain, compressor, peak guard, master level. Always exactly one per patch |
+| Output ★ | Makeup gain, limiter, soft-knee peak guard, master level. Always exactly one per patch |
 
 ## Visual system
 
@@ -199,7 +206,7 @@ The Fluid node owns Flow's solver, ported to the GPU as WebGL2 shader passes: se
 - **Readers:** Probe (density, speed and curl at a point, as Signals), Region Stats (average density or motion over a zone), Density Onset (fires an Event when local density crosses a threshold). Readers return the previous frame's value; see Feedback, under Timing.
 - **Knobs:** vorticity, dissipation (color persistence), viscosity, grid budget.
 
-A patch has at most one Fluid node. Running the solver on the GPU frees the main thread for the editor and the scheduler. The GPU simulation layer is shared, not Fluid-specific, so later field nodes such as a particle system can sit beside the one Fluid node.
+A patch has at most one Fluid node. Running the solver on the GPU frees the main thread for the editor and the scheduler. Until the GPU solver lands, and as the fallback on weak devices, the CPU solver and its colorizer run in a Worker that hands back colored pixels ([ADR 0016](decisions/0016-main-thread-budget.md)). The GPU simulation layer is shared, not Fluid-specific, so later field nodes such as a particle system can sit beside the one Fluid node.
 
 ### Overlay and look nodes
 
@@ -235,6 +242,8 @@ The visual language (colors, type, spacing, port shapes, motion and the componen
 
 - Double-click or press Tab for a searchable node palette. Dragging a cable into empty space opens the palette filtered to compatible nodes.
 - Connecting incompatible types offers the matching adapter (Event → Signal via Sample & Hold, and so on).
+- Ports have a hit area larger than their drawn size, larger still for a coarse pointer, so a finger can start a cable.
+- A cable's remove control stays reachable when the cable runs behind a node: it draws above the nodes, and selecting a cable anywhere along its path lets you remove it.
 - Knobs: drag to turn, Shift for fine control, double-click to type a value, right-click to reset. A modulated knob shows its base value and a live ring for the modulated value.
 - Any knob can be **pinned** to the Play view strip and renamed there.
 - Select nodes and collapse them into a subpatch; choose which ports and knobs to expose.
@@ -267,8 +276,8 @@ About half of Flow's code is worth borrowing. Its pure functions and audio/visua
 | `AmbientAudio` (WebAudioFont loading, voices, envelopes) | Sampled Voice node + a shared instrument cache | Extract voice playback from app-level state; keep lazy loading |
 | `PercussionSynth` | Drum Voice | Light wrapper |
 | `environment.js` | Atmosphere | Light wrapper |
-| `output.js` | Output node | Copy as is |
-| `fluid.js`, `fluid-viewport.js` | Fluid node | Port the solver to GPU passes; keep the CPU version as the test reference and fallback; expose splat/force/probe as methods |
+| `output.js` | Output node | **Adapt.** Chrome's compressor adds automatic makeup gain, so Flow's limiter overshoots to 1.0–1.3 on hot input and the guard hard-clips. Compensate for the makeup gain or lower the threshold, and replace the hard clip with a soft knee |
+| `fluid.js`, `fluid-viewport.js` | Fluid node | Port the solver to GPU passes; keep the CPU version as the test reference and fallback, run in a Worker; expose splat/force/probe as methods |
 | `fluid-renderer.js`, `gpu-fluid-renderer.js`, `water-surface.js` | Renderer node | Copy; take palette and energy as inputs |
 | `visible-sound.js`, `orbit-rings.js`, `percussion-visuals.js`, `chord-atmosphere.js`, `dye-text.js` | Halo, Motes, Orbit Rings, Stir, Lighting, Text | Moderate: separate drawing from Flow's state |
 | `gestures.js`, `performance.js` | Recognizer nodes | Moderate: split the mode-based controller into separate recognizers with Pass outputs |
@@ -318,7 +327,7 @@ sends patch diffs                      cycles checked
 │                                             ▼                                  │
 │  Canvas sources                         Scheduler                Audio nodes   │
 │  pointer, touch, key, wheel             wakes every 25 ms,       voices,       │
-│  stamped now + 10 ms                    asks for next 120 ms     effects,      │
+│  stamped now + 5 ms                     asks for next 120 ms     effects,      │
 │        │                                      │                  Output on the │
 │        │                                      │ query(t0, t1)    Web Audio     │
 │        │                                      ▼                  clock         │
@@ -343,7 +352,7 @@ Generated material goes through the scheduler's 120 ms lookahead. Canvas input t
 - **Engine:** plain TS modules. A graph compiler turns the patch into a topologically sorted plan, with delay edges marked. The scheduler runs window queries on the Web Audio clock. A frame loop steps visual nodes.
 - **Node definitions:** one file per node type: ports, parameters (range, unit, default), `query()` or `frame()`, and its migration function. The palette, inspector and server validation are all generated from these definitions.
 - **Audio:** Web Audio, with WebAudioFont for samples. AudioWorklet only for export capture, as in Flow.
-- **Visuals:** the fluid solver on the GPU as WebGL2 shader passes, sharing a context with the display. Readers (Probe, Region Stats, Density Onset) use an async readback one frame late, so the solver never stalls the main thread.
+- **Visuals:** the fluid solver on the GPU as WebGL2 shader passes, sharing a context with the display. The CPU solver, used until then and as the fallback, runs in a Worker. Readers (Probe, Region Stats, Density Onset) use an async readback one frame late, so the solver never stalls the main thread.
 
 ### Hot patching
 
@@ -353,7 +362,8 @@ An edit produces a new plan. The scheduler swaps plans at the next window bounda
 
 | Resource | Limit | Enforced by |
 | --- | --- | --- |
-| Fluid step | GPU step target to be measured; CPU baseline was about 8 ms at 35,000 cells, mobile capped at 16,128 cells | Grid budget knob, capped by device class |
+| Fluid step | GPU step target to be measured. CPU, in a Worker: about 8 ms at 35,000 cells on desktop, about 31 ms with coloring on the Surface; mobile capped at 16,128 cells | Grid budget knob, capped by device class |
+| Main thread | No task over about 4 ms *(tune)* while a patch plays | Fluid work in a Worker or on the GPU; the immediate-path checks run with the Fluid stepping |
 | Voices | 64 simultaneous, oldest stolen first | Runtime voice pool |
 | Events per window | 256 per node, 2,048 per patch | Scheduler; excess dropped with a warning on the node |
 | Feedback | Delay feedback at most 0.42; event cycles need a delay edge | Node limits, graph compiler |
@@ -383,7 +393,8 @@ The biggest risk is scope: TouchDesigner and cables.gl took years. The fixed vis
 | Risk | Why it matters | Mitigation |
 | --- | --- | --- |
 | Scope creep on visuals | "Any visual" turns into a shader IDE | Fixed set of building blocks in v1; Shader node is post-v1 and local-only |
-| Window queries feel wrong for live input | Taps must feel immediate, not 120 ms late | Zero-width immediate path for input events (Timing); test in M0 |
+| Window queries feel wrong for live input | Taps must feel immediate, not 120 ms late | Zero-width immediate path for input events (Timing). M0 measured a worst tap of 14.6–16.2 ms on the reference devices, and taps felt immediate |
+| Bluetooth output latency | Over Bluetooth, a tap's sound and splash arrive 200+ ms late | Nothing the patch can fix. Open: whether a tap's own splash should skip the output-latency shift, so it appears under the finger at once |
 | Channel model is awkward | Most cables carry one channel, yet every node pays for N | Single-channel fast path; Merge/Split hidden until needed |
 | Pointer ownership is confusing | Pinch also paints; right-drag also drops notes | Pass outputs with claim + Cancel; example patches that show the pattern |
 | GPU readback stalls or weak mobile GPUs | Reader nodes need field values on the CPU; a synchronous read blocks the frame | Async readback one frame late; CPU solver as fallback on weak devices |

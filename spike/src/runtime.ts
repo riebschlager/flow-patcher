@@ -2,7 +2,7 @@ import { getCtx } from './audio';
 import { LivePatch } from './live-graph';
 import { OUTPUT_CEILING, outputLevel, readOutput } from './nodes/output';
 import { Scheduler } from './scheduler';
-import { stats } from './stats';
+import { recordLongFrame, stats } from './stats';
 
 // One live patch and scheduler per page. They live outside React, and outside App.tsx so a hot
 // reload of the UI doesn't start a second scheduler.
@@ -49,6 +49,20 @@ setInterval(() => {
   if (preGuard > OUTPUT_CEILING) stats.guardHits++;
   if (peak > OUTPUT_CEILING) console.warn('[spike] peak above the ceiling', peak);
 }, 200);
+
+// What blocks the main thread: Chrome's long animation frames name the scripts that ran in them.
+// Browsers without the API (Safari, Firefox) report 0 long frames.
+type LongFrameScript = { duration: number; invoker?: string; sourceFunctionName?: string; sourceURL?: string };
+try {
+  new PerformanceObserver((list) => {
+    for (const entry of list.getEntries() as (PerformanceEntry & { scripts?: LongFrameScript[] })[]) {
+      const top = entry.scripts?.length ? entry.scripts.reduce((a, b) => (b.duration > a.duration ? b : a)) : undefined;
+      const where = top ? `${top.invoker ?? '?'} ${top.sourceFunctionName || ''} ${top.sourceURL?.split('/').pop()?.split('?')[0] ?? ''} ${top.duration.toFixed(0)} ms`.replace(/\s+/g, ' ').trim() : 'no attributed script';
+      recordLongFrame(entry.duration, where);
+      console.log(`[spike] long frame ${entry.duration.toFixed(0)} ms: ${where}`);
+    }
+  }).observe({ type: 'long-animation-frame', buffered: false });
+} catch { /* not supported */ }
 
 // Debug hooks for Playwright and the console: sound level and peak, gate counters, and the immediate path.
 (window as unknown as { spike: unknown }).spike = {

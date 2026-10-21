@@ -1,6 +1,6 @@
 # 0008 · One audio clock and pure window queries
 
-Status: Accepted · 2026-10-21
+Status: Accepted · 2026-10-21 · Amended by [0017](0017-immediate-offset-and-catch-up.md) (5 ms offset, catch-up for late wakes)
 
 ## Context
 Flow's `ArpEngine` and `RhythmEngine` each own a `setInterval` timer and decide and schedule notes in the same loop. That makes timing hard to reason about, hard to test and hard to hot-patch. Every other engine choice depends on this one.

@@ -6,6 +6,15 @@ type Wire = Cable & { type: PortType };
 
 const FADE = 0.01; // seconds; each audio cable fades in and out so rewiring never clicks
 
+/**
+ * The immediate path's safety offset: 5 ms (10 ms until the M0 phone runs), or ?offset=<ms> (0–100) to try another. Too small an offset shows
+ * as uneven timing between taps, judged by ear; the late count can't see it, since currentTime doesn't move within a handler.
+ */
+const offsetRaw = new URLSearchParams(location.search).get('offset')?.trim();
+const offsetParam = offsetRaw ? Number(offsetRaw) : NaN;
+export const IMMEDIATE_OFFSET_MS = Number.isFinite(offsetParam) && offsetParam >= 0 && offsetParam <= 100 ? offsetParam : 5;
+export const IMMEDIATE_OFFSET = IMMEDIATE_OFFSET_MS / 1000;
+
 /** Wires that order run(): events and notes, and values, which are read at event times. Signals and Fields don't. */
 const isEventWire = (w: Wire) => w.type !== 'signal' && w.type !== 'field';
 
@@ -124,7 +133,7 @@ export class LivePatch {
 
   /** Stamp a live input event and send it down its cables now, without waiting for the scheduler. */
   push(node: string, port: string, event: Omit<SpikeEvent, 'time'>) {
-    const time = getCtx().currentTime + 0.01;
+    const time = getCtx().currentTime + IMMEDIATE_OFFSET;
     this.run(time, time, { node, port, events: [{ ...event, time }] });
   }
 

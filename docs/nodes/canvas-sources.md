@@ -34,7 +34,7 @@ Every input event carries these base fields, so any node can read them through G
 
 ## Rules for this family
 
-- **Timing.** Input events are stamped `ctx.currentTime + ~10 ms` and take the immediate path ([ADR 0008](../decisions/0008-one-clock-window-queries.md)).
+- **Timing.** Input events are stamped `ctx.currentTime + 5 ms` and take the immediate path ([ADR 0008](../decisions/0008-one-clock-window-queries.md), [ADR 0017](../decisions/0017-immediate-offset-and-catch-up.md)).
 - **The host delivers events.** The engine doesn't touch the DOM. It receives canvas events from the host ([ADR 0013](../decisions/0013-engine-editor-split.md)), and the DOM listener code lives outside `packages/engine`.
 - **Platform rules the runtime handles:**
   - The canvas sets `touch-action: none` and takes pointer capture on down.

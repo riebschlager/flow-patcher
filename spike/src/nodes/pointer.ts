@@ -2,7 +2,7 @@ import type { NodeType } from '../registry';
 
 /**
  * The performance canvas as events and signals, one channel (the first pointer down).
- * Events are stamped currentTime + 10 ms and take the immediate path; X and Y hold the latest position.
+ * Events are stamped currentTime + the immediate offset (5 ms) and take the immediate path; X and Y hold the latest position.
  */
 export const pointer: NodeType = {
   type: 'pointer',

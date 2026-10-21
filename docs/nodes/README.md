@@ -35,8 +35,8 @@ One file per node type in `packages/nodes`. The palette, inspector and (later) s
 | Note | An Event subtype: pitch, velocity, duration, plus optional articulation (attack, pan, filter) | Audio-clock time |
 | Signal | A continuous number, sampled whenever it's needed | Control rate, about 60 Hz, interpolated for audio |
 | Audio | A Web Audio signal | Audio rate |
-| Field | A 2D grid shared by reference (velocity plus dye) | Frame rate |
-| Value | Static configuration that changes rarely (a chord, a scale, a palette) | When edited |
+| Field | A 2D grid shared by reference (velocity plus dye). Writers feed the Fluid through their Write output into its Writers input | Frame rate |
+| Value | Data that changes rarely (the current chord, a scale, a palette), read at each event's time and never scheduled. Its source answers for any time it has already been queried up to | Read at event times |
 
 ## Rules every node follows
 

@@ -8,7 +8,7 @@ This file is the shared instructions for every coding agent. CLAUDE.md files imp
 - packages/nodes — one file per node type, listed in index.ts.
 - packages/editor — React + React Flow.
 - tools/ (headless runner), examples/, golden/, e2e/.
-- spike/ — M0 throwaway code. Nothing in packages/ imports from it.
+- spike/ — M0 throwaway code, frozen after M0: read it for reference, but don't extend it. Nothing in packages/ imports from it.
 - Each package has its own AGENTS.md with local rules.
 - .claude/skills/flow-patcher-design/ — the design system (tokens, components, UI kit). Read its readme.md before any editor UI work.
 - ../flow — the Flow repo, a sibling checkout. Read it to borrow code; never edit it.

@@ -2,7 +2,7 @@
 
 Six milestones. Each one starts only after the previous gate passes. The source is the roadmap in [design.md](design.md#milestones); this file turns each gate into checks an agent can run, plus a human sign-off for the parts no test can judge.
 
-**Current milestone: M0.**
+**Current milestone: M1.**
 
 ## How to use this file
 
@@ -30,19 +30,19 @@ Six milestones. Each one starts only after the previous gate passes. The source 
 - No harness for spike/, no persistence, no undo, no channels beyond one pointer. Move fast. `pnpm spike` serves it on the LAN for the reference devices.
 - Flow modules may be copied in raw; clean porting happens in M3.
 
-**Gate: patching feels fun, and taps sound immediately**
+**Gate: patching feels fun, and taps sound immediately** — passed 2026-10-21; measurements in [spike-notes.md](spike-notes.md).
 
 Automated
-- [ ] None required.
+- [x] None required.
 
 Measured (logged in the spike and written into the notes below)
-- [ ] Tap-to-sound latency: the note's scheduled time minus the pointerdown's audio-clock time is ≤ 20 ms on every reference device.
-- [ ] Rewiring a cable while the Clock runs causes no audible gap (listen test plus a console count of skipped windows).
+- [x] Tap-to-sound latency: the note's scheduled time minus the pointerdown's audio-clock time is ≤ 20 ms on every reference device.
+- [x] Rewiring a cable while the Clock runs causes no audible gap (listen test plus a console count of skipped windows).
 
 Human
-- [ ] Chris patches for a session, rewires live, and wants to keep going.
-- [ ] Taps feel immediate on every reference device.
-- [ ] `docs/spike-notes.md` lists what the spike taught and any design changes it implies. Those changes go into `design.md` before M1 starts.
+- [x] Chris patches for a session, rewires live, and wants to keep going.
+- [x] Taps feel immediate on every reference device.
+- [x] `docs/spike-notes.md` lists what the spike taught and any design changes it implies. Those changes go into `design.md` before M1 starts.
 
 ---
 
@@ -54,12 +54,12 @@ Human
 1. **Harness** (setup guide Step 2): already built before M0 (monorepo, `pnpm check`, `pnpm e2e`, `pnpm run-patch`, the engine-boundary lint rule, CI). M1 extends it as the gate checks below need.
 2. **Types and channels:** the six port types, per-event `channel`, fan-in rules (Event merge in time order, Signal sum, parameter = base + depth × cable).
 3. **Graph compiler:** topologically sorted plan, delay edges marked, cycles without a delay edge rejected.
-4. **Scheduler:** 25 ms wake, 120 ms lookahead, 1.25 s when the tab is hidden, stalls skip missed windows; immediate path for input events.
+4. **Scheduler:** 25 ms wake, 120 ms lookahead, 1.25 s when the tab is hidden; a wake up to 100 ms past its horizon catches up, keeping its events' spacing, and longer stalls skip missed windows; immediate path for input events at `currentTime + 5 ms` ([ADR 0017](decisions/0017-immediate-offset-and-catch-up.md)).
 5. **Hot patching:** plan swap at the next window boundary; node state kept when the id survives; future events from removed or changed nodes cancelled; sounding notes finish their release.
 6. **Runtime limits:** 256 events per node and 2,048 per patch per window, excess dropped with a warning on the node; seeded RNG, no `Math.random` in engine or nodes.
 7. **Patch format v1:** load/save. Patches record the format version and each node's type version from the start, but migrations and placeholders wait for M4. Until then, a breaking node change updates the example patches and fixtures instead.
-8. **Editor:** typed port colors, connection rules, adapter offer on incompatible cables, knobs with modulation rings, probes (hover value, pinned history), undo/redo on document diffs.
-9. **Nodes:** the M0 set rebuilt properly (Fluid on the CPU solver for now), plus Delay Edge, Probability, Make Note, and Sample & Hold and Threshold/Change so the adapter offer has one adapter in each direction. The Milestone column in `docs/nodes/` lists them. Other nodes follow the unstarred-node rule above.
+8. **Editor:** typed port colors, connection rules, adapter offer on incompatible cables, knobs with modulation rings, text params with preset menus, port hit areas larger than drawn, a cable remove control that stays reachable behind nodes, probes (hover value, pinned history), undo/redo on document diffs.
+9. **Nodes:** the M0 set rebuilt properly (Fluid on the CPU solver in a Worker for now, with its colorizer, per [ADR 0016](decisions/0016-main-thread-budget.md)), plus Delay Edge, Probability, Make Note, and Sample & Hold and Threshold/Change so the adapter offer has one adapter in each direction. The Milestone column in `docs/nodes/` lists them. Other nodes follow the unstarred-node rule above.
 
 **Gate: live edits never glitch the audio**
 
@@ -70,8 +70,12 @@ Automated
 - [ ] **Hot swap:** a headless run of a Clock → Euclidean → Probability → Make Note → Sampled Voice patch with 100 scripted edits (knob change, cable add/remove, node add/remove) shows no duplicated events, no missing events from nodes the edit didn't touch, no events from removed nodes after the swap, and preserved state for surviving ids.
 - [ ] **No late events:** across the e2e edit run, no event is handed to Web Audio with `time < ctx.currentTime`.
 - [ ] **Stalls:** a simulated 500 ms main-thread stall skips the missed windows; no burst of more than one window's events afterwards.
+- [ ] **Catch-up:** a simulated 150 ms stall loses no events, and no two caught-up events from one stream land on the same time.
 - [ ] **Offline audio:** an `OfflineAudioContext` render of a sustained patch with edits applied via `suspend()` has no silent gap longer than 5 ms *(tune)* and no peak above the Output ceiling.
-- [ ] **Immediate path:** a scripted pointerdown produces a note at `currentTime + 10 ms ± 2 ms` *(tune)*, without waiting for the next scheduler wake.
+- [ ] **Immediate path:** a scripted pointerdown produces a note at `currentTime + 5 ms ± 2 ms` *(tune)*, without waiting for the next scheduler wake.
+- [ ] **Immediate path under load:** with a Fluid stepping and a Renderer drawing, the worst of 30 scripted taps is ≤ offset + 7 ms from pointerdown to the note's time *(tune)*. That bound fails if the fluid runs on the main thread ([ADR 0016](decisions/0016-main-thread-budget.md)).
+- [ ] **Transport:** across a tempo change mid-run, Phase is continuous and the beat count never repeats or skips; Progression gives the same chords queried in 25 ms windows and in one call.
+- [ ] **Output guard:** in an offline render of a hot patch (four full-scale saws), under 0.1 % of samples reach the Output ceiling *(tune)*.
 - [ ] **Compiler:** a cycle with no delay edge is rejected; the same cycle through Delay Edge compiles.
 - [ ] **Limits:** a node emitting 1,000 events per window is capped at 256 with a warning; a patch over 2,048 is capped.
 - [ ] **Format:** every example patch survives save → load → save byte-identical, with format and node type versions present.

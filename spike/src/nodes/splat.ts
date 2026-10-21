@@ -9,8 +9,8 @@ const finite = (v: unknown): v is number => Number.isFinite(v);
 const STALE = 0.25; // seconds; events this far behind the frame (a hidden tab) are dropped, not splashed at once
 
 /**
- * Dye and impulse at each event's position and time. Events arrive with the scheduler's lookahead (or 10 ms
- * ahead, from the canvas) and wait here until the Fluid's frame reaches their time.
+ * Dye and impulse at each event's position and time. Events arrive with the scheduler's lookahead (or the immediate
+ * path's offset ahead, from the canvas) and wait here until the Fluid's frame reaches their time.
  */
 export const splat: NodeType = {
   type: 'splat',
