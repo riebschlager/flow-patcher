@@ -34,6 +34,7 @@ Gate: tap-to-sound ≤ 20 ms on every reference device, and no audible gap while
 | Desktop Chrome 156, MacBook (1496×851 @2x), fluid on the main thread | 50 | 17.2 / 27.4 ms | 216 ms (base 5.8 ms) | 14 edits, 0 skipped, no gap heard | 7.8 / 8.0 / 15.0 ms (157×222) |
 | Android phone, Chrome 155 on Android 10 (411×782 @2.625x), fluid in a Worker, run 1 (Bluetooth) | 81 | 17.0 / 23.0 ms | 264 ms (base 2.7 ms) | 12 edits, 0 skipped | 6.1 / 7.7 / 10.8 ms (149×107) |
 | Android phone, run 2: phone speaker, colouring in the worker, catch-up on | 68 | 16.5 / 21.3 ms | 16 ms (base 2.7 ms) | 20 edits, 0 skipped | 5.0 / 6.1 / 16.8 ms (149×107), plus 2.4 ms colouring |
+| Android phone, run 3: as run 2, with `?offset=5` | 102 | 11.4 / 16.2 ms | 16 ms (base 2.7 ms) | not rewired this run | 5.2 / 6.4 / 21.1 ms (149×107), plus 2.2 ms colouring |
 | Surface tablet, Chrome 155 on Windows (1368×777 @2x), fluid in a Worker, run 1 | 56 | 13.0 / 24.8 ms | 48 ms (base 10.0 ms) | 14 edits, 3 skipped (8 overall) | 14.5 / 22.7 / 31.5 ms (157×222) |
 | Surface tablet, run 2 | 52 | 11.8 / 19.9 ms | 48 ms (base 10.0 ms) | 11 edits, 1 skipped (7 overall) | 16.2 / 25.6 / 29.7 ms (157×222) |
 | Surface tablet, run 3 | 92 | 11.7 / 24.9 ms | 48 ms (base 10.0 ms) | 15 edits, 2 skipped (4 overall) | 12.3 / 18.5 / 31.0 ms (157×222) |
