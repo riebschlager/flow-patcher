@@ -1,0 +1,15 @@
+{
+  "name": "@flow-patcher/nodes",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-only",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@flow-patcher/engine": "workspace:*"
+  }
+}

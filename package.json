@@ -1,0 +1,35 @@
+{
+  "name": "flow-patcher",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-only",
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @flow-patcher/editor dev",
+    "typecheck": "pnpm -r typecheck && tsc --noEmit -p tsconfig.json",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "e2e": "playwright test",
+    "run-patch": "tsx tools/run-patch.ts",
+    "golden:update": "UPDATE_GOLDEN=1 vitest run"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@flow-patcher/engine": "workspace:^",
+    "@flow-patcher/nodes": "workspace:^",
+    "@playwright/test": "1.64.1",
+    "@types/node": "24",
+    "eslint": "10.13.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.13.0",
+    "node-web-audio-api": "2.2.0",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.0",
+    "vitest": "5.0.5"
+  }
+}

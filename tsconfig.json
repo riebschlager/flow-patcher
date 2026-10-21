@@ -1,0 +1,8 @@
+{
+  // Tests, tools, e2e and config files. Each package typechecks its own src/.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["tools", "e2e", "test-support", "packages/*/test", "*.config.ts"]
+}

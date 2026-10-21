@@ -1,0 +1,5 @@
+{
+  // No DOM lib and no Node types: this code must run in a browser, a worker and Node.
+  "extends": "../../tsconfig.base.json",
+  "include": ["src"]
+}

@@ -1,0 +1,17 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+  --bg: #0b0e16;
+  --panel: #161b27;
+  --text: #e6e8ef;
+  --muted: #8a91a3;
+}
+html, body, #root { height: 100%; margin: 0; background: var(--bg); color: var(--text); }
+.app { display: flex; flex-direction: column; height: 100%; }
+.app__bar { display: flex; gap: 16px; align-items: center; padding: 8px 16px; background: var(--panel); font-size: 14px; }
+.app__bar span { color: var(--muted); }
+.app__graph { flex: 1; min-height: 0; }
+.patch-node { position: relative; min-width: 140px; padding: 8px 12px; border-radius: 8px; background: var(--panel); border: 1px solid #2a3142; font-size: 12px; }
+.patch-node--unknown { border-style: dashed; color: var(--muted); }
+.patch-node__title { font-weight: 600; margin-bottom: 6px; }
+.patch-node__row { display: flex; justify-content: space-between; gap: 16px; height: 22px; align-items: center; color: var(--muted); }
