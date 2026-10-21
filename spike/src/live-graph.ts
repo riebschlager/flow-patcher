@@ -1,5 +1,5 @@
 import { getCtx } from './audio';
-import { nodeType, type Inputs, type Instance, type PortType, type SpikeEvent } from './registry';
+import { nodeType, type CanvasInput, type Inputs, type Instance, type PortType, type SpikeEvent } from './registry';
 
 export type Cable = { id: string; source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null };
 type Wire = Cable & { type: PortType };
@@ -92,6 +92,13 @@ export class LivePatch {
       const instance = this.nodes.get(id);
       if (!instance?.query || (downstream && (id === seed!.node || !downstream.has(id)))) continue;
       outs.set(id, instance.query(t0, t1, this.inputsOf(id, outs, eventWires)) ?? {});
+    }
+  }
+
+  /** Hand a canvas pointer event to every source node; whatever they emit takes the immediate path. */
+  canvas(input: CanvasInput) {
+    for (const [id, instance] of this.nodes) {
+      for (const { port, fields } of instance.canvas?.(input) ?? []) this.push(id, port, fields);
     }
   }
 

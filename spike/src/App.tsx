@@ -12,9 +12,9 @@ import {
   type Edge,
   type IsValidConnection,
 } from '@xyflow/react';
-import { ensureRunning, playTestNote } from './audio';
+import { ensureRunning, getCtx } from './audio';
 import { CableEdge, type CableData } from './CableEdge';
-import { canConnect, portOf, registry } from './registry';
+import { canConnect, portOf, registry, type CanvasInput } from './registry';
 import { live, scheduler } from './runtime';
 import { PatchActions, SpikeNodeView, type SpikeNode } from './SpikeNode';
 import { stats } from './stats';
@@ -35,7 +35,6 @@ function Editor() {
   const [nodes, setNodes, onNodesChange] = useNodesState<SpikeNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<CableData>>([]);
   const [menu, setMenu] = useState<Menu>(null);
-  const [log, setLog] = useState<string[]>([]);
   const [counters, setCounters] = useState({ ...stats });
   const nextId = useRef(1);
   const { screenToFlowPosition, getNode } = useReactFlow<SpikeNode, Edge<CableData>>();
@@ -45,8 +44,13 @@ function Editor() {
     return () => clearInterval(id);
   }, []);
 
-  // Toolbar adds go to the canvas, stepped so they don't stack on each other.
-  const stagger = () => ({ x: 160 + (nextId.current % 4) * 280, y: 120 + (nextId.current % 3) * 60 });
+  // Toolbar adds go into the visible graph pane, stepped across and down so they don't stack.
+  const stagger = () => {
+    const pane = document.querySelector('.spike__graph')!.getBoundingClientRect();
+    const cols = Math.max(1, Math.floor((pane.width - 40) / 240));
+    const k = nextId.current - 1;
+    return { x: pane.left + 30 + (k % cols) * 240, y: pane.top + 30 + (Math.floor(k / cols) % 3) * 200 + (k % 2) * 40 };
+  };
 
   // Audio is created here, in a click handler: a user gesture, and outside render, so StrictMode can't double it.
   const addNode = (type: string, at: { x: number; y: number }) => {
@@ -106,12 +110,6 @@ function Editor() {
     if (!(e.target as Element).closest('.spike__menu, .spike__add')) setMenu(null);
   };
 
-  // The latency test lives on its own pad so pans and pinches on the canvas don't blip or pollute the log.
-  const onTapPad = (e: React.PointerEvent) => {
-    if (!e.isPrimary || e.button !== 0) return;
-    void playTestNote(e).then((line) => setLog((l) => [line, ...l].slice(0, 8)));
-  };
-
   return (
     <PatchActions.Provider value={actions}>
       <div className="spike" onPointerDownCapture={onPointerDownCapture} onContextMenu={(e) => e.preventDefault()}>
@@ -119,13 +117,14 @@ function Editor() {
           <span className="spike__name">Flow Patcher spike</span>
           <button className="spike__add" onClick={(e) => setMenu(menu ? null : { x: e.clientX, y: e.clientY + 24, place: stagger() })}>+ Add node</button>
           <span className="spike__hint">
-            {nodes.length === 0 ? 'Try Clock → Blip → Output, or Tone → Output.' : 'Tap the pad for the latency test note.'}
+            {nodes.length === 0 ? 'Try Pointer → Chord Tone → Sampled Voice → Output, then play the canvas.' : 'Play the canvas on the right.'}
           </span>
           <span className="spike__stats" data-testid="stats">
             windows {counters.windows} · skipped {counters.skipped} · late {counters.late}
           </span>
-          <button className="spike__add" onClick={() => stall(500)}>Stall 500 ms</button>
+          <button className="spike__add" onClick={() => stall(500)} title="Block the main thread for 500 ms">Stall</button>
         </header>
+        <div className="spike__body">
         <main className="spike__graph">
           <ReactFlow
             nodes={nodes}
@@ -150,13 +149,57 @@ function Editor() {
               ))}
             </div>
           )}
-          <div className="spike__tap">
-            <div className="spike__log">{log.map((line, i) => <div key={i}>{line}</div>)}</div>
-            <div className="spike__pad" onPointerDown={onTapPad} data-testid="tap-pad">Tap</div>
-          </div>
         </main>
+        <PerformanceCanvas taps={counters.taps} />
+        </div>
       </div>
     </PatchActions.Provider>
+  );
+}
+
+/**
+ * The performance canvas: what you play. Pointer events go to every Pointer node through the
+ * immediate path. The Renderer will draw here later (issue #8).
+ */
+function PerformanceCanvas({ taps }: { taps: string[] }) {
+  const send = (kind: CanvasInput['kind'], e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (kind === 'move' && e.buttons === 0) return; // hovering isn't playing
+    const ctx = getCtx();
+    const cold = ctx.state !== 'running';
+    if (cold) void ensureRunning();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clamp = (v: number) => Math.min(1, Math.max(0, v));
+    live.canvas({
+      kind,
+      pointerId: e.pointerId,
+      x: clamp((e.clientX - rect.left) / rect.width),
+      y: clamp((e.clientY - rect.top) / rect.height),
+      pressure: e.pressure,
+      pointerType: e.pointerType,
+      // currentTime, minus how long the event took to reach this handler.
+      inputAt: ctx.currentTime - (performance.now() - e.timeStamp) / 1000,
+      cold,
+    });
+  };
+  return (
+    <section className="spike__perform">
+      <canvas
+        className="spike__canvas"
+        data-testid="performance-canvas"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return; // right-click and pen barrel buttons don't play
+          e.currentTarget.setPointerCapture(e.pointerId);
+          send('down', e);
+        }}
+        onPointerMove={(e) => send('move', e)}
+        onPointerUp={(e) => send('up', e)}
+        onPointerCancel={(e) => send('cancel', e)}
+        // A lost capture without an up would otherwise hold the Pointer's one channel forever.
+        onLostPointerCapture={(e) => send('cancel', e)}
+      />
+      <div className="spike__placeholder">Play here</div>
+      <div className="spike__log">{taps.map((line, i) => <div key={i}>{line}</div>)}</div>
+    </section>
   );
 }
 

@@ -70,3 +70,15 @@ export function Knob({ knob, value, onChange }: { knob: KnobDef; value: number; 
     </div>
   );
 }
+
+/** A knob with options renders as a menu; its value is the option's index. */
+export function Menu({ knob, value, onChange }: { knob: KnobDef; value: number; onChange: (v: number) => void }) {
+  return (
+    <label className="menu nodrag nopan">
+      <span className="knob__label">{knob.label}</span>
+      <select value={value} onChange={(e) => onChange(Number(e.target.value))} data-knob={knob.name}>
+        {knob.options!.map((option, i) => <option key={option} value={i}>{option}</option>)}
+      </select>
+    </label>
+  );
+}
