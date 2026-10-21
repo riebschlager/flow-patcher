@@ -55,17 +55,17 @@ The immediate path itself adds 10 ms by design. The rest is how long the pointer
 To test that, the spike's Fluid now steps Flow's CPU solver in a Worker:
 - Each frame, the main thread posts the grid, the knobs and the splats due.
 - The worker steps and hands the dye back in transferred buffers.
-- The Renderer draws the last dye that came back, so visuals run one step behind the main-thread solver.
+- The Renderer draws the last dye that came back, so visuals run at least one frame behind the main-thread solver, and more when a step takes longer than a frame.
 - `?fluid=main` keeps the old path.
 
 Full demo patch, headless Chromium, 40 taps per run, two runs each, alternating:
 
-| Fluid on | Tap median | Tap worst | Fluid step mean / p95 |
-| --- | --- | --- | --- |
-| Worker | 10.4, 10.3 ms | **13.0, 12.7 ms** | 7.9 / 8.1 ms |
-| Main thread | 10.3, 10.3 ms | 20.4, 20.6 ms | 7.7 / 7.9 ms |
+| Fluid on | Tap median | Tap worst | Fluid step mean / p95 | Render avg (main thread) |
+| --- | --- | --- | --- | --- |
+| Worker | 10.3, 10.3 ms | **12.6, 12.5 ms** | 8.1 / 9.6, 7.8 / 8.0 ms | 2.3 ms |
+| Main thread | 10.4, 10.4 ms | 20.6, 20.5 ms | 7.7 / 7.9 ms | 2.2 ms |
 
-The step costs the same in both places. Off the main thread it no longer delays taps, and the worst case falls back to what Pointer → Chord Tone → Voice → Output alone measures. The desktop Chrome row above was taken before this change, on the main-thread path.
+The step costs about the same in both places. Off the main thread it no longer delays taps, and the worst case falls back to what Pointer → Chord Tone → Voice → Output alone measures. The main thread keeps only the Renderer's ~2 ms draw. The desktop Chrome row above was taken before this change, on the main-thread path.
 
 ## What felt fun, and what didn't
 
@@ -108,7 +108,7 @@ Proposed. These go into [design.md](design.md) before M1 starts, after Chris has
 
 1. **Keep the main thread free during a frame (Timing, Technical architecture, Budgets).** Add a budget: no single main-thread task longer than about 4 ms while the patch plays, so a tap waits at most that long. For the fluid:
    - The GPU solver (ADR 0003) meets it.
-   - M1's "Fluid on the CPU solver for now" doesn't, so M1 runs the CPU solver in a Worker and transfers the dye buffers each frame. The spike shows this works: the worst tap drops from about 20.5 to about 13 ms (above).
+   - M1's "Fluid on the CPU solver for now" doesn't, so M1 runs the CPU solver in a Worker and transfers the dye buffers each frame. The spike shows this works: the worst tap drops from about 20.5 to about 12.5 ms (above).
    - The CPU fallback on weak devices runs in a Worker too.
    - Add an M1 check: the immediate-path test runs with the Fluid stepping.
 2. **Fix Output's limiter, don't copy it as is (Reuse from Flow, Effects and mix).** Change `output.js` in the Reuse table from "Copy as is" to "Adapt". Compensate for or disable the compressor's automatic makeup gain, or lower the threshold, and replace the hard-clip guard with a soft knee. Add an M1 check that a hot patch keeps guard clipping under a set fraction of samples.

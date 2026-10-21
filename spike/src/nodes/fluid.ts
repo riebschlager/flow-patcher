@@ -58,11 +58,11 @@ export const fluid: NodeType = {
     let period = { steps: 0, total: 0, max: 0, since: performance.now() };
 
     // Step time is measured where the step runs; on the worker path it arrives with the reply.
-    const recordStep = (ms: number) => {
+    const recordStep = (ms: number, w = grid.w, h = grid.h) => {
       stats.fluidMs = stats.fluidMs ? stats.fluidMs * 0.95 + ms * 0.05 : ms;
       stats.fluidMaxMs = Math.max(stats.fluidMaxMs, ms);
       recordFluidStep(ms);
-      stats.fluidGrid = `${grid.w}×${grid.h}`;
+      stats.fluidGrid = `${w}×${h}`;
       period.steps++;
       period.total += ms;
       period.max = Math.max(period.max, ms);
@@ -71,8 +71,9 @@ export const fluid: NodeType = {
         const lag = stats.splatLag;
         const draw = stats.render;
         const render = draw.count ? `; render avg ${(draw.total / draw.count).toFixed(2)} ms, max ${draw.max.toFixed(2)} ms` : '';
-        const splats = lag.count ? `; ${lag.count} splats landed avg ${(lag.total / lag.count).toFixed(1)} ms, max ${lag.max.toFixed(1)} ms after their time` : '';
-        console.log(`[spike] fluid step (${stats.fluidMode}) avg ${(period.total / period.steps).toFixed(2)} ms, max ${period.max.toFixed(2)} ms over ${period.steps} steps, grid ${stats.fluidGrid} (${grid.w * grid.h} cells${isMobile() ? ', mobile budget' : ''})${render}${splats}, output latency ${stats.outputLatencyMs.toFixed(1)} ms`);
+        // On the worker path a splat is timed when it's queued; it reaches the dye one round trip and a frame or more later.
+        const splats = lag.count ? `; ${lag.count} splats ${worker ? 'queued' : 'landed'} avg ${(lag.total / lag.count).toFixed(1)} ms, max ${lag.max.toFixed(1)} ms after their time` : '';
+        console.log(`[spike] fluid step (${stats.fluidMode}) avg ${(period.total / period.steps).toFixed(2)} ms, max ${period.max.toFixed(2)} ms over ${period.steps} steps, grid ${stats.fluidGrid} (${w * h} cells${isMobile() ? ', mobile budget' : ''})${render}${splats}, output latency ${stats.outputLatencyMs.toFixed(1)} ms`);
         stats.splatLag = { count: 0, total: 0, max: 0 };
         stats.render = { count: 0, total: 0, max: 0 };
         period = { steps: 0, total: 0, max: 0, since: now };
@@ -110,18 +111,31 @@ export const fluid: NodeType = {
 
     const proxy = new FluidProxy();
     const thread = new Worker(new URL('../fluid-worker.ts', import.meta.url), { type: 'module' });
-    // One step in flight at a time. Frames that land while the worker is busy add their dt to the next step,
-    // and their splats wait in the proxy, so a slow device steps less often rather than queueing work.
+    // One step in flight at a time. Frames that land while the worker is busy add their dt to the next step
+    // (the solver caps a step at 35 ms), and their splats wait in the proxy, so a slow device steps less often rather than queueing work.
     let busy = false;
     let owed = 0;
     let spare: Float32Array[] | null = null;
     thread.onmessage = (e: MessageEvent<StepReply>) => {
       busy = false;
-      if (proxy.dye) spare = [proxy.dye.r, proxy.dye.g, proxy.dye.b];
-      proxy.dye = e.data;
-      recordStep(e.data.ms);
+      const { ms, ...dye } = e.data;
+      // One Dye object for the node's life: the Renderer caches its geometry per object.
+      if (proxy.dye) {
+        spare = [proxy.dye.r, proxy.dye.g, proxy.dye.b];
+        Object.assign(proxy.dye, dye);
+      } else {
+        proxy.dye = dye;
+      }
+      recordStep(ms, dye.w, dye.h);
     };
-    thread.onerror = (e) => console.error('[spike] fluid worker', e.message);
+    // A failed step loses its buffers, but the next frame sends another, so the fluid doesn't freeze.
+    const failed = (message: string) => {
+      console.error('[spike] fluid worker', message);
+      busy = false;
+      spare = null;
+    };
+    thread.onerror = (e) => failed(e.message);
+    thread.onmessageerror = () => failed('reply could not be read');
     return {
       fields: { field: proxy },
       frame(_t0, t1, dt, inputs) {
