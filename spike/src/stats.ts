@@ -98,12 +98,12 @@ const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.l
 const ms = (v: number) => (Number.isFinite(v) ? v.toFixed(1) : '—');
 
 /** The gate measurements as text to paste into docs/spike-notes.md. */
-export function report(ctx: AudioContext) {
+export function report(ctx: AudioContext, offsetMs: number) {
   const taps = stats.tapMs;
   return [
     `device: ${navigator.userAgent}`,
     `screen: ${window.innerWidth}×${window.innerHeight} @${window.devicePixelRatio}x, sample rate ${ctx.sampleRate} Hz, base latency ${ms(ctx.baseLatency * 1000)} ms, output latency ${ms(stats.outputLatencyMs)} ms`,
-    `tap-to-sound (warm, gate ≤ 20 ms): n ${taps.length}, median ${ms(quantile(taps, 0.5))} ms, worst ${ms(taps.length ? Math.max(...taps) : NaN)} ms`,
+    `tap-to-sound (warm, gate ≤ 20 ms, offset ${offsetMs} ms): n ${taps.length}, median ${ms(quantile(taps, 0.5))} ms, worst ${ms(taps.length ? Math.max(...taps) : NaN)} ms`,
     `rewiring with the Clock running: ${stats.rewires} cable edits, ${stats.rewireSkipped} windows skipped while rewiring (${stats.skipped} skipped overall, ${stats.late} late, ${stats.windows} windows)`,
     `fluid step (${stats.fluidMode || 'none'}, last ${stats.fluidSteps.length} steps): mean ${ms(mean(stats.fluidSteps))} ms, p95 ${ms(quantile(stats.fluidSteps, 0.95))} ms, max since reset ${ms(stats.fluidMaxMs)} ms, grid ${stats.fluidGrid || 'none'}`,
     `render (main thread, last ${stats.renderSteps.length} frames): mean ${ms(mean(stats.renderSteps))} ms, p95 ${ms(quantile(stats.renderSteps, 0.95))} ms, max ${ms(stats.renderSteps.length ? Math.max(...stats.renderSteps) : NaN)} ms`,

@@ -6,6 +6,10 @@ type Wire = Cable & { type: PortType };
 
 const FADE = 0.01; // seconds; each audio cable fades in and out so rewiring never clicks
 
+/** The immediate path's safety offset in seconds: 10 ms, or ?offset=<ms> to test a smaller one against the late count. */
+const offsetParam = Number(new URLSearchParams(location.search).get('offset') ?? NaN);
+export const IMMEDIATE_OFFSET = (Number.isFinite(offsetParam) && offsetParam >= 0 ? offsetParam : 10) / 1000;
+
 /** Wires that order run(): events and notes, and values, which are read at event times. Signals and Fields don't. */
 const isEventWire = (w: Wire) => w.type !== 'signal' && w.type !== 'field';
 
@@ -124,7 +128,7 @@ export class LivePatch {
 
   /** Stamp a live input event and send it down its cables now, without waiting for the scheduler. */
   push(node: string, port: string, event: Omit<SpikeEvent, 'time'>) {
-    const time = getCtx().currentTime + 0.01;
+    const time = getCtx().currentTime + IMMEDIATE_OFFSET;
     this.run(time, time, { node, port, events: [{ ...event, time }] });
   }
 

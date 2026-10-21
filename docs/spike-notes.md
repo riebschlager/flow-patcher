@@ -32,10 +32,16 @@ Gate: tap-to-sound ≤ 20 ms on every reference device, and no audible gap while
 | Headless Chromium 156, Playwright on Chris's Mac (provisional, three runs) | 30 each | 15.5 / 20.2; 16.1 / 21.7; 10.5 / 20.4 ms | 216 ms (headless) | 20 + 20 edits, 0 skipped | 7.8 / 7.9 / 8.0 ms (149×233) |
 | Desktop Chrome 156, MacBook (1496×851 @2x), fluid in a Worker | 54 | 11.6 / 14.8 ms | 216 ms (base 5.8 ms) | 16 edits, 0 skipped | 7.8 / 8.0 / 15.4 ms (157×222) |
 | Desktop Chrome 156, MacBook (1496×851 @2x), fluid on the main thread | 50 | 17.2 / 27.4 ms | 216 ms (base 5.8 ms) | 14 edits, 0 skipped, no gap heard | 7.8 / 8.0 / 15.0 ms (157×222) |
-| Android phone | | | | | |
+| Android phone, Chrome 155 on Android 10 (411×782 @2.625x), fluid in a Worker | 81 | 17.0 / 23.0 ms | 264 ms (base 2.7 ms) | 12 edits, 0 skipped | 6.1 / 7.7 / 10.8 ms (149×107) |
 | Surface tablet, Chrome 155 on Windows (1368×777 @2x), fluid in a Worker | 56 | 13.0 / 24.8 ms | 48 ms (base 10.0 ms) | 14 edits, 3 skipped (8 overall) | 14.5 / 22.7 / 31.5 ms (157×222) |
 
 **The Surface misses both checks, even with the fluid in a Worker.** Its worst tap is 24.8 ms, and 3 windows were skipped while rewiring (8 overall). A skip needs the main thread blocked for more than about 120 ms. The fluid step is slow there, 14.5 ms mean and 22.7 ms p95, but it runs in the worker. So something else blocks the main thread. The report now lists long main-thread frames, with the script that ran longest in each, and the Renderer's draw time, so the next Surface run can show the cause.
+
+**The Android phone misses the tap gate with no long frames** (17.0 ms median, 23.0 ms worst, 0 frames over 50 ms). What the gate measures is the immediate path's fixed 10 ms offset plus the time from the touch's own timestamp to our handler. On the phone that second part is about 7 ms median and 13 ms worst. Nothing of ours blocks the thread, so it's Android's input pipeline. Two consequences:
+- The offset is the only part of the measurement we control. `?offset=<ms>` sets it, and the report shows it. Headless, 5 ms gives a 5.3 ms median and 0 ms gives 0.3 ms: the measurement moves one for one.
+- The spike can't show whether a smaller offset is safe. The `late` counter compares a note's time with `currentTime`, which doesn't move within one event handler, so the counter stays 0 even at offset 0. Too small an offset shows up as uneven timing between taps, which has to be judged by ear.
+
+The phone also reports 264 ms output latency (Chris's Mac Chrome: 216 ms; the Surface: 48 ms). That is on top of every tap and is far larger than anything the gate measures.
 
 The headless row is a stand-in until Chris fills in the reference devices. Headless output latency doesn't reflect real hardware.
 
