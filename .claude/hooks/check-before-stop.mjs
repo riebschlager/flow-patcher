@@ -12,10 +12,11 @@ const root = process.env.CLAUDE_PROJECT_DIR ?? process.cwd();
 const counter = join(tmpdir(), `flow-patcher-stop-${input.session_id ?? 'unknown'}`);
 
 // Only code changes need the check; a docs-only or read-only turn stops freely.
+// spike/ is outside `pnpm check`, so spike-only edits stop freely too.
 const changed = execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' })
   .split('\n')
   .map((line) => line.slice(3).trim())
-  .filter((path) => path && !path.endsWith('.md'));
+  .filter((path) => path && !path.endsWith('.md') && !path.startsWith('spike/'));
 if (changed.length === 0) process.exit(0);
 
 const result = spawnSync('pnpm', ['check'], { cwd: root, encoding: 'utf8' });

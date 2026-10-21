@@ -93,7 +93,7 @@ Work through one milestone at a time, and don't start the next until its gate pa
 - **Done when:** the test or example patch that must pass.
 - **Out of scope:** what not to touch.
 
-Start each task in plan mode and approve the plan before any code gets written. M0 is a throwaway spike, so let agents move fast there and skip the harness. Build the harness (Step 2) at the start of M1.
+Start each task in plan mode and approve the plan before any code gets written. M0 is a throwaway spike, so let agents move fast there. The harness (Step 2) was built before M0, but it doesn't cover `spike/`; spike work skips it. M1 extends the harness as its gate needs.
 
 ## Step 7 — Run in parallel, review, merge
 
