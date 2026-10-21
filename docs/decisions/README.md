@@ -19,6 +19,8 @@ Short records of settled calls. Read the relevant ones before changing anything 
 | [0013](0013-engine-editor-split.md) | Framework-free engine, separate editor |
 | [0014](0014-phones-play-view-only.md) | Phones get Play view only in v1 |
 | [0015](0015-migrations-in-m4.md) | Patch migrations start in M4 |
+| [0016](0016-main-thread-budget.md) | Keep the main thread free while a patch plays; fluid work in a Worker until the GPU solver |
+| [0017](0017-immediate-offset-and-catch-up.md) | A 5 ms immediate-path offset, and catch-up for late scheduler wakes (amends 0008) |
 
 ## Adding a decision
 Copy the shape of an existing file: number, title, `Status: Accepted · <date>`, then Context (if needed), Decision and Consequences. Keep it under a page. If it replaces an older record, set the old one's status to `Superseded by NNNN`.

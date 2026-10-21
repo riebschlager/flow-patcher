@@ -90,14 +90,15 @@ The step costs about the same in both places. Off the main thread it no longer d
 
 ## What felt fun, and what didn't
 
-*Chris, after a session with the demo patch on each device.*
+*Chris, after a session with the demo patch on each device.* Chris wants to keep going.
 
-- Fun:
+- Fun: tweaking values and hearing the result immediately.
 - Not fun:
   - Wiring on the phone and the tablet is fiddly: the ports are hard to hit with a finger. That's acceptable, since editing is meant to be primarily a desktop experience (ADR 0014).
   - A cable's remove button can end up hidden behind a node, so some cables couldn't be removed.
 - Rewiring live: no gaps on desktop Chrome or the Surface, and no flams on the Surface after the catch-up change.
 - Taps on each device:
+  - Desktop Chrome and the Surface: immediate.
   - Android phone: immediate through the phone's speaker. Over Bluetooth the delay is visible and audible. Quick taps sounded even with the offset at 5 ms.
 
 ## What the spike taught
@@ -130,7 +131,7 @@ Editor
 
 ## Design changes this implies
 
-Proposed. These go into [design.md](design.md) before M1 starts, after Chris has signed off on the measurements.
+Applied to [design.md](design.md) in the PR that passed the M0 gate, with [ADR 0016](decisions/0016-main-thread-budget.md) for 1 and [ADR 0017](decisions/0017-immediate-offset-and-catch-up.md) for 7 and 8. The M1 checks in [milestones.md](milestones.md) follow from 1, 2, 7 and 8. Item 6 is recorded as an open question in design.md's Risks.
 
 1. **Keep the main thread free during a frame (Timing, Technical architecture, Budgets).** Add a budget: no single main-thread task longer than about 4 ms while the patch plays, so a tap waits at most that long. For the fluid:
    - The GPU solver (ADR 0003) meets it.
