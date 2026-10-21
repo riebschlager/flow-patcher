@@ -10,7 +10,7 @@ What the M0 spike (`spike/`, issues #2 and #4–#9) measured and taught, and the
    - The tap: Pointer → a second Chord Tone, an octave up, into the same voice, and Pointer → a lilac Splat that paints the drag.
    - Splats → Fluid → Renderer.
 3. Tap the canvas once to start audio. Then open **Report**, press **Reset** and close it.
-4. Tap about 30 times, spread over the canvas.
+4. Tap about 30 times, spread over the canvas. The immediate path's offset is 5 ms; `?offset=<ms>` sets another. Runs before the phone's third run used 10 ms, as their reports show.
 5. Rewire about 10 times while the beat plays, using cables that leave the beat sounding. For example, remove the Euclidean → coral Splat cable and drag it back, or move Progression's Chord cable between the two Chord Tones. Listen to the beat for a gap.
 6. Leave the patch running for 10 s. Then open **Report** and copy the text into the table below. The text is selectable, because the LAN page has no clipboard API.
 
@@ -94,9 +94,11 @@ The step costs about the same in both places. Off the main thread it no longer d
 
 - Fun:
 - Not fun:
-- Rewiring live:
+  - Wiring on the phone and the tablet is fiddly: the ports are hard to hit with a finger. That's acceptable, since editing is meant to be primarily a desktop experience (ADR 0014).
+  - A cable's remove button can end up hidden behind a node, so some cables couldn't be removed.
+- Rewiring live: no gaps on desktop Chrome or the Surface, and no flams on the Surface after the catch-up change.
 - Taps on each device:
-  - Android phone: immediate through the phone's speaker. Over Bluetooth the delay is visible and audible.
+  - Android phone: immediate through the phone's speaker. Over Bluetooth the delay is visible and audible. Quick taps sounded even with the offset at 5 ms.
 
 ## What the spike taught
 
@@ -122,6 +124,8 @@ Visuals
 - **Syncing visuals to sound delays the tap's own splash.** The frame clock is shifted back by the output latency, so splashes land when notes are heard. That also delays a tap's own splash by the output latency, which could show on Bluetooth (PR #14).
 
 Editor
+- Ports are small drag targets for a finger, on the phone and the tablet (Chris's session).
+- A cable's × sits at its midpoint and is drawn under the nodes, so a cable that runs behind a node can't be removed (Chris's session).
 - On a phone, the full patch only fits the graph pane at about 0.25 zoom, which is too small to edit. This supports [ADR 0014](decisions/0014-phones-play-view-only.md), Play view only on phones.
 
 ## Design changes this implies
@@ -132,9 +136,13 @@ Proposed. These go into [design.md](design.md) before M1 starts, after Chris has
    - The GPU solver (ADR 0003) meets it.
    - M1's "Fluid on the CPU solver for now" doesn't, so M1 runs the CPU solver in a Worker and transfers the dye buffers each frame. The spike shows this works: the worst tap drops from about 20.5 to about 12.5 ms (above).
    - The CPU fallback on weak devices runs in a Worker too.
+   - Colouring runs in the same Worker, which hands back RGBA pixels; the main thread only draws them. On the Surface this took main-thread render from about 7 ms to 0.2 ms.
    - Add an M1 check: the immediate-path test runs with the Fluid stepping.
 2. **Fix Output's limiter, don't copy it as is (Reuse from Flow, Effects and mix).** Change `output.js` in the Reuse table from "Copy as is" to "Adapt". Compensate for or disable the compressor's automatic makeup gain, or lower the threshold, and replace the hard-clip guard with a soft knee. Add an M1 check that a hot patch keeps guard clipping under a set fraction of samples.
 3. **Live input and stateful nodes (Timing).** Say how a node fed by both scheduled and immediate events orders them, because immediate events arrive with times earlier than the scheduler's horizon. One option: stateful nodes keep their immediate-path state separately and merge the two by time.
 4. **Transport (Core concepts, Time and rhythm).** Replace the per-tick beat count with a transport: a shared beat position that Clock writes and Progression and others read. Phase re-anchors at the change time, not at the window start.
 5. **Port types and params (Core concepts).** Write down Value as a port type: sampled at event times, never scheduled. Write down text params with presets that fill them. Write down Field writers as a Write output into Fluid's Writers input.
 6. **Splash timing (Visual system).** Decide whether a tap's own splash skips the output-latency shift, so it appears under the finger at once, while scheduled events stay synced to the sound.
+7. **A 5 ms immediate-path offset (Timing, Technical architecture).** Change "about 10 ms" to 5 ms. Android's input delay, about 6.5 ms median and 11 ms worst on the reference phone, uses most of the 20 ms budget, and taps sounded even at 5 ms. Update the M1 check "a note at `currentTime + 10 ms ± 2 ms`" to 5 ms.
+8. **Catch up small overruns; skip only stalls (Timing).** The scheduler queries a stretch it woke up to 100 ms late for, and moves that stretch to start now so its events keep their spacing. Only longer gaps skip. The Surface's wake timer regularly ran 10–30 ms past the 120 ms lookahead with nothing blocking. Add an M1 check: a 150 ms stall loses no events and stacks none.
+9. **Cables and ports for touch (Editor and UX).** Give ports a larger hit area than their drawn size, especially for coarse pointers. Keep a cable's remove control visible when the cable passes behind a node: draw it above the nodes, or let selecting a cable anywhere along its path remove it.
