@@ -1,0 +1,211 @@
+{
+ "clock-blips.flowpatch": [
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0.26785714285714285,
+   "channel": 0,
+   "index": 1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0.5357142857142857,
+   "channel": 0,
+   "index": 2
+  },
+  {
+   "node": "maybe",
+   "port": "out",
+   "time": 0.5357142857142857,
+   "channel": 0,
+   "index": 2
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 0.5357142857142857,
+   "channel": 0,
+   "index": 2,
+   "pitch": 64,
+   "velocity": 0.8,
+   "duration": 0.2
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0.8035714285714286,
+   "channel": 0,
+   "index": 3
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.0714285714285714,
+   "channel": 0,
+   "index": 4
+  },
+  {
+   "node": "maybe",
+   "port": "out",
+   "time": 1.0714285714285714,
+   "channel": 0,
+   "index": 4
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 1.0714285714285714,
+   "channel": 0,
+   "index": 4,
+   "pitch": 64,
+   "velocity": 0.8,
+   "duration": 0.2
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.3392857142857142,
+   "channel": 0,
+   "index": 5
+  },
+  {
+   "node": "maybe",
+   "port": "out",
+   "time": 1.3392857142857142,
+   "channel": 0,
+   "index": 5
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 1.3392857142857142,
+   "channel": 0,
+   "index": 5,
+   "pitch": 64,
+   "velocity": 0.8,
+   "duration": 0.2
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.6071428571428572,
+   "channel": 0,
+   "index": 6
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.875,
+   "channel": 0,
+   "index": 7
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.142857142857143,
+   "channel": 0,
+   "index": 8
+  },
+  {
+   "node": "maybe",
+   "port": "out",
+   "time": 2.142857142857143,
+   "channel": 0,
+   "index": 8
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 2.142857142857143,
+   "channel": 0,
+   "index": 8,
+   "pitch": 64,
+   "velocity": 0.8,
+   "duration": 0.2
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.4107142857142856,
+   "channel": 0,
+   "index": 9
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.6785714285714284,
+   "channel": 0,
+   "index": 10
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.946428571428571,
+   "channel": 0,
+   "index": 11
+  },
+  {
+   "node": "maybe",
+   "port": "out",
+   "time": 2.946428571428571,
+   "channel": 0,
+   "index": 11
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 2.946428571428571,
+   "channel": 0,
+   "index": 11,
+   "pitch": 64,
+   "velocity": 0.8,
+   "duration": 0.2
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.2142857142857144,
+   "channel": 0,
+   "index": 12
+  },
+  {
+   "node": "maybe",
+   "port": "out",
+   "time": 3.2142857142857144,
+   "channel": 0,
+   "index": 12
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 3.2142857142857144,
+   "channel": 0,
+   "index": 12,
+   "pitch": 64,
+   "velocity": 0.8,
+   "duration": 0.2
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.482142857142857,
+   "channel": 0,
+   "index": 13
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.75,
+   "channel": 0,
+   "index": 14
+  }
+ ]
+}

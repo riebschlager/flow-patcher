@@ -26,7 +26,8 @@ pnpm golden:update          # only when output is meant to change
 - One file per node type in nodes/. Palette and inspector are generated from it.
 - From M4 on, changing a node's params needs a migration function and a test. Before M4, update the example patches instead.
 - Code borrowed from Flow is ours: adapt it freely, but bring its tests along. No compatibility with Flow is required.
-- Don't change golden files without saying why.
+- Don't change golden files without saying why. Never edit them by hand; `pnpm golden:update` regenerates them. golden/example-events.json holds every example patch's expected event log.
+- vendor/ holds third-party files copied verbatim with their notices. Don't edit them.
 - Budgets: 64 voices, 256 events per node per window, 2,048 per patch.
 - Editor UI follows the design system: use its `--fp-*` tokens (imported in packages/editor/src/styles.css), not ad-hoc colors or sizes. Port shapes, cable styles and family glyphs live in packages/editor/src/ports.ts.
 - Don't edit files under .claude/skills/flow-patcher-design/ while doing editor work; it's the reference. Its uploads/design.md is a symlink to docs/design.md.
