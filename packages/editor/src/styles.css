@@ -1,17 +1,66 @@
+/* Tokens, fonts and icons come from the design system; see .claude/skills/flow-patcher-design/readme.md. */
+@import '../../../.claude/skills/flow-patcher-design/styles.css';
+
 :root {
   color-scheme: dark;
-  font-family: system-ui, sans-serif;
-  --bg: #0b0e16;
-  --panel: #161b27;
-  --text: #e6e8ef;
-  --muted: #8a91a3;
+  font-family: var(--fp-font-ui);
 }
-html, body, #root { height: 100%; margin: 0; background: var(--bg); color: var(--text); }
+html, body, #root { height: 100%; margin: 0; background: var(--fp-surface-canvas); color: var(--fp-text-primary); }
+
 .app { display: flex; flex-direction: column; height: 100%; }
-.app__bar { display: flex; gap: 16px; align-items: center; padding: 8px 16px; background: var(--panel); font-size: 14px; }
-.app__bar span { color: var(--muted); }
+.app__bar { height: 44px; flex: none; box-sizing: border-box; display: flex; gap: var(--fp-space-5); align-items: center; padding: 0 10px 0 14px; background: var(--fp-surface-chrome); border-bottom: 1px solid var(--fp-line-1); }
+.app__name { font-size: var(--fp-text-md); font-weight: var(--fp-weight-semibold); letter-spacing: -0.01em; }
+.app__status { font-family: var(--fp-font-mono); font-size: var(--fp-text-xs); color: var(--fp-text-muted); }
 .app__graph { flex: 1; min-height: 0; }
-.patch-node { position: relative; min-width: 140px; padding: 8px 12px; border-radius: 8px; background: var(--panel); border: 1px solid #2a3142; font-size: 12px; }
-.patch-node--unknown { border-style: dashed; color: var(--muted); }
-.patch-node__title { font-weight: 600; margin-bottom: 6px; }
-.patch-node__row { display: flex; justify-content: space-between; gap: 16px; height: 22px; align-items: center; color: var(--muted); }
+
+/* React Flow, themed onto the tokens. */
+.react-flow {
+  --xy-background-color: var(--fp-surface-canvas);
+  --xy-background-pattern-color: var(--fp-line-2);
+  --xy-node-background-color: transparent;
+  --xy-node-border: none;
+  --xy-node-boxshadow-selected: none;
+  --xy-connectionline-stroke: var(--fp-fg-3);
+  --xy-connectionline-stroke-width: 1.5;
+  --xy-minimap-background-color: var(--fp-bg-1);
+  --xy-minimap-mask-background-color: oklch(0.145 0.006 265 / 0.6);
+  --xy-minimap-node-background-color: var(--fp-bg-3);
+  --xy-controls-button-background-color: var(--fp-bg-2);
+  --xy-controls-button-background-color-hover: var(--fp-bg-3);
+  --xy-controls-button-color: var(--fp-fg-2);
+  --xy-controls-button-color-hover: var(--fp-fg-1);
+  --xy-controls-button-border-color: var(--fp-line-1);
+  --xy-controls-box-shadow: var(--fp-shadow-pop);
+  --xy-attribution-background-color: transparent;
+  font-family: var(--fp-font-ui);
+}
+.react-flow__minimap { border-radius: var(--fp-radius-xl); overflow: hidden; box-shadow: var(--fp-shadow-pop); }
+.react-flow__controls { border-radius: var(--fp-radius-md); overflow: hidden; }
+
+/* Node: neutral body, family glyph in the header, typed ports on the edges. */
+.patch-node { position: relative; width: var(--fp-node-w); background: var(--fp-surface-node); border: 1px solid var(--fp-line-1); border-radius: var(--fp-radius-lg); box-shadow: var(--fp-shadow-node); color: var(--fp-text-primary); transition: box-shadow var(--fp-dur-fast) var(--fp-ease-out); }
+.patch-node--selected { box-shadow: var(--fp-ring-select), var(--fp-shadow-node); }
+.patch-node--unknown { border-color: var(--fp-error); }
+.patch-node--unknown .patch-node__icon { color: var(--fp-error); }
+.patch-node__header { height: var(--fp-header); display: flex; align-items: center; gap: var(--fp-space-4); padding: 0 8px 0 10px; border-bottom: 1px solid var(--fp-line-1); }
+.patch-node--unknown .patch-node__header { border-bottom: none; }
+.patch-node__icon { font-size: 13px; color: var(--fp-text-muted); }
+.patch-node__title { flex: 1; min-width: 0; font-size: var(--fp-text-sm); font-weight: var(--fp-weight-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.patch-node__ports { padding: var(--fp-space-3) 0 var(--fp-space-4); }
+.patch-node__row { height: var(--fp-row); display: flex; justify-content: space-between; gap: var(--fp-space-4); align-items: center; padding: 0 var(--fp-space-5); font-size: var(--fp-text-xs); color: var(--fp-text-secondary); }
+
+/* Ports: shape backs up color. The handle is the hit area; the inner span draws the shape. */
+.react-flow__handle.fp-handle { min-width: 0; min-height: 0; background: transparent; border: none; border-radius: 0; display: flex; align-items: center; justify-content: center; }
+.fp-port { display: block; width: 100%; height: 100%; flex: none; box-sizing: border-box; pointer-events: none; box-shadow: 0 0 0 2px var(--fp-surface-node); transition: transform var(--fp-dur-fast) var(--fp-ease-out); }
+.fp-port--event { background: var(--fp-event); border-radius: 1.5px; transform: rotate(45deg); }
+.fp-port--note { background: var(--fp-surface-node); border-radius: 1.5px; transform: rotate(45deg); box-shadow: inset 0 0 0 2.5px var(--fp-note), 0 0 0 2px var(--fp-surface-node); }
+.fp-port--signal { background: var(--fp-signal); border-radius: 50%; }
+.fp-port--audio { background: var(--fp-audio); border-radius: 4px; }
+.fp-port--field { background: var(--fp-field); border-radius: var(--fp-radius-xs); }
+.fp-port--value { background: var(--fp-surface-node); border: 2px solid var(--fp-value); border-radius: 50%; }
+.fp-handle:hover .fp-port--event, .fp-handle:hover .fp-port--note { transform: rotate(45deg) scale(1.35); }
+.fp-handle:hover .fp-port:not(.fp-port--event):not(.fp-port--note) { transform: scale(1.35); }
+
+@media (prefers-reduced-motion: reduce) {
+  .patch-node, .fp-port { transition: none; }
+}

@@ -1,0 +1,35 @@
+<!-- @dsCard group="Components" viewport="700x440" name="Overlays" subtitle="NodePalette, Probe, AdapterPrompt, BudgetMeter" -->
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>*{box-sizing:border-box}body{margin:0;background:var(--fp-bg-0);color:var(--fp-fg-1);font-family:var(--fp-font-ui);-webkit-font-smoothing:antialiased}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script type="text/babel" src="../../components.bundle.jsx"></script>
+</head><body><div id="root"></div>
+<script type="text/babel">
+const NS = window.FlowPatcher || (() => { for (const k of Object.keys(window)) { try { const v = window[k]; if (v && typeof v === 'object' && v.Knob && v.Node) return v; } catch (e) {} } return {}; })();
+
+const { NodePalette, Probe, AdapterPrompt, BudgetMeter } = NS;
+const items = [
+  { name: 'Probability', family: 'Time', icon: 'timer', description: 'Passes each event with chance p' },
+  { name: 'Euclidean', family: 'Time', icon: 'timer', description: 'Spreads hits evenly over steps' },
+  { name: 'Make Note', family: 'Harmony', icon: 'music', description: 'Event + pitch + velocity → Note' },
+  { name: 'Sample & Hold', family: 'Control', icon: 'git-fork', description: 'Captures a Signal at each event' },
+  { name: 'Envelope', family: 'Control', icon: 'git-fork', description: 'Event → ADSR Signal' },
+  { name: 'Splat', family: 'Visual', icon: 'droplets', description: 'Dye and impulse at the event position' }
+];
+const pts = Array.from({ length: 70 }, (_, i) => 0.5 + 0.35 * Math.sin(i / 6.5) * Math.cos(i / 15) + 0.08 * Math.sin(i * 0.55));
+function App() {
+  return <div style={{ padding: 24, display: 'grid', gridTemplateColumns: '320px 1fr', gap: 20, alignItems: 'start' }}>
+    <NodePalette accepts="event" items={items} width={320} />
+    <div style={{ display: 'grid', gap: 14 }}>
+      <Probe type="signal" title="Pointer · Y" channel={0} value="0.634" points={pts} pinned width={312} footer={['−2.0 s', 'min 0.08 · max 0.91', 'now']} />
+      <AdapterPrompt from="event" to="signal" width={312} options={[{ name: 'Sample & Hold', description: 'holds a value per event' }, { name: 'Envelope', description: 'ADSR per event' }]} />
+      <BudgetMeter rows={[{ label: 'Fluid', value: 0.39, limit: 0.75, display: '6.2 ms' }, { label: 'Voices', value: 18 / 64, display: '18 / 64' }, { label: 'Events', value: 0.86, display: '1,760 / 2k', warn: true }]} />
+    </div>
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script></body></html>

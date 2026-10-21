@@ -226,6 +226,8 @@ A GLSL Shader node (a fragment shader with the Field, palette and a few Signals 
 
 The editor has two views of the same running patch, with a live preview always showing. Sound never stops when you switch views.
 
+The visual language (colors, type, spacing, port shapes, motion and the component set) lives in the design system at [`.claude/skills/flow-patcher-design/`](../.claude/skills/flow-patcher-design/readme.md). Its UI kit (`ui_kits/flow-patcher/index.html`) is a click-through of both views.
+
 - **Patch view:** the node graph fills the window. The performance canvas sits in a resizable preview pane that you can play directly. Like cables.gl, the preview is always live.
 - **Play view:** the canvas goes full-window, and only the knobs you have pinned show, as a small performance strip. This is how a finished instrument is played, and how a shared patch opens for someone who just wants to play it.
 

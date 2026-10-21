@@ -1,0 +1,25 @@
+<!-- @dsCard group="Components" viewport="700x300" name="Ports and cables" subtitle="Port, Cable, CableChip" -->
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>*{box-sizing:border-box}body{margin:0;background:var(--fp-bg-0);color:var(--fp-fg-1);font-family:var(--fp-font-ui);-webkit-font-smoothing:antialiased}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script type="text/babel" src="../../components.bundle.jsx"></script>
+</head><body><div id="root"></div>
+<script type="text/babel">
+const NS = window.FlowPatcher || (() => { for (const k of Object.keys(window)) { try { const v = window[k]; if (v && typeof v === 'object' && v.Knob && v.Node) return v; } catch (e) {} } return {}; })();
+const L = ({ children }) => <div style={{ fontFamily: 'var(--fp-font-mono)', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--fp-fg-4)', marginBottom: 10 }}>{children}</div>;
+
+const { Port, Cable, CableChip } = NS;
+const types = ['event','note','signal','audio','field','value'];
+function App() {
+  return <div style={{ padding: 24, display: 'grid', gap: 22 }}>
+    <div><L>Port · idle / target / dim</L><div style={{ display: 'flex', gap: 28, alignItems: 'center' }}>{types.map(t => <div key={t} style={{ display: 'flex', gap: 12, alignItems: 'center' }}><Port type={t} ring="var(--fp-bg-0)" /><Port type={t} ring="var(--fp-bg-0)" state="target" /><Port type={t} ring="var(--fp-bg-0)" state="dim" /></div>)}</div></div>
+    <div><L>Cable · idle / firing / invalid</L><svg width="652" height="92">{types.map((t, i) => <Cable key={t} type={t} from={[4 + i * 108, 10]} to={[100 + i * 108, 40]} />)}<Cable type="event" firing from={[4, 70]} to={[200, 70]} /><Cable type="signal" level={0.9} from={[220, 70]} to={[420, 70]} /><Cable type="event" invalid from={[440, 70]} to={[648, 70]} /></svg></div>
+    <div><L>CableChip</L><div style={{ display: 'flex', gap: 12, alignItems: 'center' }}><CableChip kind="depth" value={0.64} /><CableChip kind="meter" /><CableChip kind="error" /></div></div>
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script></body></html>

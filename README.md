@@ -1,6 +1,6 @@
 # Flow Patcher
 
-A browser node editor for music and visuals: canvas input events, musical generators, synths, effects and a live fluid simulation, wired into an instrument of your own. Design: [docs/design.md](docs/design.md). Decisions: [docs/decisions/](docs/decisions/). Milestones: [docs/milestones.md](docs/milestones.md).
+A browser node editor for music and visuals: canvas input events, musical generators, synths, effects and a live fluid simulation, wired into an instrument of your own. Design: [docs/design.md](docs/design.md). Visual design system: [.claude/skills/flow-patcher-design/](.claude/skills/flow-patcher-design/readme.md). Decisions: [docs/decisions/](docs/decisions/). Milestones: [docs/milestones.md](docs/milestones.md).
 
 GPL-3.0-only. Parts are borrowed from Flow; see [ADR 0001](docs/decisions/0001-independent-from-flow.md).
 
@@ -15,6 +15,7 @@ GPL-3.0-only. Parts are borrowed from Flow; see [ADR 0001](docs/decisions/0001-i
 | `examples/` | Example patches. Every node type appears in at least one. |
 | `golden/` | Golden files for regression tests, generated in this repo. |
 | `e2e/` | Playwright tests against the dev server. |
+| `.claude/skills/flow-patcher-design/` | The design system as a Claude Code skill: tokens, React component reference, guideline cards and a Patch ⇄ Play UI kit. Editor UI follows it. |
 
 ## Commands
 

@@ -1,0 +1,25 @@
+<!-- @dsCard group="Components" viewport="700x400" name="Controls" subtitle="Knob, ParamField, Segmented, Toggle, Select, NumberField, StepGrid, Button, IconButton, Kbd" -->
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>*{box-sizing:border-box}body{margin:0;background:var(--fp-bg-0);color:var(--fp-fg-1);font-family:var(--fp-font-ui);-webkit-font-smoothing:antialiased}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script type="text/babel" src="../../components.bundle.jsx"></script>
+</head><body><div id="root"></div>
+<script type="text/babel">
+const NS = window.FlowPatcher || (() => { for (const k of Object.keys(window)) { try { const v = window[k]; if (v && typeof v === 'object' && v.Knob && v.Node) return v; } catch (e) {} } return {}; })();
+const L = ({ children }) => <div style={{ fontFamily: 'var(--fp-font-mono)', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--fp-fg-4)', marginBottom: 10 }}>{children}</div>;
+
+const { Knob, ParamField, Segmented, Toggle, Select, NumberField, StepGrid, Button, IconButton, Kbd } = NS;
+function App() {
+  return <div style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+    <div><L>Knob</L><div style={{ display: 'flex', gap: 6 }}><Knob label="Cutoff" defaultValue={0.62} format={v => { const hz = 20 * Math.pow(1000, v); return hz < 1000 ? Math.round(hz) + ' Hz' : (hz / 1000).toFixed(1) + ' kHz'; }} /><Knob label="Swing" defaultValue={0.18} /><Knob label="Depth" defaultValue={0.5} mod={0.22} /><Knob label="Off" defaultValue={0.3} disabled /></div></div>
+    <div><L>ParamField</L><div style={{ display: 'grid', gap: 4, padding: '8px', background: 'var(--fp-bg-2)', borderRadius: 8, border: '1px solid var(--fp-line-1)' }}><ParamField label="Attack" defaultValue={0.22} format={v => Math.round(v * 60) + ' ms'} /><ParamField label="Cutoff" defaultValue={0.58} display="2.4 kHz" mod={0.22} /><ParamField kind="select" option="Celesta" /><ParamField label="Swing" display="18" state="editing" /></div></div>
+    <div style={{ display: 'grid', gap: 12, alignContent: 'start' }}><L>Choice</L><Segmented options={['Sine', 'Triangle', 'Saw', 'Square']} /><div style={{ display: 'flex', gap: 12, alignItems: 'center' }}><Select value="Celesta" width={140} /><Toggle label="Tempo sync" defaultChecked /></div><div style={{ display: 'flex', gap: 8 }}><NumberField label="BPM" value="112.0" /><NumberField label="Division" value="1/16T" /></div></div>
+    <div style={{ display: 'grid', gap: 12, alignContent: 'start' }}><L>Step grid · buttons</L><StepGrid defaultSteps={[3,0,1,0,2,0,1,0,3,0,1,2,0,0,2,1]} playhead={4} height={44} /><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}><Button variant="primary">Publish</Button><Button>Collapse</Button><Button variant="ghost">Cancel</Button><Button disabled>Disabled</Button></div><div style={{ display: 'flex', gap: 4, alignItems: 'center' }}><IconButton icon="undo-2" title="Undo" /><IconButton icon="pin" title="Pin" active /><IconButton icon="crosshair" title="Probe" /><span style={{ marginLeft: 8, display: 'flex', gap: 6, alignItems: 'center', fontSize: 11, color: 'var(--fp-fg-3)' }}><Kbd>Tab</Kbd>Add node</span></div></div>
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script></body></html>

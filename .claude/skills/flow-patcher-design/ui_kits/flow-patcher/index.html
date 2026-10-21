@@ -1,0 +1,123 @@
+<!-- @dsCard group="Flow Patcher" viewport="1200x720" name="Patch and Play views" subtitle="Click-through editor: Patch ⇄ Play, Tab for palette, live clock" -->
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Flow Patcher — UI kit</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>*{box-sizing:border-box}html,body{margin:0;background:var(--fp-bg-0);color:var(--fp-fg-1);font-family:var(--fp-font-ui);-webkit-font-smoothing:antialiased;overflow:hidden}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script type="text/babel" src="../../components.bundle.jsx"></script>
+</head><body><div id="root"></div>
+<script type="text/babel">
+const NS = window.FlowPatcher || (() => { for (const k of Object.keys(window)) { try { const v = window[k]; if (v && typeof v === 'object' && v.Knob && v.Node) return v; } catch (e) {} } return {}; })();
+const { Toolbar, Canvas, Node, PreviewPane, PlayStrip, Knob, Segmented, NodePalette, Probe, Kbd, IconButton, Button } = NS;
+const pY = NS.portY || ((t, r) => t + 48 + 22 * r);
+const prY = NS.paramY || ((t, n, j) => t + 54 + 22 * n + 26 * j);
+
+const CATALOG = [
+  { name: 'Probability', family: 'Time', icon: 'timer', description: 'Passes each event with chance p' },
+  { name: 'Quantize', family: 'Time', icon: 'timer', description: 'Delays events to the next grid line' },
+  { name: 'Humanize', family: 'Time', icon: 'timer', description: 'Timing and velocity jitter' },
+  { name: 'Make Note', family: 'Harmony', icon: 'music', description: 'Event + pitch + velocity → Note' },
+  { name: 'Arpeggio', family: 'Harmony', icon: 'music', description: 'Up, down, outside-in, random' },
+  { name: 'Sample & Hold', family: 'Control', icon: 'git-fork', description: 'Captures a Signal at each event' },
+  { name: 'Envelope', family: 'Control', icon: 'git-fork', description: 'Event → ADSR Signal' },
+  { name: 'Ripple', family: 'Visual', icon: 'droplets', description: 'Expanding rings at the event position' }
+];
+const EUCLID = Array.from({ length: 16 }, (_, i) => ((i + 14) * 5) % 16 < 5);
+const FLUID_BG = 'radial-gradient(45% 60% at 28% 55%, oklch(0.42 0.12 250 / 0.75), transparent 70%), radial-gradient(40% 55% at 70% 40%, oklch(0.5 0.12 190 / 0.55), transparent 70%), radial-gradient(30% 40% at 55% 75%, oklch(0.5 0.1 90 / 0.35), transparent 70%), var(--fp-bg-0)';
+
+function At({ x, y, children }) { return <div style={{ position: 'absolute', left: x, top: y }}>{children}</div>; }
+
+function PatchView({ step, selected, setSelected, cutoff, setCutoff, palette, setPalette, probe, setProbe }) {
+  const hit = EUCLID[step];
+  const cables = [
+    { type: 'event', from: [208, pY(40, 0)], to: [256, pY(40, 0)] },
+    { type: 'signal', from: [208, pY(40, 1)], to: [256, pY(40, 1)], level: 0.6 },
+    { type: 'signal', from: [208, pY(40, 2)], to: [488, prY(40, 1, 2)], level: 0.8 },
+    { type: 'note', from: [440, pY(40, 0)], to: [488, pY(40, 0)] },
+    { type: 'audio', from: [672, pY(40, 0)], to: [720, pY(40, 0)] },
+    { type: 'event', from: [208, pY(260, 0)], to: [256, pY(260, 0)], firing: true },
+    { type: 'event', from: [440, pY(260, 0)], to: [488, pY(270, 0)], firing: hit },
+    { type: 'event', from: [440, pY(260, 0)], to: [488, pY(440, 0)], firing: hit },
+    { type: 'audio', from: [672, pY(270, 0)], to: [720, pY(40, 0)] },
+    { type: 'field', from: [672, pY(440, 0)], to: [720, pY(300, 0)] }
+  ];
+  const sel = id => ({ selected: selected === id, onClick: e => { e.stopPropagation(); setSelected(id); } });
+  const pts = Array.from({ length: 70 }, (_, i) => 0.5 + 0.35 * Math.sin((i + step) / 6.5) * Math.cos(i / 15) + 0.08 * Math.sin(i * 0.55));
+  return (
+    <Canvas height="calc(100vh - 44px)" cables={cables} onDoubleClick={() => setPalette(true)}>
+      <div style={{ position: 'absolute', inset: 0 }} onClick={() => { setSelected(null); setPalette(false); }} />
+      <At x={24} y={40}><Node title="Pointer" icon="mouse-pointer-2" led="event" ledActive={false} {...sel('pointer')} rows={[{ out: { type: 'event', label: 'Down' } }, { out: { type: 'signal', label: 'X' } }, { out: { type: 'signal', label: 'Y' } }, { out: { type: 'signal', label: 'Count' } }]} /></At>
+      <At x={24} y={260}><Node title="Clock" icon="timer" led="event" ledActive={step % 4 === 0} {...sel('clock')} rows={[{ out: { type: 'event', label: 'Tick' } }, { out: { type: 'signal', label: 'Phase' } }]} params={[{ label: 'BPM', defaultValue: 0.45, display: '112.0' }, { kind: 'select', option: '1/16' }]} /></At>
+      <At x={256} y={40}><Node title="Chord Tone" icon="music" led="note" ledActive={false} {...sel('chord')} rows={[{ in: { type: 'event', label: 'Trigger' }, out: { type: 'note', label: 'Note' } }, { in: { type: 'signal', label: 'Position' } }, { in: { type: 'value', label: 'Chord' }, hint: 'Cmaj9 · Am7', hintColor: 'var(--fp-value)' }]} params={[{ label: 'Range', defaultValue: 0.33, display: '2 oct' }]} /></At>
+      <At x={256} y={260}><Node title="Euclidean" icon="timer" led="event" ledActive={hit} {...sel('euclid')} rows={[{ in: { type: 'event', label: 'Clock' }, out: { type: 'event', label: 'Hits' } }]} params={[{ label: 'Hits', defaultValue: 5 / 16, display: '5' }, { label: 'Steps', defaultValue: 1, display: '16' }, { label: 'Rotate', defaultValue: 2 / 16, display: '2' }]}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(16, 1fr)', gap: 2 }}>{EUCLID.map((h, i) => <span key={i} style={{ height: 8, borderRadius: 1.5, background: h ? 'var(--fp-event)' : 'var(--fp-bg-3)', boxShadow: i === step ? '0 0 0 1px var(--fp-fg-1)' : 'none' }} />)}</div>
+      </Node></At>
+      <At x={488} y={40}><Node title="Sampled Voice" icon="piano" led="audio" {...sel('voice')} rows={[{ in: { type: 'note', label: 'Note' }, out: { type: 'audio', label: 'Audio' } }]} params={[{ kind: 'select', option: 'Celesta' }, { label: 'Attack', defaultValue: 0.22, format: v => Math.round(v * 60) + ' ms' }, { label: 'Cutoff', value: cutoff, onChange: setCutoff, mod: 0.22, modPort: true, format: v => { const hz = 20 * Math.pow(1000, v); return hz < 1000 ? Math.round(hz) + ' Hz' : (hz / 1000).toFixed(1) + ' kHz'; } }]} /></At>
+      <At x={488} y={270}><Node title="Drum Voice" icon="piano" led="audio" ledActive={hit} {...sel('drum')} rows={[{ in: { type: 'event', label: 'Hit' }, out: { type: 'audio', label: 'Audio' } }]} params={[{ kind: 'select', option: 'Tuned glass' }, { label: 'Decay', defaultValue: 0.4, format: v => Math.round(v * 800) + ' ms' }]} /></At>
+      <At x={488} y={440}><Node title="Splat" icon="droplets" {...sel('splat')} rows={[{ in: { type: 'event', label: 'At' }, out: { type: 'field', label: 'Write' } }]} params={[{ label: 'Radius', defaultValue: 0.35, format: v => (v / 10).toFixed(3) }, { kind: 'swatches', label: 'Color', swatches: ['oklch(0.7 0.12 250)', 'oklch(0.75 0.1 190)', 'oklch(0.8 0.1 90)', 'oklch(0.65 0.14 20)'] }]} /></At>
+      <At x={720} y={40}><Node title="Output" icon="speaker" locked {...sel('out')} rows={[{ in: { type: 'audio', label: 'Audio' }, hint: '2 in' }]} params={[{ label: 'Level', defaultValue: 0.8, format: v => (v * 30 - 30).toFixed(1) + ' dB' }]} /></At>
+      <At x={720} y={300}><Node title="Fluid" icon="droplets" meta="GPU" {...sel('fluid')} rows={[{ in: { type: 'field', label: 'Writers' }, out: { type: 'field', label: 'Field' } }]} params={[{ label: 'Vorticity', defaultValue: 0.35 }, { label: 'Dissipation', defaultValue: 0.97 }, { label: 'Grid', defaultValue: 1, display: '35k' }]} /></At>
+
+      <PreviewPane style={{ position: 'absolute', right: 24, top: 24 }}><div style={{ position: 'absolute', inset: 0, background: FLUID_BG }} /></PreviewPane>
+      {probe && <div style={{ position: 'absolute', right: 24, top: 240 }}><Probe type="signal" title="Pointer · Y" channel={0} value={pts[69].toFixed(3)} points={pts} pinned width={248} footer={['−2.0 s', 'now']} /></div>}
+      {palette && <div style={{ position: 'absolute', left: 300, top: 120 }} onClick={e => e.stopPropagation()}><NodePalette accepts="event" items={CATALOG} onPick={() => setPalette(false)} /></div>}
+
+      <div style={{ position: 'absolute', left: 24, bottom: 16, display: 'flex', gap: 6 }}>
+        <IconButton icon="minus" title="Zoom out" /><span style={{ fontFamily: 'var(--fp-font-mono)', fontSize: 10, alignSelf: 'center', color: 'var(--fp-fg-2)' }}>100%</span><IconButton icon="plus" title="Zoom in" />
+        <IconButton icon="crosshair" title="Toggle probe" active={probe} onClick={() => setProbe(!probe)} />
+      </div>
+      <div style={{ position: 'absolute', right: 24, bottom: 16, display: 'flex', gap: 14, fontSize: 11, color: 'var(--fp-fg-4)' }}>
+        <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><Kbd>Tab</Kbd>Add node</span>
+        <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><Kbd>⇧ drag</Kbd>Fine</span>
+        <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><Kbd>Esc</Kbd>Close</span>
+      </div>
+    </Canvas>
+  );
+}
+
+function PlayView({ cutoff, setCutoff, tool, setTool, onEdit }) {
+  return (
+    <div style={{ position: 'relative', height: 'calc(100vh - 44px)', background: FLUID_BG }}>
+      <span style={{ position: 'absolute', left: '50%', top: '44%', transform: 'translate(-50%, -50%)', fontFamily: 'var(--fp-font-mono)', fontSize: 11, color: 'var(--fp-fg-3)' }}>performance canvas · fluid render</span>
+      <div style={{ position: 'absolute', right: 16, top: 12, display: 'flex', gap: 6 }}><Button icon="workflow" onClick={onEdit}>Open patch</Button><Button variant="primary">Remix</Button></div>
+      <PlayStrip style={{ position: 'absolute', left: '50%', bottom: 20, transform: 'translateX(-50%)' }}>
+        <Knob label="Brightness" size={44} value={cutoff} onChange={setCutoff} />
+        <Knob label="Space" size={44} defaultValue={0.45} />
+        <Knob label="Swing" size={44} defaultValue={0.2} />
+        <Knob label="Stir" size={44} defaultValue={0.7} mod={0.18} />
+        <span style={{ width: 1, height: 48, background: 'var(--fp-line-2)' }} />
+        <div style={{ display: 'grid', gap: 6 }}><span style={{ fontSize: 11, color: 'var(--fp-fg-3)' }}>Tool</span><Segmented options={['Paint', 'Conduct', 'Space', 'Orbit']} value={tool} onChange={setTool} /></div>
+      </PlayStrip>
+    </div>
+  );
+}
+
+function App() {
+  const [view, setView] = React.useState('Patch');
+  const [step, setStep] = React.useState(0);
+  const [playing, setPlaying] = React.useState(true);
+  const [selected, setSelected] = React.useState('voice');
+  const [cutoff, setCutoff] = React.useState(0.58);
+  const [palette, setPalette] = React.useState(false);
+  const [probe, setProbe] = React.useState(true);
+  const [tool, setTool] = React.useState('Paint');
+  React.useEffect(() => { if (!playing) return; const id = setInterval(() => setStep(s => (s + 1) % 16), 134); return () => clearInterval(id); }, [playing]);
+  React.useEffect(() => {
+    const k = e => { if (e.key === 'Tab' && view === 'Patch') { e.preventDefault(); setPalette(p => !p); } if (e.key === 'Escape') { setPalette(false); setView('Patch'); } };
+    window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k);
+  }, [view]);
+  const bar = Math.floor(step / 4) + 1, beat = (step % 4) + 1;
+  return (
+    <div>
+      <Toolbar patchName="Tap chords, stir fluid" view={view} onViewChange={setView} playing={playing} onTogglePlay={() => setPlaying(!playing)} position={'3.' + bar + '.' + beat}
+        budget={[{ label: 'Fluid', icon: 'droplets', value: 0.39, display: '6.2 ms' }, { label: 'Voices', icon: 'piano', value: 0.28, display: '18/64' }, { label: 'Events', icon: 'cpu', value: 0.15, display: '312/2k' }]} />
+      {view === 'Patch'
+        ? <PatchView step={step} selected={selected} setSelected={setSelected} cutoff={cutoff} setCutoff={setCutoff} palette={palette} setPalette={setPalette} probe={probe} setProbe={setProbe} />
+        : <PlayView cutoff={cutoff} setCutoff={setCutoff} tool={tool} setTool={setTool} onEdit={() => setView('Patch')} />}
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script></body></html>

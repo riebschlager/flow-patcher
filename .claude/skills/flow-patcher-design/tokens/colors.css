@@ -1,0 +1,47 @@
+:root {
+  /* Neutrals — cool graphite. bg-0 is the patch canvas; each step up is one layer closer to the user. */
+  --fp-bg-0: oklch(0.145 0.006 265);
+  --fp-bg-1: oklch(0.175 0.007 265);
+  --fp-bg-2: oklch(0.205 0.008 265);
+  --fp-bg-3: oklch(0.24 0.009 265);
+  --fp-bg-4: oklch(0.29 0.01 265);
+  --fp-line-1: oklch(0.27 0.008 265);
+  --fp-line-2: oklch(0.34 0.01 265);
+  --fp-line-3: oklch(0.44 0.012 265);
+  --fp-fg-1: oklch(0.96 0.004 265);
+  --fp-fg-2: oklch(0.80 0.008 265);
+  --fp-fg-3: oklch(0.66 0.01 265);
+  --fp-fg-4: oklch(0.52 0.012 265);
+
+  /* Port types — the only saturated colors in the editor. Equal lightness so no type dominates. */
+  --fp-event: oklch(0.82 0.14 78);
+  --fp-note: oklch(0.76 0.14 355);
+  --fp-signal: oklch(0.80 0.12 215);
+  --fp-audio: oklch(0.80 0.15 150);
+  --fp-field: oklch(0.74 0.14 295);
+  --fp-value: oklch(0.84 0.03 85);
+  --fp-event-soft: oklch(0.82 0.14 78 / 0.14);
+  --fp-note-soft: oklch(0.76 0.14 355 / 0.14);
+  --fp-signal-soft: oklch(0.80 0.12 215 / 0.14);
+  --fp-audio-soft: oklch(0.80 0.15 150 / 0.14);
+  --fp-field-soft: oklch(0.74 0.14 295 / 0.16);
+  --fp-value-soft: oklch(0.84 0.03 85 / 0.12);
+
+  /* State */
+  --fp-error: oklch(0.68 0.19 25);
+  --fp-error-soft: oklch(0.68 0.19 25 / 0.14);
+  --fp-warn: oklch(0.78 0.15 55);
+  --fp-warn-soft: oklch(0.78 0.15 55 / 0.14);
+  --fp-select: oklch(0.96 0.004 265);
+
+  /* Semantic aliases */
+  --fp-surface-canvas: var(--fp-bg-0);
+  --fp-surface-chrome: var(--fp-bg-1);
+  --fp-surface-node: var(--fp-bg-2);
+  --fp-surface-raised: var(--fp-bg-3);
+  --fp-surface-inset: var(--fp-bg-1);
+  --fp-text-primary: var(--fp-fg-1);
+  --fp-text-secondary: var(--fp-fg-2);
+  --fp-text-muted: var(--fp-fg-3);
+  --fp-text-faint: var(--fp-fg-4);
+}

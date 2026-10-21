@@ -1,0 +1,24 @@
+:root {
+  --fp-space-1: 2px;
+  --fp-space-2: 4px;
+  --fp-space-3: 6px;
+  --fp-space-4: 8px;
+  --fp-space-5: 12px;
+  --fp-space-6: 16px;
+  --fp-space-7: 24px;
+  --fp-space-8: 32px;
+  --fp-space-9: 48px;
+
+  --fp-grid: 20px;          /* canvas snap grid */
+  --fp-row: 22px;           /* port row */
+  --fp-row-param: 26px;     /* param row */
+  --fp-header: 30px;        /* node header */
+  --fp-node-w: 184px;       /* default node width; 20px steps */
+
+  --fp-radius-xs: 2px;      /* port shapes */
+  --fp-radius-sm: 4px;      /* fields, chips */
+  --fp-radius-md: 6px;      /* buttons, inputs */
+  --fp-radius-lg: 8px;      /* nodes */
+  --fp-radius-xl: 12px;     /* panels, popovers */
+  --fp-radius-full: 999px;
+}

@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="https://unpkg.com/lucide-static@0.460.0/font/lucide.css">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;background:oklch(0.145 0.006 265);color:oklch(0.96 0.004 265);font-family:"Geist",ui-sans-serif,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:oklch(0.80 0.12 215);text-decoration:none}
+a:hover{color:oklch(0.96 0.004 265)}
+::selection{background:oklch(0.80 0.12 215 / 0.3)}
+</style>
+</helmet>
+<div style="max-width:1280px;margin:0 auto;padding:56px 40px 96px;font-family:var(--fp-font-ui)">
+
+<header style="display:grid;gap:20px;padding-bottom:56px">
+  <div style="display:flex;align-items:center;gap:10px;font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">
+    <span>Flow Patcher</span><span style="width:16px;height:1px;background:var(--fp-line-2)"></span><span>Design system v0.1</span>
+  </div>
+  <h1 style="margin:0;font-size:44px;line-height:48px;font-weight:500;letter-spacing:-0.025em;max-width:820px;text-wrap:pretty">Quiet chrome, loud signal.</h1>
+  <p style="margin:0;font-size:15px;line-height:24px;color:var(--fp-fg-3);max-width:640px;text-wrap:pretty">A dark interface for patching sound, music and fluid visuals. Nodes and panels stay neutral graphite. Color is reserved for the six port types, so the first thing you read in any patch is what flows where.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:1px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);border-radius:12px;overflow:hidden;margin-top:16px;box-shadow:inset 0 0 0 1px var(--fp-line-1)">
+    <div style="background:var(--fp-bg-1);padding:18px 20px;display:grid;gap:6px"><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">01</span><span style="font-size:13px;font-weight:600">Color means data type</span><span style="font-size:12px;line-height:18px;color:var(--fp-fg-3)">Only ports and cables are saturated. Selection is near-white, never a hue.</span></div>
+    <div style="background:var(--fp-bg-1);padding:18px 20px;display:grid;gap:6px"><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">02</span><span style="font-size:13px;font-weight:600">Shape backs up color</span><span style="font-size:12px;line-height:18px;color:var(--fp-fg-3)">Each type has its own port shape and cable stroke. The graph reads in grayscale.</span></div>
+    <div style="background:var(--fp-bg-1);padding:18px 20px;display:grid;gap:6px"><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">03</span><span style="font-size:13px;font-weight:600">Activity is visible</span><span style="font-size:12px;line-height:18px;color:var(--fp-fg-3)">Cables flash on events and glow with level. Any port opens a probe.</span></div>
+    <div style="background:var(--fp-bg-1);padding:18px 20px;display:grid;gap:6px"><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">04</span><span style="font-size:13px;font-weight:600">Every number is a knob</span><span style="font-size:12px;line-height:18px;color:var(--fp-fg-3)">One interaction model: drag, Shift for fine, double-click to reset, cable in to modulate.</span></div>
+  </div>
+</header>
+
+<section id="color" style="display:grid;gap:28px;padding:56px 0;border-top:1px solid var(--fp-line-1)">
+  <div style="display:grid;grid-template-columns:56px minmax(0,1fr);gap:16px;align-items:baseline">
+    <span style="font-family:var(--fp-font-mono);font-size:11px;color:var(--fp-fg-4)">01</span>
+    <div><h2 style="margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em">Color</h2><p style="margin:6px 0 0;font-size:13px;line-height:20px;color:var(--fp-fg-3);max-width:620px;text-wrap:pretty">Cool graphite neutrals in five surface steps. Port colors share one lightness so no type shouts over another.</p></div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px">
+    <div style="display:grid;gap:8px"><div style="height:64px;border-radius:8px;background:var(--fp-bg-0);border:1px solid var(--fp-line-1)"></div><div style="font-size:12px;font-weight:500">Canvas</div><div style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">--fp-bg-0</div></div>
+    <div style="display:grid;gap:8px"><div style="height:64px;border-radius:8px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1)"></div><div style="font-size:12px;font-weight:500">Chrome, inset</div><div style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">--fp-bg-1</div></div>
+    <div style="display:grid;gap:8px"><div style="height:64px;border-radius:8px;background:var(--fp-bg-2);border:1px solid var(--fp-line-1)"></div><div style="font-size:12px;font-weight:500">Node, popover</div><div style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">--fp-bg-2</div></div>
+    <div style="display:grid;gap:8px"><div style="height:64px;border-radius:8px;background:var(--fp-bg-3);border:1px solid var(--fp-line-1)"></div><div style="font-size:12px;font-weight:500">Raised, hover</div><div style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">--fp-bg-3</div></div>
+    <div style="display:grid;gap:8px"><div style="height:64px;border-radius:8px;background:var(--fp-bg-4);border:1px solid var(--fp-line-1)"></div><div style="font-size:12px;font-weight:500">Pressed, fill</div><div style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">--fp-bg-4</div></div>
+    <div style="display:grid;gap:8px"><div style="height:64px;border-radius:8px;display:grid;grid-template-rows:1fr 1fr 1fr;overflow:hidden;border:1px solid var(--fp-line-1)"><div style="background:var(--fp-line-1)"></div><div style="background:var(--fp-line-2)"></div><div style="background:var(--fp-line-3)"></div></div><div style="font-size:12px;font-weight:500">Lines</div><div style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">--fp-line-1…3</div></div>
+    <div style="display:grid;gap:8px"><div style="height:64px;border-radius:8px;display:grid;grid-template-columns:repeat(4,1fr);overflow:hidden;border:1px solid var(--fp-line-1)"><div style="background:var(--fp-fg-1)"></div><div style="background:var(--fp-fg-2)"></div><div style="background:var(--fp-fg-3)"></div><div style="background:var(--fp-fg-4)"></div></div><div style="font-size:12px;font-weight:500">Text</div><div style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">--fp-fg-1…4</div></div>
+  </div>
+
+  <div style="border:1px solid var(--fp-line-1);border-radius:12px;overflow:hidden;background:var(--fp-bg-1)">
+    <div style="display:grid;grid-template-columns:36px minmax(110px,1fr) 96px minmax(0,2fr) minmax(90px,1fr);gap:16px;padding:10px 20px;border-bottom:1px solid var(--fp-line-1);font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)"><span>Port</span><span>Type</span><span>Cable</span><span>Carries</span><span>Rate</span></div>
+    <div style="display:grid;grid-template-columns:36px minmax(110px,1fr) 96px minmax(0,2fr) minmax(90px,1fr);gap:16px;padding:14px 20px;align-items:center;border-bottom:1px solid var(--fp-line-1)">
+      <span style="width:9px;height:9px;margin-left:4px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px"></span>
+      <div style="display:grid;gap:2px"><span style="font-size:13px;font-weight:600;color:var(--fp-event)">Event</span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">--fp-event</span></div>
+      <svg width="80" height="12"><line x1="0" y1="6" x2="80" y2="6" stroke="var(--fp-event)" strokeWidth="1.5" strokeDasharray="3 3"></line></svg>
+      <span style="font-size:12px;line-height:18px;color:var(--fp-fg-2)">Timestamped messages with a payload. Short dash; flashes when it fires.</span>
+      <span style="font-family:var(--fp-font-mono);font-size:11px;color:var(--fp-fg-3)">audio clock</span>
+    </div>
+    <div style="display:grid;grid-template-columns:36px minmax(110px,1fr) 96px minmax(0,2fr) minmax(90px,1fr);gap:16px;padding:14px 20px;align-items:center;border-bottom:1px solid var(--fp-line-1)">
+      <span style="width:9px;height:9px;margin-left:4px;background:var(--fp-bg-1);box-shadow:inset 0 0 0 2.5px var(--fp-note);transform:rotate(45deg);border-radius:1.5px"></span>
+      <div style="display:grid;gap:2px"><span style="font-size:13px;font-weight:600;color:var(--fp-note)">Note</span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">--fp-note</span></div>
+      <svg width="80" height="12"><line x1="0" y1="6" x2="80" y2="6" stroke="var(--fp-note)" strokeWidth="1.5" strokeDasharray="8 3"></line></svg>
+      <span style="font-size:12px;line-height:18px;color:var(--fp-fg-2)">Event subtype: pitch, velocity, length. Same diamond, open center; long dash.</span>
+      <span style="font-family:var(--fp-font-mono);font-size:11px;color:var(--fp-fg-3)">audio clock</span>
+    </div>
+    <div style="display:grid;grid-template-columns:36px minmax(110px,1fr) 96px minmax(0,2fr) minmax(90px,1fr);gap:16px;padding:14px 20px;align-items:center;border-bottom:1px solid var(--fp-line-1)">
+      <span style="width:10px;height:10px;margin-left:3px;background:var(--fp-signal);border-radius:50%"></span>
+      <div style="display:grid;gap:2px"><span style="font-size:13px;font-weight:600;color:var(--fp-signal)">Signal</span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">--fp-signal</span></div>
+      <svg width="80" height="12"><line x1="0" y1="6" x2="80" y2="6" stroke="var(--fp-signal)" strokeWidth="1.5"></line></svg>
+      <span style="font-size:12px;line-height:18px;color:var(--fp-fg-2)">Continuous number. Solid hairline; brightness follows level.</span>
+      <span style="font-family:var(--fp-font-mono);font-size:11px;color:var(--fp-fg-3)">~60 Hz</span>
+    </div>
+    <div style="display:grid;grid-template-columns:36px minmax(110px,1fr) 96px minmax(0,2fr) minmax(90px,1fr);gap:16px;padding:14px 20px;align-items:center;border-bottom:1px solid var(--fp-line-1)">
+      <span style="width:13px;height:8px;margin-left:1px;background:var(--fp-audio);border-radius:4px"></span>
+      <div style="display:grid;gap:2px"><span style="font-size:13px;font-weight:600;color:var(--fp-audio)">Audio</span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">--fp-audio</span></div>
+      <svg width="80" height="12"><line x1="0" y1="6" x2="80" y2="6" stroke="var(--fp-audio)" strokeWidth="3" strokeLinecap="round"></line></svg>
+      <span style="font-size:12px;line-height:18px;color:var(--fp-fg-2)">Web Audio signal. Heavy stroke; pill port; carries an inline meter.</span>
+      <span style="font-family:var(--fp-font-mono);font-size:11px;color:var(--fp-fg-3)">audio rate</span>
+    </div>
+    <div style="display:grid;grid-template-columns:36px minmax(110px,1fr) 96px minmax(0,2fr) minmax(90px,1fr);gap:16px;padding:14px 20px;align-items:center;border-bottom:1px solid var(--fp-line-1)">
+      <span style="width:10px;height:10px;margin-left:3px;background:var(--fp-field);border-radius:2px"></span>
+      <div style="display:grid;gap:2px"><span style="font-size:13px;font-weight:600;color:var(--fp-field)">Field</span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">--fp-field</span></div>
+      <svg width="80" height="12"><line x1="0" y1="6" x2="80" y2="6" stroke="var(--fp-field)" strokeWidth="5"></line><line x1="0" y1="6" x2="80" y2="6" stroke="var(--fp-bg-1)" strokeWidth="1.6"></line></svg>
+      <span style="font-size:12px;line-height:18px;color:var(--fp-fg-2)">2D grid shared by reference. Double rail: it is a medium, not a value.</span>
+      <span style="font-family:var(--fp-font-mono);font-size:11px;color:var(--fp-fg-3)">frame rate</span>
+    </div>
+    <div style="display:grid;grid-template-columns:36px minmax(110px,1fr) 96px minmax(0,2fr) minmax(90px,1fr);gap:16px;padding:14px 20px;align-items:center">
+      <span style="width:10px;height:10px;margin-left:3px;border:2px solid var(--fp-value);border-radius:50%"></span>
+      <div style="display:grid;gap:2px"><span style="font-size:13px;font-weight:600;color:var(--fp-value)">Value</span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">--fp-value</span></div>
+      <svg width="80" height="12"><line x1="1" y1="6" x2="80" y2="6" stroke="var(--fp-value)" strokeWidth="1.8" strokeDasharray="0.1 4.5" strokeLinecap="round"></line></svg>
+      <span style="font-size:12px;line-height:18px;color:var(--fp-fg-2)">Static configuration: a progression, a scale, a palette. Dotted; never animates.</span>
+      <span style="font-family:var(--fp-font-mono);font-size:11px;color:var(--fp-fg-3)">on edit</span>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px">
+    <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:8px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1)"><span style="width:28px;height:28px;border-radius:6px;background:var(--fp-bg-2);box-shadow:0 0 0 1.5px var(--fp-select)"></span><div style="display:grid;gap:2px"><span style="font-size:12px;font-weight:500">Selection</span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">--fp-select · 1.5px ring</span></div></div>
+    <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:8px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1)"><span style="width:28px;height:28px;border-radius:6px;background:var(--fp-error-soft);border:1px solid var(--fp-error)"></span><div style="display:grid;gap:2px"><span style="font-size:12px;font-weight:500">Error</span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">--fp-error · blocked, cycle</span></div></div>
+    <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:8px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1)"><span style="width:28px;height:28px;border-radius:6px;background:var(--fp-warn-soft);border:1px solid var(--fp-warn)"></span><div style="display:grid;gap:2px"><span style="font-size:12px;font-weight:500">Warning</span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">--fp-warn · budget, dropped</span></div></div>
+  </div>
+</section>
+
+<section id="type" style="display:grid;gap:28px;padding:56px 0;border-top:1px solid var(--fp-line-1)">
+  <div style="display:grid;grid-template-columns:56px minmax(0,1fr);gap:16px;align-items:baseline">
+    <span style="font-family:var(--fp-font-mono);font-size:11px;color:var(--fp-fg-4)">02</span>
+    <div><h2 style="margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em">Type</h2><p style="margin:6px 0 0;font-size:13px;line-height:20px;color:var(--fp-fg-3);max-width:620px;text-wrap:pretty">Geist for labels, Geist Mono for anything that changes: values, units, timestamps, ids. Mono digits keep knobs from jittering while they move.</p></div>
+  </div>
+  <div style="border:1px solid var(--fp-line-1);border-radius:12px;background:var(--fp-bg-1)">
+    <div style="display:grid;grid-template-columns:minmax(140px,200px) minmax(0,1fr);gap:24px;padding:18px 20px;align-items:baseline;border-bottom:1px solid var(--fp-line-1)"><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">3xl · 44/48 · 500</span><span style="font-size:44px;line-height:48px;font-weight:500;letter-spacing:-0.025em">The patch is the instrument</span></div>
+    <div style="display:grid;grid-template-columns:minmax(140px,200px) minmax(0,1fr);gap:24px;padding:18px 20px;align-items:baseline;border-bottom:1px solid var(--fp-line-1)"><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">xl · 20/28 · 600</span><span style="font-size:20px;line-height:28px;font-weight:600;letter-spacing:-0.01em">Inspector · Sampled Voice</span></div>
+    <div style="display:grid;grid-template-columns:minmax(140px,200px) minmax(0,1fr);gap:24px;padding:18px 20px;align-items:baseline;border-bottom:1px solid var(--fp-line-1)"><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">lg · 15/22 · 500</span><span style="font-size:15px;line-height:22px;font-weight:500">Euclidean drums that stir the fluid</span></div>
+    <div style="display:grid;grid-template-columns:minmax(140px,200px) minmax(0,1fr);gap:24px;padding:18px 20px;align-items:baseline;border-bottom:1px solid var(--fp-line-1)"><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">md · 13/20 · 400</span><span style="font-size:13px;line-height:20px;color:var(--fp-fg-2);max-width:560px">Passes each event with chance p, from a separate seeded random stream.</span></div>
+    <div style="display:grid;grid-template-columns:minmax(140px,200px) minmax(0,1fr);gap:24px;padding:18px 20px;align-items:baseline;border-bottom:1px solid var(--fp-line-1)"><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">sm · 12/16 · 600</span><span style="font-size:12px;line-height:16px;font-weight:600">Chord Tone</span></div>
+    <div style="display:grid;grid-template-columns:minmax(140px,200px) minmax(0,1fr);gap:24px;padding:18px 20px;align-items:baseline;border-bottom:1px solid var(--fp-line-1)"><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">xs · 11/16 · 400</span><span style="font-size:11px;line-height:16px;color:var(--fp-fg-2)">Trigger   Position   Chord   Pass</span></div>
+    <div style="display:grid;grid-template-columns:minmax(140px,200px) minmax(0,1fr);gap:24px;padding:18px 20px;align-items:baseline;border-bottom:1px solid var(--fp-line-1)"><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">mono · 11/16 · 400</span><span style="font-family:var(--fp-font-mono);font-size:11px;line-height:16px;color:var(--fp-fg-1);font-variant-numeric:tabular-nums">2.40 kHz   12 ms   −6.0 dB   t 14.382   ch 3</span></div>
+    <div style="display:grid;grid-template-columns:minmax(140px,200px) minmax(0,1fr);gap:24px;padding:18px 20px;align-items:baseline"><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">micro · 10 · caps +8%</span><span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-3)">Time and rhythm · 9 nodes</span></div>
+  </div>
+</section>
+
+<section id="space" style="display:grid;gap:28px;padding:56px 0;border-top:1px solid var(--fp-line-1)">
+  <div style="display:grid;grid-template-columns:56px minmax(0,1fr);gap:16px;align-items:baseline">
+    <span style="font-family:var(--fp-font-mono);font-size:11px;color:var(--fp-fg-4)">03</span>
+    <div><h2 style="margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em">Space, shape, depth, motion</h2><p style="margin:6px 0 0;font-size:13px;line-height:20px;color:var(--fp-fg-3);max-width:620px;text-wrap:pretty">The canvas snaps to 20px. Node rows are fixed heights so ports line up across columns and cables run straight.</p></div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+    <div style="padding:20px;border-radius:12px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);display:grid;gap:10px;align-content:start">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Spacing</span>
+      <div style="display:grid;grid-template-columns:28px 1fr;gap:6px 10px;align-items:center;font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-3)">
+        <span>2</span><span style="width:2px;height:8px;background:var(--fp-fg-3)"></span>
+        <span>4</span><span style="width:4px;height:8px;background:var(--fp-fg-3)"></span>
+        <span>6</span><span style="width:6px;height:8px;background:var(--fp-fg-3)"></span>
+        <span>8</span><span style="width:8px;height:8px;background:var(--fp-fg-3)"></span>
+        <span>12</span><span style="width:12px;height:8px;background:var(--fp-fg-3)"></span>
+        <span>16</span><span style="width:16px;height:8px;background:var(--fp-fg-3)"></span>
+        <span>24</span><span style="width:24px;height:8px;background:var(--fp-fg-3)"></span>
+        <span>32</span><span style="width:32px;height:8px;background:var(--fp-fg-3)"></span>
+        <span>48</span><span style="width:48px;height:8px;background:var(--fp-fg-3)"></span>
+      </div>
+    </div>
+    <div style="padding:20px;border-radius:12px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);display:grid;gap:14px;align-content:start">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Node metrics</span>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:8px;font-size:12px;color:var(--fp-fg-2)">
+        <span>Header</span><span style="font-family:var(--fp-font-mono);color:var(--fp-fg-3)">30</span>
+        <span>Port row</span><span style="font-family:var(--fp-font-mono);color:var(--fp-fg-3)">22</span>
+        <span>Param row</span><span style="font-family:var(--fp-font-mono);color:var(--fp-fg-3)">26</span>
+        <span>Width</span><span style="font-family:var(--fp-font-mono);color:var(--fp-fg-3)">184 / 224 / 264</span>
+        <span>Snap grid</span><span style="font-family:var(--fp-font-mono);color:var(--fp-fg-3)">20</span>
+      </div>
+    </div>
+    <div style="padding:20px;border-radius:12px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);display:grid;gap:14px;align-content:start">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Radius</span>
+      <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">
+        <div style="display:grid;gap:6px;justify-items:center"><span style="width:36px;height:36px;border:1.5px solid var(--fp-line-3);border-radius:2px"></span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">2 port</span></div>
+        <div style="display:grid;gap:6px;justify-items:center"><span style="width:36px;height:36px;border:1.5px solid var(--fp-line-3);border-radius:4px"></span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">4 field</span></div>
+        <div style="display:grid;gap:6px;justify-items:center"><span style="width:36px;height:36px;border:1.5px solid var(--fp-line-3);border-radius:6px"></span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">6 button</span></div>
+        <div style="display:grid;gap:6px;justify-items:center"><span style="width:36px;height:36px;border:1.5px solid var(--fp-line-3);border-radius:8px"></span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">8 node</span></div>
+        <div style="display:grid;gap:6px;justify-items:center"><span style="width:36px;height:36px;border:1.5px solid var(--fp-line-3);border-radius:12px"></span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">12 panel</span></div>
+      </div>
+    </div>
+    <div style="padding:20px;border-radius:12px;background:var(--fp-bg-0);border:1px solid var(--fp-line-1);display:grid;gap:14px;align-content:start">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Elevation</span>
+      <div style="display:flex;gap:14px;flex-wrap:wrap">
+        <div style="width:72px;height:52px;border-radius:8px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);display:grid;place-items:center;font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">inset</div>
+        <div style="width:72px;height:52px;border-radius:8px;background:var(--fp-bg-2);border:1px solid var(--fp-line-1);box-shadow:var(--fp-shadow-node);display:grid;place-items:center;font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-3)">node</div>
+        <div style="width:72px;height:52px;border-radius:12px;background:var(--fp-bg-2);border:1px solid var(--fp-line-2);box-shadow:var(--fp-shadow-pop);display:grid;place-items:center;font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-2)">popover</div>
+      </div>
+    </div>
+    <div style="padding:20px;border-radius:12px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);display:grid;gap:14px;align-content:start">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Motion</span>
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:12px;color:var(--fp-fg-2)">
+        <span style="font-family:var(--fp-font-mono);color:var(--fp-fg-3)">120ms</span><span>Event flash on cables and LEDs</span>
+        <span style="font-family:var(--fp-font-mono);color:var(--fp-fg-3)">140ms</span><span>Hover and press</span>
+        <span style="font-family:var(--fp-font-mono);color:var(--fp-fg-3)">220ms</span><span>Popovers, palette, probes</span>
+        <span style="font-family:var(--fp-font-mono);color:var(--fp-fg-3)">360ms</span><span>Patch ⇄ Play</span>
+      </div>
+      <span style="font-size:11px;line-height:16px;color:var(--fp-fg-4)">Reduced motion: flashes become a steady tint; sound and color stay.</span>
+    </div>
+  </div>
+</section>
+
+<section id="ports" style="display:grid;gap:28px;padding:56px 0;border-top:1px solid var(--fp-line-1)">
+  <div style="display:grid;grid-template-columns:56px minmax(0,1fr);gap:16px;align-items:baseline">
+    <span style="font-family:var(--fp-font-mono);font-size:11px;color:var(--fp-fg-4)">04</span>
+    <div><h2 style="margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em">Ports and cables</h2><p style="margin:6px 0 0;font-size:13px;line-height:20px;color:var(--fp-fg-3);max-width:620px;text-wrap:pretty">Cables are drawn beneath nodes. Idle cables sit at 55% opacity; activity brings them to full strength.</p></div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+    <div style="padding:20px;border-radius:12px;background:var(--fp-bg-0);border:1px solid var(--fp-line-1);display:grid;gap:14px">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Event · idle / firing</span>
+      <svg width="100%" height="56" viewBox="0 0 260 56" preserveAspectRatio="none">
+        <path d="M4 14 C 120 14, 140 14, 256 14" fill="none" stroke="var(--fp-event)" strokeOpacity="0.55" strokeWidth="1.5" strokeDasharray="3 3"></path>
+        <path d="M4 42 C 120 42, 140 42, 256 42" fill="none" stroke="var(--fp-event)" strokeOpacity="0.25" strokeWidth="7" strokeLinecap="round"></path>
+        <path d="M4 42 C 120 42, 140 42, 256 42" fill="none" stroke="var(--fp-event)" strokeWidth="1.8"></path>
+      </svg>
+      <span style="font-size:11px;line-height:16px;color:var(--fp-fg-3)">A fire turns the dash solid with a soft halo for 120ms.</span>
+    </div>
+    <div style="padding:20px;border-radius:12px;background:var(--fp-bg-0);border:1px solid var(--fp-line-1);display:grid;gap:14px">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Signal · low / high level</span>
+      <svg width="100%" height="56" viewBox="0 0 260 56" preserveAspectRatio="none">
+        <path d="M4 14 L256 14" stroke="var(--fp-signal)" strokeOpacity="0.4" strokeWidth="1.5"></path>
+        <path d="M4 42 L256 42" stroke="var(--fp-signal)" strokeOpacity="0.2" strokeWidth="6"></path>
+        <path d="M4 42 L256 42" stroke="var(--fp-signal)" strokeWidth="1.5"></path>
+      </svg>
+      <span style="font-size:11px;line-height:16px;color:var(--fp-fg-3)">Opacity and halo track the normalized value.</span>
+    </div>
+    <div style="padding:20px;border-radius:12px;background:var(--fp-bg-0);border:1px solid var(--fp-line-1);display:grid;gap:14px">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Audio · inline meter</span>
+      <div style="position:relative;height:56px">
+        <svg width="100%" height="56" viewBox="0 0 260 56" preserveAspectRatio="none" style="position:absolute;inset:0"><path d="M4 28 L256 28" stroke="var(--fp-audio)" strokeWidth="3" strokeLinecap="round"></path></svg>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;gap:2px;align-items:end;height:18px;padding:3px 5px;border-radius:4px;background:var(--fp-bg-2);border:1px solid var(--fp-line-2)">
+          <span style="width:3px;height:6px;background:var(--fp-audio)"></span><span style="width:3px;height:9px;background:var(--fp-audio)"></span><span style="width:3px;height:11px;background:var(--fp-audio)"></span><span style="width:3px;height:8px;background:var(--fp-audio)"></span><span style="width:3px;height:4px;background:var(--fp-line-2)"></span><span style="width:3px;height:4px;background:var(--fp-line-2)"></span>
+        </div>
+      </div>
+      <span style="font-size:11px;line-height:16px;color:var(--fp-fg-3)">Meter rides the cable midpoint; turns warn color above −3 dB.</span>
+    </div>
+    <div style="padding:20px;border-radius:12px;background:var(--fp-bg-0);border:1px solid var(--fp-line-1);display:grid;gap:14px">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Modulation · depth</span>
+      <div style="position:relative;height:56px">
+        <svg width="100%" height="56" viewBox="0 0 260 56" preserveAspectRatio="none" style="position:absolute;inset:0"><path d="M4 28 L256 28" stroke="var(--fp-signal)" strokeWidth="1.5"></path></svg>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:6px;height:20px;padding:0 7px;border-radius:999px;background:var(--fp-bg-2);border:1px solid var(--fp-signal);font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-signal)"><span style="width:28px;height:3px;border-radius:2px;background:linear-gradient(90deg,var(--fp-signal) 64%,var(--fp-line-2) 64%)"></span>+0.64</div>
+      </div>
+      <span style="font-size:11px;line-height:16px;color:var(--fp-fg-3)">Cables into a parameter carry a depth chip. Drag it to scale; double-click to type.</span>
+    </div>
+    <div style="padding:20px;border-radius:12px;background:var(--fp-bg-0);border:1px solid var(--fp-line-1);display:grid;gap:14px">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Dragging · compatible target</span>
+      <div style="position:relative;height:56px">
+        <svg width="100%" height="56" viewBox="0 0 260 56" preserveAspectRatio="none" style="position:absolute;inset:0"><path d="M4 40 C 100 40, 140 16, 226 16" fill="none" stroke="var(--fp-note)" strokeWidth="1.5" strokeDasharray="8 3"></path></svg>
+        <span style="position:absolute;right:16px;top:9px;width:14px;height:14px;transform:rotate(45deg);border-radius:2px;background:var(--fp-bg-0);box-shadow:inset 0 0 0 2.5px var(--fp-note),0 0 0 4px var(--fp-note-soft)"></span>
+      </div>
+      <span style="font-size:11px;line-height:16px;color:var(--fp-fg-3)">Compatible ports swell and ring; incompatible ports dim to 30%.</span>
+    </div>
+    <div style="padding:20px;border-radius:12px;background:var(--fp-bg-0);border:1px solid var(--fp-line-1);display:grid;gap:14px">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Rejected · cycle with no delay</span>
+      <div style="position:relative;height:56px">
+        <svg width="100%" height="56" viewBox="0 0 260 56" preserveAspectRatio="none" style="position:absolute;inset:0"><path d="M4 28 L256 28" stroke="var(--fp-error)" strokeWidth="1.8" strokeDasharray="3 3"></path></svg>
+        <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:999px;background:var(--fp-bg-2);border:1px solid var(--fp-error);font-size:11px;color:var(--fp-fg-1);white-space:nowrap"><i class="icon-triangle-alert" style="font-size:12px;color:var(--fp-error)"></i>Needs a Delay Edge</div>
+      </div>
+      <span style="font-size:11px;line-height:16px;color:var(--fp-fg-3)">Flashes red twice, then snaps back. The fix is offered inline.</span>
+    </div>
+  </div>
+</section>
+
+<section id="controls" style="display:grid;gap:28px;padding:56px 0;border-top:1px solid var(--fp-line-1)">
+  <div style="display:grid;grid-template-columns:56px minmax(0,1fr);gap:16px;align-items:baseline">
+    <span style="font-family:var(--fp-font-mono);font-size:11px;color:var(--fp-fg-4)">05</span>
+    <div><h2 style="margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em">Controls</h2><p style="margin:6px 0 0;font-size:13px;line-height:20px;color:var(--fp-fg-3);max-width:620px;text-wrap:pretty">Knobs for the inspector and the Play strip; param fields inside nodes. Both share one model. Try them: drag vertically, hold Shift for fine, double-click to reset.</p></div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px">
+    <div style="padding:20px;border-radius:12px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);display:grid;gap:18px">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Knob · 48</span>
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        <sc-for list="{{ controlKnobs }}" as="k" hint-placeholder-count="4">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;user-select:none">
+            <svg width="48" height="48" viewBox="0 0 32 32" onPointerDown="{{ k.onDown }}" onDoubleClick="{{ k.onReset }}" style="cursor:ns-resize;touch-action:none;overflow:visible">
+              <circle cx="16" cy="16" r="12" fill="none" stroke="var(--fp-line-2)" strokeWidth="2.2" strokeLinecap="round" strokeDasharray="56.55 75.4" transform="rotate(135 16 16)"></circle>
+              <circle cx="16" cy="16" r="12" fill="none" stroke="var(--fp-fg-1)" strokeWidth="2.2" strokeLinecap="round" strokeDasharray="{{ k.dash }}" transform="rotate(135 16 16)"></circle>
+              <circle cx="16" cy="16" r="15.2" fill="none" stroke="var(--fp-signal)" strokeWidth="1.2" strokeLinecap="round" strokeDasharray="{{ k.modDash }}" strokeDashoffset="{{ k.modOff }}" transform="rotate(135 16 16)"></circle>
+              <circle cx="16" cy="16" r="8.5" fill="var(--fp-bg-3)" stroke="var(--fp-line-2)" strokeWidth="0.5"></circle>
+              <line x1="16" y1="12.5" x2="16" y2="8.6" stroke="var(--fp-fg-1)" strokeWidth="1.4" strokeLinecap="round" transform="{{ k.rot }}"></line>
+            </svg>
+            <span style="font-size:11px;color:var(--fp-fg-2)">{{ k.label }}</span>
+            <span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-3);font-variant-numeric:tabular-nums">{{ k.display }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <span style="font-size:11px;line-height:16px;color:var(--fp-fg-4)">White arc is the base value. The outer cyan arc shows live modulation (Depth, from an LFO).</span>
+    </div>
+
+    <div style="padding:20px;border-radius:12px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);display:grid;gap:12px;align-content:start">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Param field · in-node knob</span>
+      <div style="display:grid;gap:4px;padding:8px 0;background:var(--fp-bg-2);border-radius:8px;border:1px solid var(--fp-line-1)">
+        <div style="position:relative;height:22px;margin:0 8px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:absolute;left:0;top:0;bottom:0;width:31%;background:var(--fp-bg-4)"></span><span style="position:relative;color:var(--fp-fg-2)">Hits</span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">5</span></div>
+        <div style="position:relative;height:22px;margin:0 8px;border-radius:4px;background:var(--fp-bg-3);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px;box-shadow:inset 0 0 0 1px var(--fp-line-3)"><span style="position:absolute;left:0;top:0;bottom:0;width:46%;background:var(--fp-bg-4)"></span><span style="position:relative;color:var(--fp-fg-1)">Attack <span style="color:var(--fp-fg-4)">· hover</span></span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">12 ms</span></div>
+        <div style="position:relative;height:22px;margin:0 8px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:absolute;left:0;top:0;bottom:0;width:58%;background:var(--fp-bg-4)"></span><span style="position:absolute;left:58%;top:0;bottom:0;width:22%;background:var(--fp-signal-soft);border-left:1.5px solid var(--fp-signal)"></span><span style="position:relative;color:var(--fp-fg-2)">Cutoff <span style="color:var(--fp-signal)">· modulated</span></span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">2.4 kHz</span></div>
+        <div style="position:relative;height:22px;margin:0 8px;border-radius:4px;background:var(--fp-bg-0);display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px;box-shadow:var(--fp-ring-focus)"><span style="color:var(--fp-fg-2)">Swing</span><span style="font-family:var(--fp-font-mono);color:var(--fp-fg-1)">18<span style="display:inline-block;width:1px;height:12px;background:var(--fp-fg-1);margin-left:1px;vertical-align:-2px"></span> %</span></div>
+      </div>
+      <span style="font-size:11px;line-height:16px;color:var(--fp-fg-4)">Rows: idle, hover, modulated (cyan band = live range), typing.</span>
+    </div>
+
+    <div style="padding:20px;border-radius:12px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);display:grid;gap:16px;align-content:start">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Choice</span>
+      <div style="display:flex;gap:2px;padding:2px;border-radius:6px;background:var(--fp-bg-0);border:1px solid var(--fp-line-1);width:max-content;max-width:100%;flex-wrap:wrap">
+        <sc-for list="{{ lfoShapes }}" as="s" hint-placeholder-count="5">
+          <button onClick="{{ s.pick }}" style="height:24px;padding:0 10px;border:0;border-radius:4px;font-family:var(--fp-font-ui);font-size:11px;cursor:pointer;background:{{ s.bg }};color:{{ s.fg }}">{{ s.name }}</button>
+        </sc-for>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;height:28px;padding:0 10px;min-width:180px;border-radius:6px;background:var(--fp-bg-2);border:1px solid var(--fp-line-2);font-size:12px;cursor:pointer" style-hover="background:var(--fp-bg-3)"><span>Celesta</span><i class="icon-chevron-down" style="font-size:13px;color:var(--fp-fg-3)"></i></div>
+        <button onClick="{{ toggleOn }}" style="display:flex;align-items:center;gap:8px;border:0;background:transparent;padding:0;cursor:pointer;font-family:var(--fp-font-ui);font-size:12px;color:var(--fp-fg-2)">
+          <span style="width:28px;height:16px;border-radius:999px;padding:2px;display:flex;justify-content:{{ toggleJustify }};background:{{ toggleBg }};transition:background 140ms"><span style="width:12px;height:12px;border-radius:50%;background:{{ toggleKnob }}"></span></span>Tempo sync
+        </button>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;height:28px;border-radius:6px;background:var(--fp-bg-1);border:1px solid var(--fp-line-2);overflow:hidden"><span style="padding:0 8px;font-size:11px;color:var(--fp-fg-3)">BPM</span><span style="padding:0 10px;height:100%;display:flex;align-items:center;border-left:1px solid var(--fp-line-1);font-family:var(--fp-font-mono);font-size:12px;cursor:ew-resize">112.0</span></div>
+        <div style="display:flex;align-items:center;height:28px;border-radius:6px;background:var(--fp-bg-1);border:1px solid var(--fp-line-2);overflow:hidden"><span style="padding:0 8px;font-size:11px;color:var(--fp-fg-3)">Division</span><span style="padding:0 10px;height:100%;display:flex;align-items:center;border-left:1px solid var(--fp-line-1);font-family:var(--fp-font-mono);font-size:12px">1/16T</span></div>
+      </div>
+    </div>
+
+    <div style="padding:20px;border-radius:12px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);display:grid;gap:14px;align-content:start">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Step grid · click to cycle off → ghost → hit → accent</span>
+      <div style="display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:3px;height:56px;align-items:end">
+        <sc-for list="{{ stepCells }}" as="c" hint-placeholder-count="16">
+          <button onClick="{{ c.cycle }}" style="height:100%;border:0;padding:0;border-radius:3px;cursor:pointer;background:var(--fp-bg-0);box-shadow:inset 0 0 0 1px var(--fp-line-1);display:flex;align-items:end;overflow:hidden"><span style="width:100%;height:{{ c.h }};background:var(--fp-event);opacity:{{ c.o }}"></span></button>
+        </sc-for>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)"><span>1</span><span>5</span><span>9</span><span>13</span></div>
+    </div>
+
+    <div style="padding:20px;border-radius:12px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);display:grid;gap:16px;align-content:start">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Buttons</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button style="height:28px;padding:0 12px;border-radius:6px;border:0;background:var(--fp-fg-1);color:var(--fp-bg-0);font-family:var(--fp-font-ui);font-size:12px;font-weight:500;cursor:pointer" style-hover="background:var(--fp-fg-2)">Publish patch</button>
+        <button style="height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--fp-line-2);background:var(--fp-bg-3);color:var(--fp-fg-1);font-family:var(--fp-font-ui);font-size:12px;cursor:pointer" style-hover="background:var(--fp-bg-4)">Collapse to subpatch</button>
+        <button style="height:28px;padding:0 10px;border-radius:6px;border:0;background:transparent;color:var(--fp-fg-2);font-family:var(--fp-font-ui);font-size:12px;cursor:pointer" style-hover="background:var(--fp-bg-3);color:var(--fp-fg-1)">Cancel</button>
+        <button style="height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--fp-line-1);background:transparent;color:var(--fp-fg-4);font-family:var(--fp-font-ui);font-size:12px;cursor:not-allowed">Disabled</button>
+      </div>
+      <div style="display:flex;gap:4px;align-items:center">
+        <button style="width:28px;height:28px;display:grid;place-items:center;border-radius:6px;border:0;background:transparent;color:var(--fp-fg-2);cursor:pointer" style-hover="background:var(--fp-bg-3);color:var(--fp-fg-1)"><i class="icon-undo-2" style="font-size:15px"></i></button>
+        <button style="width:28px;height:28px;display:grid;place-items:center;border-radius:6px;border:0;background:transparent;color:var(--fp-fg-2);cursor:pointer" style-hover="background:var(--fp-bg-3);color:var(--fp-fg-1)"><i class="icon-redo-2" style="font-size:15px"></i></button>
+        <button style="width:28px;height:28px;display:grid;place-items:center;border-radius:6px;border:0;background:var(--fp-bg-3);color:var(--fp-fg-1);cursor:pointer"><i class="icon-pin" style="font-size:14px"></i></button>
+        <button style="width:28px;height:28px;display:grid;place-items:center;border-radius:6px;border:0;background:transparent;color:var(--fp-fg-2);cursor:pointer" style-hover="background:var(--fp-bg-3);color:var(--fp-fg-1)"><i class="icon-crosshair" style="font-size:14px"></i></button>
+        <span style="width:1px;height:16px;background:var(--fp-line-2);margin:0 6px"></span>
+        <span style="display:flex;gap:6px;align-items:center;font-size:11px;color:var(--fp-fg-3)"><kbd style="font-family:var(--fp-font-mono);font-size:10px;min-width:18px;height:18px;padding:0 5px;display:inline-grid;place-items:center;border-radius:4px;background:var(--fp-bg-3);border:1px solid var(--fp-line-2);border-bottom-width:2px;color:var(--fp-fg-2)">Tab</kbd>Add node</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="nodes" style="display:grid;gap:28px;padding:56px 0;border-top:1px solid var(--fp-line-1)">
+  <div style="display:grid;grid-template-columns:56px minmax(0,1fr);gap:16px;align-items:baseline">
+    <span style="font-family:var(--fp-font-mono);font-size:11px;color:var(--fp-fg-4)">06</span>
+    <div><h2 style="margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em">Nodes</h2><p style="margin:6px 0 0;font-size:13px;line-height:20px;color:var(--fp-fg-3);max-width:620px;text-wrap:pretty">Neutral bodies. The family is a glyph in the header, not a color. Inputs on the left edge, outputs on the right, parameters below with their own modulation ports.</p></div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px">
+    <span style="display:flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:999px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);font-size:12px;color:var(--fp-fg-2)"><i class="icon-mouse-pointer-2" style="font-size:13px;color:var(--fp-fg-3)"></i>Sources</span>
+    <span style="display:flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:999px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);font-size:12px;color:var(--fp-fg-2)"><i class="icon-hand" style="font-size:13px;color:var(--fp-fg-3)"></i>Gestures</span>
+    <span style="display:flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:999px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);font-size:12px;color:var(--fp-fg-2)"><i class="icon-timer" style="font-size:13px;color:var(--fp-fg-3)"></i>Time and rhythm</span>
+    <span style="display:flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:999px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);font-size:12px;color:var(--fp-fg-2)"><i class="icon-music" style="font-size:13px;color:var(--fp-fg-3)"></i>Harmony</span>
+    <span style="display:flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:999px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);font-size:12px;color:var(--fp-fg-2)"><i class="icon-git-fork" style="font-size:13px;color:var(--fp-fg-3)"></i>Control</span>
+    <span style="display:flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:999px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);font-size:12px;color:var(--fp-fg-2)"><i class="icon-piano" style="font-size:13px;color:var(--fp-fg-3)"></i>Instruments</span>
+    <span style="display:flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:999px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);font-size:12px;color:var(--fp-fg-2)"><i class="icon-audio-waveform" style="font-size:13px;color:var(--fp-fg-3)"></i>Effects and mix</span>
+    <span style="display:flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:999px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);font-size:12px;color:var(--fp-fg-2)"><i class="icon-droplets" style="font-size:13px;color:var(--fp-fg-3)"></i>Visual</span>
+  </div>
+
+  <div style="padding:36px 32px;border-radius:12px;background:var(--fp-bg-0);border:1px solid var(--fp-line-1);display:flex;flex-wrap:wrap;gap:40px 48px;align-items:flex-start;background-image:radial-gradient(circle,var(--fp-line-1) 1px,transparent 1.3px);background-size:20px 20px">
+
+    <div style="display:grid;gap:10px">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Selected</span>
+      <div style="width:184px;background:var(--fp-bg-2);border:1px solid var(--fp-line-1);border-radius:8px;box-shadow:var(--fp-ring-select),var(--fp-shadow-node)">
+        <div style="height:30px;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;border-bottom:1px solid var(--fp-line-1)"><i class="icon-music" style="font-size:13px;color:var(--fp-fg-3)"></i><span style="flex:1;font-size:12px;font-weight:600">Make Note</span><span style="width:6px;height:6px;border-radius:50%;background:var(--fp-note);box-shadow:0 0 6px var(--fp-note)"></span><i class="icon-ellipsis" style="font-size:14px;color:var(--fp-fg-3)"></i></div>
+        <div style="padding:6px 0 8px">
+          <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span style="position:absolute;left:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span><span>Trigger</span><span>Note</span><span style="position:absolute;right:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-bg-2);box-shadow:inset 0 0 0 2.5px var(--fp-note);transform:rotate(45deg);border-radius:1.5px"></span></div>
+          <div style="position:relative;height:22px;display:flex;align-items:center;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span style="position:absolute;left:-5px;top:6px;width:10px;height:10px;background:var(--fp-signal);border-radius:50%;box-shadow:0 0 0 2px var(--fp-bg-2)"></span><span>Pitch</span></div>
+          <div style="height:4px"></div>
+          <div style="position:relative;height:26px;padding:2px 8px"><div style="position:relative;height:22px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:absolute;left:0;top:0;bottom:0;width:72%;background:var(--fp-bg-4)"></span><span style="position:relative;color:var(--fp-fg-2)">Velocity</span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">0.72</span></div></div>
+          <div style="position:relative;height:26px;padding:2px 8px"><div style="position:relative;height:22px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:absolute;left:0;top:0;bottom:0;width:25%;background:var(--fp-bg-4)"></span><span style="position:relative;color:var(--fp-fg-2)">Length</span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">1/8</span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;gap:10px">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Recognizer · Pass output</span>
+      <div style="width:184px;background:var(--fp-bg-2);border:1px solid var(--fp-line-1);border-radius:8px;box-shadow:var(--fp-shadow-node)">
+        <div style="height:30px;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;border-bottom:1px solid var(--fp-line-1)"><i class="icon-hand" style="font-size:13px;color:var(--fp-fg-3)"></i><span style="flex:1;font-size:12px;font-weight:600">Pinch</span><span style="width:6px;height:6px;border-radius:50%;background:var(--fp-line-2)"></span><i class="icon-ellipsis" style="font-size:14px;color:var(--fp-fg-3)"></i></div>
+        <div style="padding:6px 0 8px">
+          <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span style="position:absolute;left:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span><span>Events</span><span>Pinch in</span><span style="position:absolute;right:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span></div>
+          <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:flex-end;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span>Spread</span><span style="position:absolute;right:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span></div>
+          <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:flex-end;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span>Scale</span><span style="position:absolute;right:-5px;top:6px;width:10px;height:10px;background:var(--fp-signal);border-radius:50%;box-shadow:0 0 0 2px var(--fp-bg-2)"></span></div>
+          <div style="margin:4px 12px;border-top:1px dashed var(--fp-line-2)"></div>
+          <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:0 12px;font-size:11px;color:var(--fp-fg-3)"><i class="icon-corner-down-right" style="font-size:12px"></i><span>Pass</span><span style="position:absolute;right:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;gap:10px">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Blocked</span>
+      <div style="width:184px;background:var(--fp-bg-2);border:1px solid var(--fp-error);border-radius:8px;box-shadow:var(--fp-shadow-node);overflow:visible">
+        <div style="height:30px;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;border-bottom:1px solid var(--fp-line-1)"><i class="icon-mic-off" style="font-size:13px;color:var(--fp-error)"></i><span style="flex:1;font-size:12px;font-weight:600">Microphone</span><i class="icon-ellipsis" style="font-size:14px;color:var(--fp-fg-3)"></i></div>
+        <div style="padding:8px 10px;background:var(--fp-error-soft);font-size:11px;line-height:15px;color:var(--fp-fg-1);display:grid;gap:6px">Permission denied. Allow microphone in browser settings, then retry.<span style="font-weight:500;color:var(--fp-fg-1);text-decoration:underline;text-underline-offset:2px;cursor:pointer">Retry</span></div>
+        <div style="padding:6px 0 8px;opacity:0.45">
+          <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:flex-end;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span>Level</span><span style="position:absolute;right:-5px;top:6px;width:10px;height:10px;background:var(--fp-signal);border-radius:50%"></span></div>
+          <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:flex-end;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span>Onset</span><span style="position:absolute;right:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;gap:10px">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Loading</span>
+      <div style="width:184px;background:var(--fp-bg-2);border:1px solid var(--fp-line-1);border-radius:8px;box-shadow:var(--fp-shadow-node)">
+        <div style="position:relative;height:30px;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;border-bottom:1px solid var(--fp-line-1)"><i class="icon-piano" style="font-size:13px;color:var(--fp-fg-3)"></i><span style="flex:1;font-size:12px;font-weight:600">Sampled Voice</span><i class="icon-ellipsis" style="font-size:14px;color:var(--fp-fg-3)"></i><span style="position:absolute;left:0;bottom:-1px;height:1px;width:64%;background:var(--fp-fg-2)"></span></div>
+        <div style="padding:6px 0 8px">
+          <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span style="position:absolute;left:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-bg-2);box-shadow:inset 0 0 0 2.5px var(--fp-note),0 0 0 2px var(--fp-bg-2);transform:rotate(45deg);border-radius:1.5px"></span><span>Note</span><span>Audio</span><span style="position:absolute;right:-6px;top:7px;width:13px;height:8px;background:var(--fp-audio);border-radius:4px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span></div>
+          <div style="height:4px"></div>
+          <div style="padding:2px 8px"><div style="height:22px;border-radius:4px;background:var(--fp-bg-1);display:flex;align-items:center;gap:6px;padding:0 8px;font-size:11px;color:var(--fp-fg-3)"><i class="icon-loader-circle" style="font-size:12px"></i>Loading Celesta<span style="margin-left:auto;font-family:var(--fp-font-mono);color:var(--fp-fg-2)">64%</span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;gap:10px">
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Collapsed</span>
+      <div style="position:relative;width:184px;height:30px;display:flex;align-items:center;gap:8px;padding:0 10px;background:var(--fp-bg-2);border:1px solid var(--fp-line-1);border-radius:8px;box-shadow:var(--fp-shadow-node)"><span style="position:absolute;left:-5px;top:9.5px;width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span><i class="icon-timer" style="font-size:13px;color:var(--fp-fg-3)"></i><span style="flex:1;font-size:12px;font-weight:600">Probability</span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-3)">p 0.6</span><span style="position:absolute;right:-5px;top:9.5px;width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span></div>
+      <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4);margin-top:22px">Subpatch</span>
+      <div style="position:relative;width:184px">
+        <div style="position:absolute;inset:4px -4px -4px 4px;border-radius:8px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1)"></div>
+        <div style="position:relative;background:var(--fp-bg-2);border:1px solid var(--fp-line-2);border-radius:8px;box-shadow:var(--fp-shadow-node)">
+          <div style="height:30px;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;border-bottom:1px solid var(--fp-line-1)"><i class="icon-layers" style="font-size:13px;color:var(--fp-fg-3)"></i><span style="flex:1;font-size:12px;font-weight:600">Conduct</span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">7 nodes</span></div>
+          <div style="padding:6px 0 8px"><div style="position:relative;height:22px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span style="position:absolute;left:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span><span>Pointer</span><span>Notes</span><span style="position:absolute;right:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-bg-2);box-shadow:inset 0 0 0 2.5px var(--fp-note);transform:rotate(45deg);border-radius:1.5px"></span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="overlays" style="display:grid;gap:28px;padding:56px 0;border-top:1px solid var(--fp-line-1)">
+  <div style="display:grid;grid-template-columns:56px minmax(0,1fr);gap:16px;align-items:baseline">
+    <span style="font-family:var(--fp-font-mono);font-size:11px;color:var(--fp-fg-4)">07</span>
+    <div><h2 style="margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em">Palette, probes, prompts</h2><p style="margin:6px 0 0;font-size:13px;line-height:20px;color:var(--fp-fg-3);max-width:620px;text-wrap:pretty">Transient surfaces float at popover elevation and appear where the pointer is. Type in the palette to filter.</p></div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;align-items:start;padding:28px;border-radius:12px;background:var(--fp-bg-0);border:1px solid var(--fp-line-1)">
+    <div style="background:var(--fp-bg-2);border:1px solid var(--fp-line-2);border-radius:12px;box-shadow:var(--fp-shadow-pop);overflow:hidden">
+      <div style="display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border-bottom:1px solid var(--fp-line-1)">
+        <i class="icon-search" style="font-size:14px;color:var(--fp-fg-3)"></i>
+        <input value="{{ query }}" onChange="{{ onQuery }}" placeholder="Search nodes" style="flex:1;min-width:0;background:transparent;border:0;outline:none;color:var(--fp-fg-1);font-family:var(--fp-font-ui);font-size:13px">
+        <span style="display:flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:999px;background:var(--fp-event-soft);font-size:10px;color:var(--fp-event);white-space:nowrap"><span style="width:6px;height:6px;background:var(--fp-event);transform:rotate(45deg)"></span>Accepts Event</span>
+      </div>
+      <div style="padding:6px;display:grid;gap:1px;max-height:300px;overflow:auto">
+        <sc-for list="{{ paletteItems }}" as="p" hint-placeholder-count="6">
+          <div style="display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 8px;border-radius:6px;background:{{ p.bg }};cursor:pointer" style-hover="background:var(--fp-bg-3)">
+            <i class="{{ p.icon }}" style="font-size:14px;color:var(--fp-fg-3)"></i>
+            <div style="display:grid;gap:1px;min-width:0"><span style="font-size:12px;font-weight:500;color:var(--fp-fg-1)">{{ p.n }}</span><span style="font-size:11px;color:var(--fp-fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.d }}</span></div>
+            <span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">{{ p.fam }}</span>
+          </div>
+        </sc-for>
+        <sc-if value="{{ paletteEmpty }}" hint-placeholder-val="{{ false }}"><div style="padding:16px 10px;font-size:12px;color:var(--fp-fg-3)">No compatible nodes match.</div></sc-if>
+      </div>
+      <div style="display:flex;gap:14px;padding:8px 12px;border-top:1px solid var(--fp-line-1);font-size:11px;color:var(--fp-fg-4)"><span>↑↓ move</span><span>↵ insert</span><span>esc close</span></div>
+    </div>
+
+    <div style="display:grid;gap:20px">
+      <div style="background:var(--fp-bg-2);border:1px solid var(--fp-line-2);border-radius:12px;box-shadow:var(--fp-shadow-pop);padding:12px 14px;display:grid;gap:10px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:50%;background:var(--fp-signal)"></span><span style="font-size:12px;font-weight:500">Pointer · Y</span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">ch 0</span><span style="margin-left:auto;font-family:var(--fp-font-mono);font-size:12px;color:var(--fp-signal)">0.634</span><i class="icon-pin" style="font-size:13px;color:var(--fp-fg-1)"></i></div>
+        <svg width="100%" height="64" viewBox="0 0 280 64" preserveAspectRatio="none" style="display:block;border-radius:6px;background:var(--fp-bg-1)">
+          <line x1="0" y1="32" x2="280" y2="32" stroke="var(--fp-line-1)" strokeWidth="1"></line>
+          <polyline points="{{ scopePoints }}" fill="none" stroke="var(--fp-signal)" strokeWidth="1.5" strokeLinejoin="round"></polyline>
+        </svg>
+        <div style="display:flex;justify-content:space-between;font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)"><span>−2.0 s</span><span>min 0.08 · max 0.91</span><span>now</span></div>
+      </div>
+      <div style="background:var(--fp-bg-2);border:1px solid var(--fp-line-2);border-radius:12px;box-shadow:var(--fp-shadow-pop);padding:12px 14px;display:grid;gap:10px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px"></span><span style="font-size:12px;font-weight:500">Euclidean · Hits</span><span style="margin-left:auto;font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-3)">5 / bar</span></div>
+        <div style="position:relative;height:40px;border-radius:6px;background:var(--fp-bg-1)">
+          <sc-for list="{{ timelineTicks }}" as="t" hint-placeholder-count="10">
+            <span style="position:absolute;left:{{ t.x }};top:{{ t.y }};width:2px;height:12px;border-radius:1px;background:var(--fp-event);opacity:{{ t.o }}"></span>
+          </sc-for>
+        </div>
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-3)"><span style="color:var(--fp-fg-4)">t</span><span>14.382</span><span style="color:var(--fp-fg-4)">channel</span><span>0</span><span style="color:var(--fp-fg-4)">velocity</span><span>0.80</span></div>
+      </div>
+    </div>
+
+    <div style="display:grid;gap:20px">
+      <div style="background:var(--fp-bg-2);border:1px solid var(--fp-line-2);border-radius:12px;box-shadow:var(--fp-shadow-pop);padding:14px;display:grid;gap:12px">
+        <div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px"></span><i class="icon-arrow-right" style="font-size:12px;color:var(--fp-fg-4)"></i><span style="width:10px;height:10px;border-radius:50%;background:var(--fp-signal)"></span><span style="font-weight:500;margin-left:4px">Event into Signal</span></div>
+        <span style="font-size:12px;line-height:18px;color:var(--fp-fg-3)">These types need an adapter. Insert one:</span>
+        <div style="display:grid;gap:4px">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:6px;background:var(--fp-bg-3);font-size:12px"><span>Sample &amp; Hold</span><span style="font-size:11px;color:var(--fp-fg-3)">holds a value per event</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:6px;font-size:12px" style-hover="background:var(--fp-bg-3)"><span>Envelope</span><span style="font-size:11px;color:var(--fp-fg-3)">ADSR per event</span></div>
+        </div>
+      </div>
+      <div style="background:var(--fp-bg-1);border:1px solid var(--fp-line-1);border-radius:12px;padding:14px;display:grid;gap:12px">
+        <span style="font-family:var(--fp-font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fp-fg-4)">Budget</span>
+        <div style="display:grid;grid-template-columns:64px minmax(0,1fr) 72px;gap:8px 10px;align-items:center;font-size:11px">
+          <span style="color:var(--fp-fg-3)">Fluid</span><span style="position:relative;height:4px;border-radius:2px;background:var(--fp-bg-3)"><span style="position:absolute;left:0;top:0;bottom:0;width:39%;border-radius:2px;background:var(--fp-fg-2)"></span><span style="position:absolute;left:75%;top:-3px;width:1px;height:10px;background:var(--fp-fg-4)"></span></span><span style="font-family:var(--fp-font-mono);text-align:right;color:var(--fp-fg-2)">6.2 ms</span>
+          <span style="color:var(--fp-fg-3)">Voices</span><span style="position:relative;height:4px;border-radius:2px;background:var(--fp-bg-3)"><span style="position:absolute;left:0;top:0;bottom:0;width:28%;border-radius:2px;background:var(--fp-fg-2)"></span></span><span style="font-family:var(--fp-font-mono);text-align:right;color:var(--fp-fg-2)">18 / 64</span>
+          <span style="color:var(--fp-fg-3)">Events</span><span style="position:relative;height:4px;border-radius:2px;background:var(--fp-bg-3)"><span style="position:absolute;left:0;top:0;bottom:0;width:86%;border-radius:2px;background:var(--fp-warn)"></span></span><span style="font-family:var(--fp-font-mono);text-align:right;color:var(--fp-warn)">1,760 / 2k</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="patch-view" style="display:grid;gap:28px;padding:56px 0;border-top:1px solid var(--fp-line-1)">
+  <div style="display:grid;grid-template-columns:56px minmax(0,1fr);gap:16px;align-items:baseline">
+    <span style="font-family:var(--fp-font-mono);font-size:11px;color:var(--fp-fg-4)">08</span>
+    <div><h2 style="margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em">Patch view</h2><p style="margin:6px 0 0;font-size:13px;line-height:20px;color:var(--fp-fg-3);max-width:620px;text-wrap:pretty">“Euclidean drums that stir the fluid”, with pointer chords on top. Cable style and canvas grid are in Tweaks.</p></div>
+  </div>
+  <div style="overflow-x:auto;border-radius:12px;border:1px solid var(--fp-line-2)">
+    <div style="width:1200px;background:var(--fp-bg-0)">
+      <div style="height:44px;display:flex;align-items:center;gap:12px;padding:0 10px 0 14px;background:var(--fp-bg-1);border-bottom:1px solid var(--fp-line-1)">
+        <span style="font-size:13px;font-weight:600;letter-spacing:-0.01em">Flow Patcher</span>
+        <span style="color:var(--fp-fg-4)">/</span>
+        <span style="font-size:13px;color:var(--fp-fg-2)">Tap chords, stir fluid</span>
+        <span style="width:6px;height:6px;border-radius:50%;background:var(--fp-fg-4)"></span>
+        <div style="display:flex;gap:2px;padding:2px;margin-left:24px;border-radius:6px;background:var(--fp-bg-0);border:1px solid var(--fp-line-1)">
+          <span style="height:24px;padding:0 12px;display:flex;align-items:center;border-radius:4px;background:var(--fp-bg-3);font-size:12px">Patch</span>
+          <span style="height:24px;padding:0 12px;display:flex;align-items:center;border-radius:4px;font-size:12px;color:var(--fp-fg-3)">Play</span>
+        </div>
+        <div style="flex:1"></div>
+        <div style="display:flex;align-items:center;gap:14px;padding:0 12px;height:28px;border-radius:6px;background:var(--fp-bg-0);border:1px solid var(--fp-line-1);font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-3)">
+          <span style="display:flex;gap:6px;align-items:center"><i class="icon-droplets" style="font-size:12px"></i>6.2 ms</span>
+          <span style="display:flex;gap:6px;align-items:center"><i class="icon-piano" style="font-size:12px"></i>18/64</span>
+          <span style="display:flex;gap:6px;align-items:center"><i class="icon-cpu" style="font-size:12px"></i>312/2k</span>
+        </div>
+        <div style="display:flex;align-items:center;height:28px;border-radius:6px;background:var(--fp-bg-0);border:1px solid var(--fp-line-1);overflow:hidden">
+          <span style="width:30px;height:100%;display:grid;place-items:center;border-right:1px solid var(--fp-line-1)"><i class="icon-pause" style="font-size:13px"></i></span>
+          <span style="padding:0 10px;font-family:var(--fp-font-mono);font-size:11px">112.0</span>
+          <span style="padding:0 10px 0 0;font-family:var(--fp-font-mono);font-size:11px;color:var(--fp-fg-4)">3.2.1</span>
+        </div>
+        <span style="width:28px;height:28px;display:grid;place-items:center;color:var(--fp-fg-2)"><i class="icon-undo-2" style="font-size:15px"></i></span>
+        <span style="width:28px;height:28px;display:grid;place-items:center;color:var(--fp-fg-4)"><i class="icon-redo-2" style="font-size:15px"></i></span>
+        <span style="height:28px;padding:0 12px;display:flex;align-items:center;border-radius:6px;background:var(--fp-fg-1);color:var(--fp-bg-0);font-size:12px;font-weight:500">Share</span>
+      </div>
+
+      <div style="position:relative;height:600px;overflow:hidden;background-color:var(--fp-bg-0);background-image:{{ gridImage }};background-size:20px 20px">
+        <svg width="1200" height="600" style="position:absolute;inset:0;overflow:visible">
+          <sc-for list="{{ cables }}" as="c" hint-placeholder-count="0">
+            <g>
+              <path d="{{ c.d }}" fill="none" stroke="{{ c.color }}" strokeOpacity="{{ c.haloOpacity }}" strokeWidth="{{ c.haloW }}" strokeLinecap="round"></path>
+              <path d="{{ c.d }}" fill="none" stroke="{{ c.color }}" strokeOpacity="{{ c.opacity }}" strokeWidth="{{ c.w }}" strokeDasharray="{{ c.dash }}" strokeLinecap="{{ c.cap }}"></path>
+              <path d="{{ c.d }}" fill="none" stroke="var(--fp-bg-0)" strokeWidth="{{ c.innerW }}"></path>
+            </g>
+          </sc-for>
+        </svg>
+
+        <div style="position:absolute;left:24px;top:40px;width:184px;background:var(--fp-bg-2);border:1px solid var(--fp-line-1);border-radius:8px;box-shadow:var(--fp-shadow-node)">
+          <div style="height:30px;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;border-bottom:1px solid var(--fp-line-1)"><i class="icon-mouse-pointer-2" style="font-size:13px;color:var(--fp-fg-3)"></i><span style="flex:1;font-size:12px;font-weight:600">Pointer</span><span style="width:6px;height:6px;border-radius:50%;background:var(--fp-event);box-shadow:0 0 6px var(--fp-event)"></span></div>
+          <div style="padding:6px 0 8px">
+            <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:flex-end;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span>Down</span><span style="position:absolute;right:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span></div>
+            <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:flex-end;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span>X</span><span style="position:absolute;right:-5px;top:6px;width:10px;height:10px;background:var(--fp-signal);border-radius:50%;box-shadow:0 0 0 2px var(--fp-bg-2)"></span></div>
+            <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:flex-end;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span>Y</span><span style="position:absolute;right:-5px;top:6px;width:10px;height:10px;background:var(--fp-signal);border-radius:50%;box-shadow:0 0 0 2px var(--fp-bg-2)"></span></div>
+            <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:flex-end;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span>Count</span><span style="position:absolute;right:-5px;top:6px;width:10px;height:10px;background:var(--fp-signal);border-radius:50%;box-shadow:0 0 0 2px var(--fp-bg-2)"></span></div>
+          </div>
+        </div>
+
+        <div style="position:absolute;left:24px;top:260px;width:184px;background:var(--fp-bg-2);border:1px solid var(--fp-line-1);border-radius:8px;box-shadow:var(--fp-shadow-node)">
+          <div style="height:30px;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;border-bottom:1px solid var(--fp-line-1)"><i class="icon-timer" style="font-size:13px;color:var(--fp-fg-3)"></i><span style="flex:1;font-size:12px;font-weight:600">Clock</span><span style="width:6px;height:6px;border-radius:50%;background:var(--fp-event);opacity:0.5"></span></div>
+          <div style="padding:6px 0 8px">
+            <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:flex-end;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span>Tick</span><span style="position:absolute;right:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span></div>
+            <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:flex-end;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span>Phase</span><span style="position:absolute;right:-5px;top:6px;width:10px;height:10px;background:var(--fp-signal);border-radius:50%;box-shadow:0 0 0 2px var(--fp-bg-2)"></span></div>
+            <div style="height:4px"></div>
+            <div style="padding:2px 8px"><div style="position:relative;height:22px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:absolute;left:0;top:0;bottom:0;width:45%;background:var(--fp-bg-4)"></span><span style="position:relative;color:var(--fp-fg-2)">BPM</span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">112.0</span></div></div>
+            <div style="padding:2px 8px"><div style="position:relative;height:22px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:relative;color:var(--fp-fg-2)">Division</span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">1/16</span></div></div>
+          </div>
+        </div>
+
+        <div style="position:absolute;left:256px;top:40px;width:184px;background:var(--fp-bg-2);border:1px solid var(--fp-line-1);border-radius:8px;box-shadow:var(--fp-shadow-node)">
+          <div style="height:30px;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;border-bottom:1px solid var(--fp-line-1)"><i class="icon-music" style="font-size:13px;color:var(--fp-fg-3)"></i><span style="flex:1;font-size:12px;font-weight:600">Chord Tone</span><span style="width:6px;height:6px;border-radius:50%;background:var(--fp-note);box-shadow:0 0 6px var(--fp-note)"></span></div>
+          <div style="padding:6px 0 8px">
+            <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span style="position:absolute;left:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span><span>Trigger</span><span>Note</span><span style="position:absolute;right:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-bg-2);box-shadow:inset 0 0 0 2.5px var(--fp-note);transform:rotate(45deg);border-radius:1.5px"></span></div>
+            <div style="position:relative;height:22px;display:flex;align-items:center;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span style="position:absolute;left:-5px;top:6px;width:10px;height:10px;background:var(--fp-signal);border-radius:50%;box-shadow:0 0 0 2px var(--fp-bg-2)"></span><span>Position</span></div>
+            <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span style="position:absolute;left:-5px;top:6px;width:10px;height:10px;border:2px solid var(--fp-value);border-radius:50%;background:var(--fp-bg-2)"></span><span>Chord</span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-value)">Cmaj9 · Am7</span></div>
+            <div style="height:4px"></div>
+            <div style="padding:2px 8px"><div style="position:relative;height:22px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:absolute;left:0;top:0;bottom:0;width:33%;background:var(--fp-bg-4)"></span><span style="position:relative;color:var(--fp-fg-2)">Range</span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">2 oct</span></div></div>
+          </div>
+        </div>
+
+        <div style="position:absolute;left:256px;top:260px;width:184px;background:var(--fp-bg-2);border:1px solid var(--fp-line-1);border-radius:8px;box-shadow:var(--fp-shadow-node)">
+          <div style="height:30px;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;border-bottom:1px solid var(--fp-line-1)"><i class="icon-timer" style="font-size:13px;color:var(--fp-fg-3)"></i><span style="flex:1;font-size:12px;font-weight:600">Euclidean</span><span style="width:6px;height:6px;border-radius:50%;background:var(--fp-event);box-shadow:0 0 6px var(--fp-event)"></span></div>
+          <div style="padding:6px 0 8px">
+            <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span style="position:absolute;left:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span><span>Clock</span><span>Hits</span><span style="position:absolute;right:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span></div>
+            <div style="height:4px"></div>
+            <div style="padding:2px 8px"><div style="position:relative;height:22px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:absolute;left:0;top:0;bottom:0;width:31%;background:var(--fp-bg-4)"></span><span style="position:relative;color:var(--fp-fg-2)">Hits</span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">5</span></div></div>
+            <div style="padding:2px 8px"><div style="position:relative;height:22px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:absolute;left:0;top:0;bottom:0;width:100%;background:var(--fp-bg-4)"></span><span style="position:relative;color:var(--fp-fg-2)">Steps</span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">16</span></div></div>
+            <div style="padding:2px 8px"><div style="position:relative;height:22px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:absolute;left:0;top:0;bottom:0;width:13%;background:var(--fp-bg-4)"></span><span style="position:relative;color:var(--fp-fg-2)">Rotate</span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">2</span></div></div>
+            <div style="display:grid;grid-template-columns:repeat(16,1fr);gap:2px;margin:6px 10px 0">
+              <sc-for list="{{ euclidSteps }}" as="s" hint-placeholder-count="16"><span style="height:8px;border-radius:1.5px;background:{{ s.bg }};box-shadow:{{ s.ring }}"></span></sc-for>
+            </div>
+          </div>
+        </div>
+
+        <div style="position:absolute;left:488px;top:40px;width:184px;background:var(--fp-bg-2);border:1px solid var(--fp-line-1);border-radius:8px;box-shadow:var(--fp-ring-select),var(--fp-shadow-node)">
+          <div style="height:30px;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;border-bottom:1px solid var(--fp-line-1)"><i class="icon-piano" style="font-size:13px;color:var(--fp-fg-3)"></i><span style="flex:1;font-size:12px;font-weight:600">Sampled Voice</span><span style="width:6px;height:6px;border-radius:50%;background:var(--fp-audio);box-shadow:0 0 6px var(--fp-audio)"></span><i class="icon-ellipsis" style="font-size:14px;color:var(--fp-fg-3)"></i></div>
+          <div style="padding:6px 0 8px">
+            <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span style="position:absolute;left:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-bg-2);box-shadow:inset 0 0 0 2.5px var(--fp-note),0 0 0 2px var(--fp-bg-2);transform:rotate(45deg);border-radius:1.5px"></span><span>Note</span><span>Audio</span><span style="position:absolute;right:-6px;top:7px;width:13px;height:8px;background:var(--fp-audio);border-radius:4px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span></div>
+            <div style="height:4px"></div>
+            <div style="padding:2px 8px"><div style="height:22px;border-radius:4px;background:var(--fp-bg-1);display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="color:var(--fp-fg-2)">Celesta</span><i class="icon-chevron-down" style="font-size:12px;color:var(--fp-fg-3)"></i></div></div>
+            <div style="padding:2px 8px"><div style="position:relative;height:22px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:absolute;left:0;top:0;bottom:0;width:22%;background:var(--fp-bg-4)"></span><span style="position:relative;color:var(--fp-fg-2)">Attack</span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">12 ms</span></div></div>
+            <div style="position:relative;padding:2px 8px"><span style="position:absolute;left:-6px;top:8px;width:10px;height:10px;background:var(--fp-signal);border-radius:50%;box-shadow:0 0 0 2px var(--fp-bg-2)"></span><div style="position:relative;height:22px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:absolute;left:0;top:0;bottom:0;width:58%;background:var(--fp-bg-4)"></span><span style="position:absolute;left:58%;top:0;bottom:0;width:{{ cutoffModW }};background:var(--fp-signal-soft);border-left:1.5px solid var(--fp-signal)"></span><span style="position:relative;color:var(--fp-fg-2)">Cutoff</span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">2.4 kHz</span></div></div>
+          </div>
+        </div>
+
+        <div style="position:absolute;left:488px;top:270px;width:184px;background:var(--fp-bg-2);border:1px solid var(--fp-line-1);border-radius:8px;box-shadow:var(--fp-shadow-node)">
+          <div style="height:30px;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;border-bottom:1px solid var(--fp-line-1)"><i class="icon-piano" style="font-size:13px;color:var(--fp-fg-3)"></i><span style="flex:1;font-size:12px;font-weight:600">Drum Voice</span><span style="width:6px;height:6px;border-radius:50%;background:var(--fp-audio);box-shadow:0 0 6px var(--fp-audio)"></span></div>
+          <div style="padding:6px 0 8px">
+            <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span style="position:absolute;left:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span><span>Hit</span><span>Audio</span><span style="position:absolute;right:-6px;top:7px;width:13px;height:8px;background:var(--fp-audio);border-radius:4px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span></div>
+            <div style="height:4px"></div>
+            <div style="padding:2px 8px"><div style="height:22px;border-radius:4px;background:var(--fp-bg-1);display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="color:var(--fp-fg-2)">Tuned glass</span><i class="icon-chevron-down" style="font-size:12px;color:var(--fp-fg-3)"></i></div></div>
+            <div style="padding:2px 8px"><div style="position:relative;height:22px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:absolute;left:0;top:0;bottom:0;width:40%;background:var(--fp-bg-4)"></span><span style="position:relative;color:var(--fp-fg-2)">Decay</span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">320 ms</span></div></div>
+          </div>
+        </div>
+
+        <div style="position:absolute;left:488px;top:440px;width:184px;background:var(--fp-bg-2);border:1px solid var(--fp-line-1);border-radius:8px;box-shadow:var(--fp-shadow-node)">
+          <div style="height:30px;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;border-bottom:1px solid var(--fp-line-1)"><i class="icon-droplets" style="font-size:13px;color:var(--fp-fg-3)"></i><span style="flex:1;font-size:12px;font-weight:600">Splat</span></div>
+          <div style="padding:6px 0 8px">
+            <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span style="position:absolute;left:-5px;top:6.5px;width:9px;height:9px;background:var(--fp-event);transform:rotate(45deg);border-radius:1.5px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span><span>At</span><span>Write</span><span style="position:absolute;right:-5px;top:6px;width:10px;height:10px;background:var(--fp-field);border-radius:2px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span></div>
+            <div style="height:4px"></div>
+            <div style="padding:2px 8px"><div style="position:relative;height:22px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:absolute;left:0;top:0;bottom:0;width:35%;background:var(--fp-bg-4)"></span><span style="position:relative;color:var(--fp-fg-2)">Radius</span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">0.035</span></div></div>
+            <div style="padding:2px 8px"><div style="height:22px;border-radius:4px;background:var(--fp-bg-1);display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="color:var(--fp-fg-2)">Color</span><span style="display:flex;gap:2px"><span style="width:10px;height:10px;border-radius:2px;background:oklch(0.7 0.12 250)"></span><span style="width:10px;height:10px;border-radius:2px;background:oklch(0.75 0.1 190)"></span><span style="width:10px;height:10px;border-radius:2px;background:oklch(0.8 0.1 90)"></span><span style="width:10px;height:10px;border-radius:2px;background:oklch(0.65 0.14 20)"></span></span></div></div>
+          </div>
+        </div>
+
+        <div style="position:absolute;left:720px;top:40px;width:184px;background:var(--fp-bg-2);border:1px solid var(--fp-line-2);border-radius:8px;box-shadow:var(--fp-shadow-node)">
+          <div style="height:30px;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;border-bottom:1px solid var(--fp-line-1)"><i class="icon-speaker" style="font-size:13px;color:var(--fp-fg-3)"></i><span style="flex:1;font-size:12px;font-weight:600">Output</span><i class="icon-lock" style="font-size:11px;color:var(--fp-fg-4)"></i></div>
+          <div style="padding:6px 0 8px">
+            <div style="position:relative;height:22px;display:flex;align-items:center;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span style="position:absolute;left:-6px;top:7px;width:13px;height:8px;background:var(--fp-audio);border-radius:4px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span><span>Audio</span><span style="margin-left:auto;font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">2 in</span></div>
+            <div style="height:4px"></div>
+            <div style="padding:2px 8px"><div style="position:relative;height:22px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:absolute;left:0;top:0;bottom:0;width:80%;background:var(--fp-bg-4)"></span><span style="position:relative;color:var(--fp-fg-2)">Level</span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">−6.0 dB</span></div></div>
+            <div style="display:grid;gap:3px;margin:8px 10px 0"><span style="height:3px;border-radius:2px;background:linear-gradient(90deg,var(--fp-audio) 62%,var(--fp-bg-3) 62%)"></span><span style="height:3px;border-radius:2px;background:linear-gradient(90deg,var(--fp-audio) 55%,var(--fp-bg-3) 55%)"></span></div>
+          </div>
+        </div>
+
+        <div style="position:absolute;left:720px;top:300px;width:184px;background:var(--fp-bg-2);border:1px solid var(--fp-line-1);border-radius:8px;box-shadow:var(--fp-shadow-node)">
+          <div style="height:30px;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;border-bottom:1px solid var(--fp-line-1)"><i class="icon-droplets" style="font-size:13px;color:var(--fp-fg-3)"></i><span style="flex:1;font-size:12px;font-weight:600">Fluid</span><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">GPU</span></div>
+          <div style="padding:6px 0 8px">
+            <div style="position:relative;height:22px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:11px;color:var(--fp-fg-2)"><span style="position:absolute;left:-5px;top:6px;width:10px;height:10px;background:var(--fp-field);border-radius:2px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span><span>Writers</span><span>Field</span><span style="position:absolute;right:-5px;top:6px;width:10px;height:10px;background:var(--fp-field);border-radius:2px;box-shadow:0 0 0 2px var(--fp-bg-2)"></span></div>
+            <div style="height:4px"></div>
+            <div style="padding:2px 8px"><div style="position:relative;height:22px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:absolute;left:0;top:0;bottom:0;width:35%;background:var(--fp-bg-4)"></span><span style="position:relative;color:var(--fp-fg-2)">Vorticity</span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">0.35</span></div></div>
+            <div style="padding:2px 8px"><div style="position:relative;height:22px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:absolute;left:0;top:0;bottom:0;width:97%;background:var(--fp-bg-4)"></span><span style="position:relative;color:var(--fp-fg-2)">Dissipation</span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">0.97</span></div></div>
+            <div style="padding:2px 8px"><div style="position:relative;height:22px;border-radius:4px;background:var(--fp-bg-1);overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px"><span style="position:absolute;left:0;top:0;bottom:0;width:100%;background:var(--fp-bg-4)"></span><span style="position:relative;color:var(--fp-fg-2)">Grid</span><span style="position:relative;font-family:var(--fp-font-mono);color:var(--fp-fg-1)">35k</span></div></div>
+          </div>
+        </div>
+
+        <div style="position:absolute;right:24px;top:24px;width:248px;border-radius:12px;overflow:hidden;background:var(--fp-bg-1);border:1px solid var(--fp-line-2);box-shadow:var(--fp-shadow-pop)">
+          <div style="height:28px;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid var(--fp-line-1);font-size:11px;color:var(--fp-fg-2)"><span style="width:6px;height:6px;border-radius:50%;background:var(--fp-audio)"></span>Preview<span style="margin-left:auto;font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-4)">live</span><i class="icon-maximize-2" style="font-size:12px;color:var(--fp-fg-3)"></i></div>
+          <div style="height:156px;display:grid;place-items:center;background:radial-gradient(60% 70% at 30% 60%,oklch(0.42 0.12 250 / 0.7),transparent 70%),radial-gradient(50% 60% at 72% 38%,oklch(0.5 0.12 190 / 0.55),transparent 70%),var(--fp-bg-0)"><span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-3)">performance canvas</span></div>
+        </div>
+
+        <div style="position:absolute;left:24px;bottom:16px;display:flex;align-items:center;gap:2px;height:28px;padding:0 4px;border-radius:6px;background:var(--fp-bg-1);border:1px solid var(--fp-line-1);color:var(--fp-fg-3)">
+          <span style="width:24px;display:grid;place-items:center"><i class="icon-minus" style="font-size:13px"></i></span><span style="font-family:var(--fp-font-mono);font-size:10px;width:36px;text-align:center;color:var(--fp-fg-2)">100%</span><span style="width:24px;display:grid;place-items:center"><i class="icon-plus" style="font-size:13px"></i></span>
+        </div>
+        <div style="position:absolute;right:24px;bottom:16px;display:flex;gap:14px;align-items:center;font-size:11px;color:var(--fp-fg-4)">
+          <span style="display:flex;gap:6px;align-items:center"><kbd style="font-family:var(--fp-font-mono);font-size:10px;height:18px;padding:0 5px;display:inline-grid;place-items:center;border-radius:4px;background:var(--fp-bg-2);border:1px solid var(--fp-line-2);color:var(--fp-fg-3)">Tab</kbd>Add node</span>
+          <span style="display:flex;gap:6px;align-items:center"><kbd style="font-family:var(--fp-font-mono);font-size:10px;height:18px;padding:0 5px;display:inline-grid;place-items:center;border-radius:4px;background:var(--fp-bg-2);border:1px solid var(--fp-line-2);color:var(--fp-fg-3)">⇧ drag</kbd>Fine</span>
+          <span style="display:flex;gap:6px;align-items:center"><kbd style="font-family:var(--fp-font-mono);font-size:10px;height:18px;padding:0 5px;display:inline-grid;place-items:center;border-radius:4px;background:var(--fp-bg-2);border:1px solid var(--fp-line-2);color:var(--fp-fg-3)">Esc</kbd>Back to editor</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="play-view" style="display:grid;gap:28px;padding:56px 0;border-top:1px solid var(--fp-line-1)">
+  <div style="display:grid;grid-template-columns:56px minmax(0,1fr);gap:16px;align-items:baseline">
+    <span style="font-family:var(--fp-font-mono);font-size:11px;color:var(--fp-fg-4)">09</span>
+    <div><h2 style="margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em">Play view</h2><p style="margin:6px 0 0;font-size:13px;line-height:20px;color:var(--fp-fg-3);max-width:620px;text-wrap:pretty">The canvas goes full-window. Pinned knobs float in one strip, renamed for performers. The strip is the only blurred surface in the system.</p></div>
+  </div>
+  <div style="overflow-x:auto;border-radius:12px;border:1px solid var(--fp-line-2)">
+    <div style="position:relative;width:1200px;height:480px;background:radial-gradient(45% 60% at 28% 55%,oklch(0.42 0.12 250 / 0.75),transparent 70%),radial-gradient(40% 55% at 70% 40%,oklch(0.5 0.12 190 / 0.55),transparent 70%),radial-gradient(30% 40% at 55% 75%,oklch(0.5 0.1 90 / 0.35),transparent 70%),var(--fp-bg-0)">
+      <span style="position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);font-family:var(--fp-font-mono);font-size:11px;color:var(--fp-fg-3)">performance canvas · fluid render</span>
+      <div style="position:absolute;left:20px;top:16px;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--fp-fg-2)"><span style="font-weight:600;color:var(--fp-fg-1)">Tap chords, stir fluid</span><span style="color:var(--fp-fg-4)">by mira</span></div>
+      <div style="position:absolute;right:16px;top:12px;display:flex;gap:6px">
+        <span style="height:28px;padding:0 10px;display:flex;align-items:center;gap:6px;border-radius:6px;background:oklch(0.205 0.008 265 / 0.7);border:1px solid var(--fp-line-1);font-size:12px;color:var(--fp-fg-2)"><i class="icon-workflow" style="font-size:13px"></i>Open patch</span>
+        <span style="height:28px;padding:0 10px;display:flex;align-items:center;border-radius:6px;background:var(--fp-fg-1);color:var(--fp-bg-0);font-size:12px;font-weight:500">Remix</span>
+      </div>
+      <div style="position:absolute;left:50%;bottom:20px;transform:translateX(-50%);display:flex;align-items:center;gap:20px;padding:12px 18px;border-radius:12px;background:oklch(0.205 0.008 265 / 0.72);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--fp-line-2);box-shadow:var(--fp-shadow-pop)">
+        <sc-for list="{{ playKnobs }}" as="k" hint-placeholder-count="4">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:3px;width:60px;user-select:none">
+            <svg width="44" height="44" viewBox="0 0 32 32" onPointerDown="{{ k.onDown }}" onDoubleClick="{{ k.onReset }}" style="cursor:ns-resize;touch-action:none;overflow:visible">
+              <circle cx="16" cy="16" r="12" fill="none" stroke="var(--fp-line-2)" strokeWidth="2.2" strokeLinecap="round" strokeDasharray="56.55 75.4" transform="rotate(135 16 16)"></circle>
+              <circle cx="16" cy="16" r="12" fill="none" stroke="var(--fp-fg-1)" strokeWidth="2.2" strokeLinecap="round" strokeDasharray="{{ k.dash }}" transform="rotate(135 16 16)"></circle>
+              <circle cx="16" cy="16" r="15.2" fill="none" stroke="var(--fp-signal)" strokeWidth="1.2" strokeLinecap="round" strokeDasharray="{{ k.modDash }}" strokeDashoffset="{{ k.modOff }}" transform="rotate(135 16 16)"></circle>
+              <circle cx="16" cy="16" r="8.5" fill="var(--fp-bg-3)" stroke="var(--fp-line-2)" strokeWidth="0.5"></circle>
+              <line x1="16" y1="12.5" x2="16" y2="8.6" stroke="var(--fp-fg-1)" strokeWidth="1.4" strokeLinecap="round" transform="{{ k.rot }}"></line>
+            </svg>
+            <span style="font-size:11px;color:var(--fp-fg-2)">{{ k.label }}</span>
+            <span style="font-family:var(--fp-font-mono);font-size:10px;color:var(--fp-fg-3)">{{ k.display }}</span>
+          </div>
+        </sc-for>
+        <span style="width:1px;height:48px;background:var(--fp-line-2)"></span>
+        <div style="display:grid;gap:6px">
+          <span style="font-size:11px;color:var(--fp-fg-3)">Tool</span>
+          <div style="display:flex;gap:2px;padding:2px;border-radius:6px;background:var(--fp-bg-0);border:1px solid var(--fp-line-1)">
+            <sc-for list="{{ tools }}" as="t" hint-placeholder-count="4">
+              <button onClick="{{ t.pick }}" style="height:24px;padding:0 10px;border:0;border-radius:4px;font-family:var(--fp-font-ui);font-size:11px;cursor:pointer;background:{{ t.bg }};color:{{ t.fg }}">{{ t.name }}</button>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;cableStyle&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;curved&quot;,&quot;angular&quot;,&quot;straight&quot;],&quot;default&quot;:&quot;curved&quot;,&quot;tsType&quot;:&quot;'curved'|'angular'|'straight'&quot;},&quot;canvasGrid&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dots&quot;,&quot;lines&quot;,&quot;none&quot;],&quot;default&quot;:&quot;dots&quot;,&quot;tsType&quot;:&quot;'dots'|'lines'|'none'&quot;}}">
+class Component extends DCLogic {
+  state = {
+    k: { cutoff: .62, res: .3, swing: .18, depth: .5, bright: .55, space: .45, swing2: .2, stir: .7 },
+    query: '', lfo: 'Sine', on: true, tool: 'Paint',
+    steps: [3,0,1,0,2,0,1,0,3,0,1,2,0,0,2,1]
+  };
+  defs = {
+    cutoff: { l: 'Cutoff', d: .62, f: v => { const hz = 20 * Math.pow(1000, v); return hz < 1000 ? Math.round(hz) + ' Hz' : (hz / 1000).toFixed(1) + ' kHz'; } },
+    res: { l: 'Resonance', d: .3, f: v => 'Q ' + (0.5 + v * 19.5).toFixed(1) },
+    swing: { l: 'Swing', d: .18, f: v => Math.round(v * 100) + ' %' },
+    depth: { l: 'Depth', d: .5, mod: .22, f: v => (v * 2 - 1 >= 0 ? '+' : '−') + Math.abs(v * 2 - 1).toFixed(2) },
+    bright: { l: 'Brightness', d: .55, f: v => Math.round(v * 100) + ' %' },
+    space: { l: 'Space', d: .45, f: v => Math.round(v * 100) + ' %' },
+    swing2: { l: 'Swing', d: .2, f: v => Math.round(v * 100) + ' %' },
+    stir: { l: 'Stir', d: .7, mod: .18, f: v => Math.round(v * 100) + ' %' }
+  };
+  catalog = [
+    ['Probability', 'Time', 'icon-timer', 'Passes each event with chance p'],
+    ['Euclidean', 'Time', 'icon-timer', 'Spreads hits evenly over steps'],
+    ['Quantize', 'Time', 'icon-timer', 'Delays events to the next grid line'],
+    ['Humanize', 'Time', 'icon-timer', 'Timing and velocity jitter'],
+    ['Burst', 'Time', 'icon-timer', 'One event becomes N over a span'],
+    ['Make Note', 'Harmony', 'icon-music', 'Event + pitch + velocity → Note'],
+    ['Chord Tone', 'Harmony', 'icon-music', 'Signal to a chord tone across octaves'],
+    ['Arpeggio', 'Harmony', 'icon-music', 'Up, down, outside-in, random'],
+    ['Sample & Hold', 'Control', 'icon-git-fork', 'Captures a Signal at each event'],
+    ['Envelope', 'Control', 'icon-git-fork', 'Event → ADSR Signal'],
+    ['Counter', 'Control', 'icon-git-fork', 'Counts events, wraps at N'],
+    ['Gate', 'Control', 'icon-git-fork', 'Passes events while a Signal is high'],
+    ['Drum Voice', 'Instr', 'icon-piano', '20 synthesized percussion voices'],
+    ['Splat', 'Visual', 'icon-droplets', 'Dye and impulse at the event position'],
+    ['Ripple', 'Visual', 'icon-droplets', 'Expanding rings at the event position']
+  ];
+  knob(id) {
+    const d = this.defs[id], v = this.state.k[id];
+    const end = Math.min(1, v + (d.mod || 0));
+    return {
+      label: d.l, display: d.f(v),
+      dash: (v * 56.55).toFixed(2) + ' 75.4',
+      rot: 'rotate(' + (-135 + 270 * v).toFixed(1) + ' 16 16)',
+      modDash: d.mod ? ((end - v) * 72.9).toFixed(2) + ' 96' : '0 96',
+      modOff: (-v * 72.9).toFixed(2),
+      onDown: e => this.drag(id, e),
+      onReset: () => this.setState(s => ({ k: { ...s.k, [id]: d.d } }))
+    };
+  }
+  drag(id, e) {
+    e.preventDefault();
+    const y0 = e.clientY, v0 = this.state.k[id];
+    const mv = ev => {
+      const v = Math.min(1, Math.max(0, v0 + (y0 - ev.clientY) / (ev.shiftKey ? 800 : 160)));
+      this.setState(s => ({ k: { ...s.k, [id]: v } }));
+    };
+    const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', mv);
+    window.addEventListener('pointerup', up);
+  }
+  cablePath(x1, y1, x2, y2, style) {
+    if (style === 'straight') return `M${x1} ${y1} L${x2} ${y2}`;
+    if (style === 'angular') { const mx = Math.round(x1 + Math.max(16, (x2 - x1) / 2)); return `M${x1} ${y1} H${mx} V${y2} H${x2}`; }
+    const dx = Math.max(40, Math.abs(x2 - x1) / 2);
+    return `M${x1} ${y1} C${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+  }
+  renderVals() {
+    const style = this.props.cableStyle ?? 'curved';
+    const grid = this.props.canvasGrid ?? 'dots';
+    const T = {
+      event: { color: 'var(--fp-event)', w: 1.5, dash: '3 3', cap: 'butt' },
+      note: { color: 'var(--fp-note)', w: 1.5, dash: '8 3', cap: 'butt' },
+      signal: { color: 'var(--fp-signal)', w: 1.5, dash: 'none', cap: 'round' },
+      audio: { color: 'var(--fp-audio)', w: 3, dash: 'none', cap: 'round' },
+      field: { color: 'var(--fp-field)', w: 5, dash: 'none', cap: 'butt', inner: 1.6 }
+    };
+    const raw = [
+      [208, 88, 256, 88, 'event', true], [208, 110, 256, 110, 'signal'], [208, 132, 488, 168, 'signal'],
+      [440, 88, 488, 88, 'note', true], [672, 88, 720, 88, 'audio'], [208, 308, 256, 308, 'event'],
+      [440, 308, 488, 318, 'event', true], [440, 308, 488, 488, 'event'], [672, 318, 720, 88, 'audio'],
+      [672, 488, 720, 348, 'field']
+    ];
+    const cables = raw.map(([x1, y1, x2, y2, t, fire]) => {
+      const s = T[t];
+      return { d: this.cablePath(x1, y1, x2, y2, style), color: s.color, w: fire ? s.w + 0.3 : s.w, dash: fire ? 'none' : s.dash, cap: s.cap,
+        opacity: fire ? 1 : 0.7, haloOpacity: fire ? 0.22 : 0, haloW: s.w + 6, innerW: s.inner || 0 };
+    });
+    const gridImage = grid === 'dots' ? 'radial-gradient(circle, var(--fp-line-1) 1px, transparent 1.3px)'
+      : grid === 'lines' ? 'linear-gradient(var(--fp-bg-1) 1px, transparent 1px), linear-gradient(90deg, var(--fp-bg-1) 1px, transparent 1px)' : 'none';
+
+    const q = this.state.query.trim().toLowerCase();
+    const items = this.catalog.filter(([n, f, , d]) => !q || n.toLowerCase().includes(q) || f.toLowerCase().includes(q) || d.toLowerCase().includes(q));
+    const paletteItems = items.slice(0, 7).map(([n, fam, icon, d], i) => ({ n, fam, icon, d, bg: i === 0 ? 'var(--fp-bg-3)' : 'transparent' }));
+
+    const ev = [];
+    for (let i = 0; i < 16; i++) ev.push(((i + 14) * 5) % 16 < 5);
+    const euclidSteps = ev.map((h, i) => ({ bg: h ? 'var(--fp-event)' : 'var(--fp-bg-3)', ring: i === 6 ? '0 0 0 1px var(--fp-fg-1)' : 'none' }));
+
+    let pts = [];
+    for (let x = 0; x <= 280; x += 4) {
+      const y = 32 - 20 * Math.sin(x / 26) * Math.cos(x / 61) - 5 * Math.sin(x / 7.3);
+      pts.push(x + ',' + y.toFixed(1));
+    }
+    const timelineTicks = [];
+    for (let i = 0; i < 16; i++) if (ev[i]) {
+      timelineTicks.push({ x: (4 + i * 6) + '%', y: '8px', o: 1 });
+      timelineTicks.push({ x: (54 + i * 2.8) + '%', y: '20px', o: 0.45 });
+    }
+
+    const lvl = ['0%', '35%', '68%', '100%'];
+    return {
+      controlKnobs: ['cutoff', 'res', 'swing', 'depth'].map(id => this.knob(id)),
+      playKnobs: ['bright', 'space', 'swing2', 'stir'].map(id => this.knob(id)),
+      lfoShapes: ['Sine', 'Triangle', 'Saw', 'Square', 'Random'].map(name => ({ name,
+        bg: this.state.lfo === name ? 'var(--fp-bg-3)' : 'transparent', fg: this.state.lfo === name ? 'var(--fp-fg-1)' : 'var(--fp-fg-3)',
+        pick: () => this.setState({ lfo: name }) })),
+      tools: ['Paint', 'Conduct', 'Space', 'Orbit'].map(name => ({ name,
+        bg: this.state.tool === name ? 'var(--fp-bg-3)' : 'transparent', fg: this.state.tool === name ? 'var(--fp-fg-1)' : 'var(--fp-fg-3)',
+        pick: () => this.setState({ tool: name }) })),
+      toggleOn: () => this.setState(s => ({ on: !s.on })),
+      toggleBg: this.state.on ? 'var(--fp-fg-1)' : 'var(--fp-bg-4)',
+      toggleKnob: this.state.on ? 'var(--fp-bg-0)' : 'var(--fp-fg-3)',
+      toggleJustify: this.state.on ? 'flex-end' : 'flex-start',
+      stepCells: this.state.steps.map((l, i) => ({ h: lvl[l], o: l === 1 ? 0.45 : 1,
+        cycle: () => this.setState(s => { const st = s.steps.slice(); st[i] = (st[i] + 1) % 4; return { steps: st }; }) })),
+      query: this.state.query,
+      onQuery: e => this.setState({ query: e.target.value }),
+      paletteItems, paletteEmpty: paletteItems.length === 0,
+      scopePoints: pts.join(' '), timelineTicks,
+      cables, gridImage, euclidSteps,
+      cutoffModW: Math.round((this.state.k.depth) * 44) + '%'
+    };
+  }
+}
+</script>
+</body>
+</html>

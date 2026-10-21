@@ -1,18 +1,49 @@
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { portsOf } from '@flow-patcher/engine';
+import { portsOf, type PortSpec } from '@flow-patcher/engine';
 import type { PatchNodeData } from './patch-graph';
-import { PORT_COLORS } from './ports';
+import { FAMILY_ICONS, PORT_SIZE } from './ports';
 
-export function PatchNode({ data }: NodeProps<Node<PatchNodeData>>) {
+/** Center of port row i, from the node's top edge: header 30 + divider 1 + body padding 6 + half a 22px row. */
+const portTop = (i: number) => 48 + i * 22;
+
+function PortHandle({ port, index }: { port: PortSpec; index: number }) {
+  const [width, height] = PORT_SIZE[port.type];
+  const input = port.direction === 'in';
+  return (
+    <Handle
+      id={port.name}
+      type={input ? 'target' : 'source'}
+      position={input ? Position.Left : Position.Right}
+      className="fp-handle"
+      style={{ top: portTop(index), width, height }}
+      data-port-type={port.type}
+    >
+      <span className={`fp-port fp-port--${port.type}`} />
+    </Handle>
+  );
+}
+
+export function PatchNode({ data, selected }: NodeProps<Node<PatchNodeData>>) {
   const { definition } = data;
   if (!definition) {
-    return <div className="patch-node patch-node--unknown" data-testid="patch-node">Unknown: {data.type}</div>;
+    return (
+      <div className="patch-node patch-node--unknown" data-testid="patch-node">
+        <div className="patch-node__header">
+          <i className="icon-circle-alert patch-node__icon" />
+          <span className="patch-node__title">Unknown: {data.type}</span>
+        </div>
+      </div>
+    );
   }
   const inputs = portsOf(definition, 'in'), outputs = portsOf(definition, 'out');
   const rows = Math.max(inputs.length, outputs.length);
+  const icon = definition.type === 'output' ? 'speaker' : FAMILY_ICONS[definition.category];
   return (
-    <div className="patch-node" data-testid="patch-node" data-node-type={definition.type}>
-      <div className="patch-node__title">{definition.label}</div>
+    <div className={`patch-node${selected ? ' patch-node--selected' : ''}`} data-testid="patch-node" data-node-type={definition.type}>
+      <div className="patch-node__header">
+        <i className={`icon-${icon} patch-node__icon`} />
+        <span className="patch-node__title">{definition.label}</span>
+      </div>
       <div className="patch-node__ports">
         {Array.from({ length: rows }, (_, i) => (
           <div className="patch-node__row" key={i}>
@@ -21,12 +52,8 @@ export function PatchNode({ data }: NodeProps<Node<PatchNodeData>>) {
           </div>
         ))}
       </div>
-      {inputs.map((port, i) => (
-        <Handle key={port.name} id={port.name} type="target" position={Position.Left} style={{ top: 44 + i * 22, background: PORT_COLORS[port.type] }} data-port-type={port.type} />
-      ))}
-      {outputs.map((port, i) => (
-        <Handle key={port.name} id={port.name} type="source" position={Position.Right} style={{ top: 44 + i * 22, background: PORT_COLORS[port.type] }} data-port-type={port.type} />
-      ))}
+      {inputs.map((port, i) => <PortHandle key={port.name} port={port} index={i} />)}
+      {outputs.map((port, i) => <PortHandle key={port.name} port={port} index={i} />)}
     </div>
   );
 }

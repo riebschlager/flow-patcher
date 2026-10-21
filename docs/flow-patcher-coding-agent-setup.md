@@ -12,6 +12,7 @@ Agents work from files, not from a doc they can't open. Export the design doc to
 - `docs/decisions/` — one short ADR per settled call: GPU solver with one Fluid node, Web MIDI in v1, single canvas, tool modes composed from nodes, Community after v1, GPL-3.0.
 - `docs/nodes/` — the node catalog tables as one file per category, so a node-building agent reads only its category.
 - `docs/milestones.md` — each milestone with its gate written as checks an agent can run.
+- `.claude/skills/flow-patcher-design/` — the design system as a skill: tokens, components and a UI kit. Claude Code lists it as `flow-patcher-design` and loads it for editor UI work.
 
 ## Step 2 — Scaffold the harness before features
 
@@ -45,6 +46,7 @@ pnpm run-patch <file.json>  # headless engine run, output in out/
 - Code borrowed from Flow is ours: adapt it freely, but bring its tests along. No compatibility with Flow is required.
 - Don't change golden files without saying why.
 - Budgets: 64 voices, 256 events per node per window, 2,048 per patch.
+- Editor UI follows the flow-patcher-design skill: use its `--fp-*` tokens, not ad-hoc colors or sizes.
 
 ## Done means
 Tests pass, a new node has a unit test and an example patch, and the PR says what you checked.

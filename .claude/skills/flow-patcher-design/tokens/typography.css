@@ -1,0 +1,18 @@
+:root {
+  --fp-font-ui: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --fp-font-mono: "Geist Mono", ui-monospace, "SF Mono", monospace;
+
+  --fp-text-micro: 10px;  /* mono caps tags, units */
+  --fp-text-xs: 11px;     /* port labels, param labels */
+  --fp-text-sm: 12px;     /* node titles, controls, menus */
+  --fp-text-md: 13px;     /* inspector, popovers, body */
+  --fp-text-lg: 15px;     /* panel titles */
+  --fp-text-xl: 20px;     /* section titles */
+  --fp-text-2xl: 28px;
+  --fp-text-3xl: 44px;    /* display, docs only */
+
+  --fp-weight-regular: 400;
+  --fp-weight-medium: 500;
+  --fp-weight-semibold: 600;
+  --fp-tracking-caps: 0.08em;
+}

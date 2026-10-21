@@ -1,0 +1,29 @@
+<!-- @dsCard group="Components" viewport="700x340" name="Chrome" subtitle="Toolbar, Canvas, PreviewPane, PlayStrip" -->
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>*{box-sizing:border-box}body{margin:0;background:var(--fp-bg-0);color:var(--fp-fg-1);font-family:var(--fp-font-ui);-webkit-font-smoothing:antialiased}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script type="text/babel" src="../../components.bundle.jsx"></script>
+</head><body><div id="root"></div>
+<script type="text/babel">
+const NS = window.FlowPatcher || (() => { for (const k of Object.keys(window)) { try { const v = window[k]; if (v && typeof v === 'object' && v.Knob && v.Node) return v; } catch (e) {} } return {}; })();
+
+const { Toolbar, Canvas, PreviewPane, PlayStrip, Node, Knob, Segmented } = NS;
+const portY = NS.portY || ((t, r) => t + 48 + 22 * r);
+function App() {
+  const [view, setView] = React.useState('Patch');
+  return <div style={{ width: 700 }}>
+    <Toolbar patchName="Tap chords" view={view} onViewChange={setView} budget={[{ label: 'Voices', icon: 'piano', value: 0.28, display: '18/64' }]} position="3.2.1" />
+    <Canvas height={296} cables={[{ type: 'event', from: [208, portY(24, 0)], to: [256, portY(24, 0)], firing: true }]}>
+      <div style={{ position: 'absolute', left: 24, top: 24 }}><Node title="Pointer" icon="mouse-pointer-2" led="event" rows={[{ out: { type: 'event', label: 'Down' } }, { out: { type: 'signal', label: 'X' } }]} /></div>
+      <div style={{ position: 'absolute', left: 256, top: 24 }}><Node title="Chord Tone" icon="music" rows={[{ in: { type: 'event', label: 'Trigger' }, out: { type: 'note', label: 'Note' } }]} /></div>
+      <PreviewPane width={200} height={110} style={{ position: 'absolute', right: 16, top: 16 }} />
+      <PlayStrip style={{ position: 'absolute', left: 24, bottom: 16, padding: '8px 14px', gap: 12 }}><Knob label="Space" size={36} defaultValue={0.45} /><Knob label="Stir" size={36} defaultValue={0.7} mod={0.18} /><Segmented options={['Paint', 'Conduct', 'Orbit']} /></PlayStrip>
+    </Canvas>
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script></body></html>

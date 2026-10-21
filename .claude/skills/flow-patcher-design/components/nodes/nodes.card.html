@@ -1,0 +1,28 @@
+<!-- @dsCard group="Components" viewport="700x340" name="Nodes" subtitle="Node states, FamilyChip" -->
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>*{box-sizing:border-box}body{margin:0;background:var(--fp-bg-0);color:var(--fp-fg-1);font-family:var(--fp-font-ui);-webkit-font-smoothing:antialiased}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script type="text/babel" src="../../components.bundle.jsx"></script>
+</head><body><div id="root"></div>
+<script type="text/babel">
+const NS = window.FlowPatcher || (() => { for (const k of Object.keys(window)) { try { const v = window[k]; if (v && typeof v === 'object' && v.Knob && v.Node) return v; } catch (e) {} } return {}; })();
+const L = ({ children }) => <div style={{ fontFamily: 'var(--fp-font-mono)', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--fp-fg-4)', marginBottom: 10 }}>{children}</div>;
+
+const { Node, FamilyChip } = NS;
+function App() {
+  return <div style={{ padding: 24, display: 'grid', gap: 20, backgroundImage: 'radial-gradient(circle, var(--fp-line-1) 1px, transparent 1.3px)', backgroundSize: '20px 20px', minHeight: '100vh', alignContent: 'start' }}>
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{['sources','gestures','time','harmony','control','instruments','effects','visual'].map(f => <FamilyChip key={f} family={f} />)}</div>
+    <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', paddingLeft: 6 }}>
+      <Node title="Make Note" icon="music" led="note" selected rows={[{ in: { type: 'event', label: 'Trigger' }, out: { type: 'note', label: 'Note' } }, { in: { type: 'signal', label: 'Pitch' } }]} params={[{ label: 'Velocity', defaultValue: 0.72 }, { label: 'Length', defaultValue: 0.25, display: '1/8' }]} />
+      <Node title="Pinch" icon="hand" led="event" ledActive={false} rows={[{ in: { type: 'event', label: 'Events' }, out: { type: 'event', label: 'Pinch in' } }, { out: { type: 'signal', label: 'Scale' } }, { divider: true }, { pass: true, out: { type: 'event', label: 'Pass' } }]} />
+      <Node title="Microphone" icon="mic" status={{ kind: 'error', icon: 'mic-off', message: 'Permission denied. Allow microphone in browser settings.', action: 'Retry' }} rows={[{ out: { type: 'signal', label: 'Level' } }]} />
+      <div style={{ display: 'grid', gap: 20 }}><Node title="Probability" icon="timer" collapsed meta="p 0.6" rows={[{ in: { type: 'event' }, out: { type: 'event' } }]} /><Node title="Conduct" icon="layers" subpatch meta="7 nodes" rows={[{ in: { type: 'event', label: 'Pointer' }, out: { type: 'note', label: 'Notes' } }]} /></div>
+    </div>
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script></body></html>

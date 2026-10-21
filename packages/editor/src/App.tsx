@@ -1,12 +1,14 @@
 import { useMemo } from 'react';
-import { Background, Controls, MiniMap, ReactFlow } from '@xyflow/react';
+import { Background, BackgroundVariant, Controls, MiniMap, ReactFlow } from '@xyflow/react';
 import { compilePatch, parsePatch } from '@flow-patcher/engine';
 import { nodeRegistry } from '@flow-patcher/nodes';
 import example from '../../../examples/clock-blips.flowpatch?raw';
 import { patchToGraph } from './patch-graph';
 import { PatchNode } from './PatchNode';
+import { CableEdge } from './CableEdge';
 
 const nodeTypes = { patch: PatchNode };
+const edgeTypes = { cable: CableEdge };
 
 export function App() {
   const { graph, status } = useMemo(() => {
@@ -22,13 +24,13 @@ export function App() {
   return (
     <div className="app">
       <header className="app__bar">
-        <strong>Flow Patcher</strong>
-        <span data-testid="compile-status">{status}</span>
+        <span className="app__name">Flow Patcher</span>
+        <span className="app__status" data-testid="compile-status">{status}</span>
       </header>
       <main className="app__graph">
-        <ReactFlow defaultNodes={graph.nodes} defaultEdges={graph.edges} nodeTypes={nodeTypes} fitView colorMode="dark">
-          <Background />
-          <MiniMap />
+        <ReactFlow defaultNodes={graph.nodes} defaultEdges={graph.edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} snapToGrid snapGrid={[20, 20]} fitView colorMode="dark">
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+          <MiniMap pannable zoomable nodeBorderRadius={8} />
           <Controls />
         </ReactFlow>
       </main>
