@@ -15,6 +15,7 @@ import {
 import { ensureRunning, getCtx } from './audio';
 import { CableEdge, type CableData } from './CableEdge';
 import { canConnect, nodeType, portOf, registry, type CanvasInput } from './registry';
+import { OUTPUT_CEILING } from './nodes/output';
 import { live, scheduler } from './runtime';
 import { PatchActions, SpikeNodeView, type SpikeNode } from './SpikeNode';
 import { stats } from './stats';
@@ -61,7 +62,8 @@ function Editor() {
     void ensureRunning();
     live.addNode(id, type, values, texts);
     scheduler.start();
-    setNodes((ns) => [...ns, { id, type: 'spike', position: screenToFlowPosition(at), data: { type, values, texts } }]);
+    const node = { id, type: 'spike' as const, position: screenToFlowPosition(at), data: { type, values, texts }, deletable: !def.unique };
+    setNodes((ns) => [...ns, node]);
     setMenu(null);
   };
 
@@ -144,7 +146,13 @@ function Editor() {
             {nodes.length === 0 ? 'Try Clock → Euclidean → Chord Tone → Sampled Voice → Output, with Clock → Progression → Chord Tone’s Chord. Or Pointer → Chord Tone and play the canvas.' : 'Play the canvas on the right.'}
           </span>
           <span className="spike__stats" data-testid="stats">
-            windows {counters.windows} · skipped {counters.skipped} · late {counters.late}
+            windows {counters.windows} · skipped {counters.skipped} · late {counters.late} ·{' '}
+            <span title={`Sample peak at the speakers, and the highest since load; the ceiling is ${OUTPUT_CEILING}`}>
+              peak {counters.peak.toFixed(2)} / {counters.peakMax.toFixed(2)}
+            </span>{' '}·{' '}
+            <span title="Meter polls where the limiter's output went above the ceiling, so the peak guard clipped">
+              guard {counters.guardHits}
+            </span>
           </span>
           <button className="spike__add" onClick={() => stall(500)} title="Block the main thread for 500 ms">Stall</button>
         </header>
@@ -168,9 +176,14 @@ function Editor() {
           </ReactFlow>
           {menu && (
             <div className="spike__menu" style={{ left: menu.x, top: menu.y }}>
-              {registry.map((t) => (
-                <button key={t.type} onClick={() => addNode(t.type, menu.place ?? menu)}>{t.label}</button>
-              ))}
+              {registry.map((t) => {
+                const taken = t.unique && nodes.some((n) => n.data.type === t.type);
+                return (
+                  <button key={t.type} disabled={taken} title={taken ? `A patch has one ${t.label}` : undefined} onClick={() => addNode(t.type, menu.place ?? menu)}>
+                    {t.label}
+                  </button>
+                );
+              })}
             </div>
           )}
         </main>

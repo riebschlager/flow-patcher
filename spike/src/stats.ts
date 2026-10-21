@@ -9,6 +9,13 @@ export const stats = {
   /** Sampled voices sounding after the latest note, and the most seen (the budget is 64). */
   voices: 0,
   peakVoices: 0,
+  /** Sample peak at the speakers over the last ~0.7 s, and the highest since load or the last reset. */
+  peak: 0,
+  peakMax: 0,
+  /** The limiter's peak before the guard, the highest since load or reset, and meter polls that found it above the ceiling (the guard clipping). */
+  preGuard: 0,
+  preGuardMax: 0,
+  guardHits: 0,
   /** Audio times of the last 256 events sinks scheduled, to spot gaps and doubles. */
   sunk: [] as number[],
   /** Tap-to-sound log lines, newest first. */
