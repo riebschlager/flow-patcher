@@ -1,30 +1,10 @@
-# Flow Patcher
-Browser node editor for music + visuals. Design: docs/design.md (read the section you need, not the whole file). Decisions: docs/decisions/. Node catalog: docs/nodes/<category>.md. Milestones and gates: docs/milestones.md — work only on the current milestone.
+@AGENTS.md
 
-## Layout
-- packages/engine — runtime, no DOM/React/Node.
-- packages/nodes — one file per node type, listed in index.ts.
-- packages/editor — React + React Flow.
-- tools/ (headless runner), examples/, golden/, e2e/.
-- .claude/skills/flow-patcher-design — the design system (tokens, components, UI kit). Load the flow-patcher-design skill for any editor UI work.
-
-## Commands
-pnpm check   # typecheck, lint, unit tests — run before finishing
-pnpm e2e     # Playwright
-pnpm run-patch <file.json>  # headless engine run, output in out/
-pnpm golden:update          # only when output is meant to change
-
-## Rules
-- engine/ has no DOM or React imports.
-- Generators are pure window queries: query(t0, t1). No Math.random; use the seeded RNG.
-- Every cycle needs a delay edge; Field reads return the previous frame.
-- One file per node type in nodes/. Palette and inspector are generated from it.
-- From M4 on, changing a node's params needs a migration function and a test. Before M4, update the example patches instead.
-- Code borrowed from Flow is ours: adapt it freely, but bring its tests along. No compatibility with Flow is required.
-- Don't change golden files without saying why.
-- Budgets: 64 voices, 256 events per node per window, 2,048 per patch.
-- Editor UI follows the flow-patcher-design skill: use its `--fp-*` tokens (imported in packages/editor/src/styles.css), not ad-hoc colors or sizes. Port shapes, cable styles and family glyphs live in packages/editor/src/ports.ts.
-- Don't edit files under .claude/skills/flow-patcher-design/ while doing editor work; it's the reference. Its uploads/design.md is a symlink to docs/design.md.
-
-## Done means
-Tests pass, a new node has a unit test and an example patch, and the PR says what you checked.
+## Claude Code
+- Load the flow-patcher-design skill for any editor UI work.
+- Plan and delegate. Subagents in .claude/agents/:
+  - node-builder: one node type end to end.
+  - engine: graph compiler, scheduler, frame loop, fluid passes.
+  - porter: brings a Flow module in with its tests.
+  - reviewer: read-only check of a diff before it becomes a PR.
+- Run the reviewer on every diff before opening a PR. It reports; the agent that wrote the code fixes it.

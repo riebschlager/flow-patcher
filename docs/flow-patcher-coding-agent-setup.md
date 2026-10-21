@@ -105,7 +105,7 @@ Start each task in plan mode and approve the plan before any code gets written. 
 
 ## Open questions
 
-- [ ] Is Claude Code the agent, or will other agents (Cursor, Codex) work in the repo too? If so, mirror `CLAUDE.md` into an `AGENTS.md`.
+- [x] Is Claude Code the agent, or will other agents (Cursor, Codex) work in the repo too? If so, mirror `CLAUDE.md` into an `AGENTS.md`. *Other agents too. `AGENTS.md` (root and each package) holds the instructions; each `CLAUDE.md` imports it with `@AGENTS.md` and adds only Claude Code notes.*
 - [ ] Does the repo live on GitHub, so CI and the Claude GitHub Action can be used?
-- [ ] Can agents read the Flow repo directly (as a sibling checkout or a submodule), or do ported files get copied in by hand?
+- [x] Can agents read the Flow repo directly (as a sibling checkout or a submodule), or do ported files get copied in by hand? *Sibling checkout at `../flow`, read-only for agents.*
 - [ ] Who reviews engine PRs besides you?
