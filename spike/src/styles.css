@@ -1,0 +1,57 @@
+/* Spike styling: borrows the design system's tokens (read-only), no polish. */
+@import '../../.claude/skills/flow-patcher-design/styles.css';
+
+:root { color-scheme: dark; font-family: var(--fp-font-ui); }
+html, body, #root { height: 100%; margin: 0; background: var(--fp-surface-canvas); color: var(--fp-text-primary); }
+button { font: inherit; color: inherit; }
+
+.spike { display: flex; flex-direction: column; height: 100%; touch-action: none; }
+.spike__bar { height: 44px; flex: none; display: flex; gap: var(--fp-space-5); align-items: center; padding: 0 14px; background: var(--fp-surface-chrome); border-bottom: 1px solid var(--fp-line-1); }
+.spike__name { font-size: var(--fp-text-md); font-weight: var(--fp-weight-semibold); }
+.spike__add { padding: 6px 12px; background: var(--fp-bg-3); border: 1px solid var(--fp-line-2); border-radius: var(--fp-radius-md); cursor: pointer; }
+.spike__hint { font-size: var(--fp-text-xs); color: var(--fp-text-muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.spike__graph { flex: 1; min-height: 0; position: relative; }
+
+.spike__menu { position: fixed; z-index: 10; display: flex; flex-direction: column; min-width: 140px; padding: 4px; background: var(--fp-surface-raised); border: 1px solid var(--fp-line-2); border-radius: var(--fp-radius-md); box-shadow: var(--fp-shadow-pop); }
+.spike__menu button { padding: 10px 12px; text-align: left; background: none; border: none; border-radius: var(--fp-radius-sm); cursor: pointer; }
+.spike__menu button:hover { background: var(--fp-bg-4); }
+
+.spike__tap { position: absolute; left: 12px; bottom: 12px; z-index: 5; display: flex; align-items: flex-end; gap: 12px; pointer-events: none; }
+.spike__pad { order: -1; pointer-events: all; touch-action: none; user-select: none; width: 88px; height: 88px; display: flex; align-items: center; justify-content: center; border-radius: var(--fp-radius-xl); background: var(--fp-bg-2); border: 1px solid var(--fp-line-2); color: var(--fp-text-muted); font-size: var(--fp-text-sm); cursor: pointer; }
+.spike__pad:active { background: var(--fp-bg-4); }
+.spike__log { font-family: var(--fp-font-mono); font-size: var(--fp-text-xs); color: var(--fp-text-muted); }
+
+.react-flow {
+  --xy-background-color: var(--fp-surface-canvas);
+  --xy-background-pattern-color: var(--fp-line-2);
+  --xy-node-background-color: transparent;
+  --xy-node-border: none;
+  --xy-node-boxshadow-selected: none;
+  --xy-connectionline-stroke: var(--fp-audio);
+  --xy-connectionline-stroke-width: 3;
+}
+
+.spike-node { position: relative; width: 180px; background: var(--fp-surface-node); border: 1px solid var(--fp-line-1); border-radius: var(--fp-radius-lg); box-shadow: var(--fp-shadow-node); }
+.spike-node--selected { box-shadow: var(--fp-ring-select), var(--fp-shadow-node); }
+.spike-node__header { height: 30px; display: flex; align-items: center; justify-content: space-between; padding: 0 4px 0 10px; border-bottom: 1px solid var(--fp-line-1); font-size: var(--fp-text-sm); font-weight: var(--fp-weight-semibold); }
+.spike-node__ports { padding: 4px 0; }
+.spike-node__row { height: 22px; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; font-size: var(--fp-text-xs); color: var(--fp-text-secondary); }
+.spike-node__knobs { display: flex; justify-content: space-around; padding: 6px 4px 8px; border-top: 1px solid var(--fp-line-1); }
+
+.spike-node__delete { width: 24px; height: 24px; padding: 0; background: none; border: none; border-radius: var(--fp-radius-sm); color: var(--fp-text-muted); font-size: 16px; line-height: 1; cursor: pointer; }
+.spike-node__delete:hover { background: var(--fp-error-soft); color: var(--fp-text-primary); }
+
+/* Handles: a 24px hit area for fingers around a small audio-port shape. */
+.react-flow__handle.spike-handle { width: 24px; height: 24px; min-width: 0; min-height: 0; background: transparent; border: none; display: flex; align-items: center; justify-content: center; }
+.spike-port { width: 13px; height: 8px; border-radius: 4px; background: var(--fp-audio); box-shadow: 0 0 0 2px var(--fp-surface-node); pointer-events: none; }
+
+.knob { display: flex; flex-direction: column; align-items: center; gap: 1px; user-select: none; }
+.knob__dial { touch-action: none; cursor: ns-resize; }
+.knob__track { fill: none; stroke: var(--fp-bg-4); stroke-width: 3; stroke-linecap: round; }
+.knob__fill { fill: none; stroke: var(--fp-audio); stroke-width: 3; stroke-linecap: round; }
+.knob__thumb { fill: var(--fp-fg-1); }
+.knob__label { font-size: var(--fp-text-micro); color: var(--fp-text-secondary); }
+.knob__value { font-family: var(--fp-font-mono); font-size: var(--fp-text-micro); color: var(--fp-text-muted); }
+
+.cable-delete { position: absolute; pointer-events: all; width: 28px; height: 28px; border-radius: 50%; background: var(--fp-surface-raised); border: 1px solid var(--fp-line-2); box-shadow: var(--fp-shadow-pop); font-size: 16px; line-height: 1; cursor: pointer; }
+.cable-delete:hover { background: var(--fp-error-soft); border-color: var(--fp-error); }
