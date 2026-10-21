@@ -59,7 +59,8 @@ export const sampledVoice: NodeType = {
           recordSunk(when);
           if (typeof note.inputAt === 'number') {
             const latency = (ctx.outputLatency || ctx.baseLatency) * 1000;
-            recordTap(`${noteName(note.pitch)}  tap-to-sound ${((when - note.inputAt) * 1000).toFixed(1)} ms (gate ≤ 20), + output latency ${latency.toFixed(1)} ms${note.cold ? ' (cold start)' : ''}`);
+            const ms = (when - note.inputAt) * 1000;
+            recordTap(`${noteName(note.pitch)}  tap-to-sound ${ms.toFixed(1)} ms (gate ≤ 20), + output latency ${latency.toFixed(1)} ms${note.cold ? ' (cold start)' : ''}`, ms, !!note.cold);
           }
         }
       },

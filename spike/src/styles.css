@@ -23,10 +23,13 @@ button { font: inherit; color: inherit; }
 .spike__placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; color: var(--fp-text-faint); font-size: var(--fp-text-sm); }
 .spike__canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
 .spike__log { position: absolute; left: 12px; bottom: 12px; pointer-events: none; font-family: var(--fp-font-mono); font-size: var(--fp-text-xs); color: var(--fp-text-muted); }
+.spike__report { position: fixed; z-index: 20; top: 52px; right: 12px; width: min(560px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: var(--fp-space-3); padding: var(--fp-space-4); background: var(--fp-surface-raised); border: 1px solid var(--fp-line-2); border-radius: var(--fp-radius-md); box-shadow: var(--fp-shadow-pop); }
+.spike__report textarea { resize: vertical; font-family: var(--fp-font-mono); font-size: var(--fp-text-xs); color: var(--fp-text-primary); background: var(--fp-bg-1); border: 1px solid var(--fp-line-1); border-radius: var(--fp-radius-sm); padding: var(--fp-space-3); touch-action: auto; }
+.spike__report-actions { display: flex; gap: var(--fp-space-3); justify-content: flex-end; }
 @media (max-width: 720px) {
   .spike__bar { gap: var(--fp-space-3); padding: 0 8px; }
   .spike__name, .spike__hint { display: none; }
-  .spike__stats { font-size: var(--fp-text-micro); }
+  .spike__stats { font-size: var(--fp-text-micro); min-width: 0; overflow-x: auto; }
   .spike__log { right: 12px; font-size: var(--fp-text-micro); }
   .spike__body { flex-direction: column; }
   .spike__perform { flex-basis: 40%; min-width: 0; border-left: none; border-top: 1px solid var(--fp-line-1); }

@@ -2,7 +2,7 @@ import { Fluid } from '../flow/fluid.js';
 import { fluidGridSize } from '../flow/fluid-viewport.js';
 import type { NodeType } from '../registry';
 import { isMobile, stage } from '../stage';
-import { stats } from '../stats';
+import { recordFluidStep, stats } from '../stats';
 
 export type Sim = InstanceType<typeof Fluid>;
 /** What a writer's Field output is: apply everything due before audio time t to the fluid. */
@@ -40,6 +40,7 @@ export const fluid: NodeType = {
         const ms = performance.now() - start;
         stats.fluidMs = stats.fluidMs ? stats.fluidMs * 0.95 + ms * 0.05 : ms;
         stats.fluidMaxMs = Math.max(stats.fluidMaxMs, ms);
+        recordFluidStep(ms);
         stats.fluidGrid = `${sim.w}×${sim.h}`;
         period.steps++;
         period.total += ms;

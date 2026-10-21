@@ -35,6 +35,7 @@ export class Scheduler {
     if (this.horizon < now) {
       const missed = Math.ceil((now - this.horizon) / WAKE);
       stats.skipped += missed;
+      if (performance.now() < stats.rewiringUntil) stats.rewireSkipped += missed;
       console.log(`[spike] stall: skipped ${missed} windows (${((now - this.horizon) * 1000).toFixed(0)} ms)`);
       this.horizon = now;
     }
