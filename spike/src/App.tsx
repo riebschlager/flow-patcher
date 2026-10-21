@@ -14,7 +14,7 @@ import {
 } from '@xyflow/react';
 import { ensureRunning, getCtx } from './audio';
 import { CableEdge, type CableData } from './CableEdge';
-import { canConnect, portOf, registry, type CanvasInput } from './registry';
+import { canConnect, nodeType, portOf, registry, type CanvasInput } from './registry';
 import { live, scheduler } from './runtime';
 import { PatchActions, SpikeNodeView, type SpikeNode } from './SpikeNode';
 import { stats } from './stats';
@@ -57,10 +57,11 @@ function Editor() {
     const def = registry.find((t) => t.type === type)!;
     const id = `${type}-${nextId.current++}`;
     const values = Object.fromEntries(def.knobs.map((k) => [k.name, k.default]));
+    const texts = Object.fromEntries((def.texts ?? []).map((t) => [t.name, t.default]));
     void ensureRunning();
-    live.addNode(id, type, values);
+    live.addNode(id, type, values, texts);
     scheduler.start();
-    setNodes((ns) => [...ns, { id, type: 'spike', position: screenToFlowPosition(at), data: { type, values } }]);
+    setNodes((ns) => [...ns, { id, type: 'spike', position: screenToFlowPosition(at), data: { type, values, texts } }]);
     setMenu(null);
   };
 
@@ -72,11 +73,11 @@ function Editor() {
     };
   }, [getNode]);
 
-  // Same-type cables only (Note may feed Event), and no event loops: the spike has no delay edge.
+  // Same-type cables only (Note may feed Event), and no event or value loops: the spike has no delay edge.
   const isValidConnection: IsValidConnection<Edge<CableData>> = useCallback((c) => {
     const { from, to } = portsOf(c);
     if (!from || !to || c.source === c.target || !canConnect(from.type, to.type)) return false;
-    return (from.type !== 'event' && from.type !== 'note') || !live.wouldCycle(c.source, c.target);
+    return from.type === 'signal' || from.type === 'audio' || !live.wouldCycle(c.source, c.target);
   }, [portsOf]);
 
   const onConnect = useCallback((c: Connection) => {
@@ -93,16 +94,39 @@ function Editor() {
     for (const n of ns) live.removeNode(n.id);
   }, []);
 
-  const actions = useMemo(() => ({
-    setKnob(nodeId: string, knob: string, value: number) {
-      live.set(nodeId, knob, value);
-      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, values: { ...n.data.values, [knob]: value } } } : n)));
-    },
-    removeCable(id: string) {
-      live.disconnect(id);
-      setEdges((es) => es.filter((e) => e.id !== id));
-    },
-  }), [setNodes, setEdges]);
+  // Live side effects happen here, once; the setNodes updaters only merge, so calls between renders don't undo each other.
+  const actions = useMemo(() => {
+    const merge = (nodeId: string, values: Record<string, number>, texts: Record<string, string>) =>
+      setNodes((ns) => ns.map((n) => (n.id === nodeId
+        ? { ...n, data: { ...n.data, values: { ...n.data.values, ...values }, texts: { ...n.data.texts, ...texts } } }
+        : n)));
+    return {
+      setKnob(nodeId: string, knob: string, value: number) {
+        const node = getNode(nodeId);
+        if (!node) return;
+        live.set(nodeId, knob, value);
+        // A preset menu writes its text param; option 0 (Custom) leaves the text as it is.
+        const fills = nodeType(node.data.type).knobs.find((k) => k.name === knob)?.fills;
+        if (!fills || value === 0) return merge(nodeId, { [knob]: value }, {});
+        live.setText(nodeId, fills.text, fills.values[value]);
+        merge(nodeId, { [knob]: value }, { [fills.text]: fills.values[value] });
+      },
+      setText(nodeId: string, name: string, text: string) {
+        const node = getNode(nodeId);
+        if (!node) return;
+        const def = nodeType(node.data.type);
+        if (!def.texts?.find((t) => t.name === name)?.check?.(text)) live.setText(nodeId, name, text);
+        // Hand-edited text no longer matches a preset, so menus that fill it go back to Custom.
+        const resets = def.knobs.filter((k) => k.fills?.text === name).map((k) => k.name);
+        for (const k of resets) live.set(nodeId, k, 0);
+        merge(nodeId, Object.fromEntries(resets.map((k) => [k, 0])), { [name]: text });
+      },
+      removeCable(id: string) {
+        live.disconnect(id);
+        setEdges((es) => es.filter((e) => e.id !== id));
+      },
+    };
+  }, [getNode, setNodes, setEdges]);
 
   // Capture phase: any touch resumes audio, and a touch outside the menu closes it.
   const onPointerDownCapture = (e: React.PointerEvent) => {
@@ -117,7 +141,7 @@ function Editor() {
           <span className="spike__name">Flow Patcher spike</span>
           <button className="spike__add" onClick={(e) => setMenu(menu ? null : { x: e.clientX, y: e.clientY + 24, place: stagger() })}>+ Add node</button>
           <span className="spike__hint">
-            {nodes.length === 0 ? 'Try Pointer → Chord Tone → Sampled Voice → Output, then play the canvas.' : 'Play the canvas on the right.'}
+            {nodes.length === 0 ? 'Try Clock → Euclidean → Chord Tone → Sampled Voice → Output, with Clock → Progression → Chord Tone’s Chord. Or Pointer → Chord Tone and play the canvas.' : 'Play the canvas on the right.'}
           </span>
           <span className="spike__stats" data-testid="stats">
             windows {counters.windows} · skipped {counters.skipped} · late {counters.late}
