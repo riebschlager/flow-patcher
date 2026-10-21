@@ -38,7 +38,10 @@
       "Bash(gh *)",
       "Bash(curl *)",
       "Bash(wget *)",
-      "WebFetch"
+      "WebFetch",
+      "Bash(git push)",
+      "Bash(git pull)",
+      "Bash(git fetch)"
     ],
     "deny": [
       "Edit(../flow/**)"
