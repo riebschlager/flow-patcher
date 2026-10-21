@@ -78,6 +78,7 @@ function Editor() {
   }, [getNode]);
 
   // Same-type cables only (Note may feed Event), and no event or value loops: the spike has no delay edge.
+  // Field loops can't form with today's nodes (Fluid is unique, Renderer has no outputs, Splat no Field input); a later Field node needs the check.
   const isValidConnection: IsValidConnection<Edge<CableData>> = useCallback((c) => {
     const { from, to } = portsOf(c);
     if (!from || !to || c.source === c.target || !canConnect(from.type, to.type)) return false;

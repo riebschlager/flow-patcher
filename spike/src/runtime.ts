@@ -13,19 +13,27 @@ let framing = false;
 
 /**
  * The frame loop: each animation frame hands the visual nodes the audio-clock interval since the last one,
- * so events scheduled ahead land in the frame where their sound starts. Started with the first node, like the scheduler.
+ * so events scheduled ahead land in the frame where their sound starts. The clock is shifted back by the
+ * output latency, so that's when the sound is heard, not when it's rendered. Started with the first node, like the scheduler.
  */
 export function startFrames() {
   if (framing) return;
   framing = true;
   let last: { audio: number; wall: number } | null = null;
   const tick = (wall: number) => {
-    const audio = getCtx().currentTime;
+    requestAnimationFrame(tick); // first, so a node that throws can't stop the loop
+    const ctx = getCtx();
+    stats.outputLatencyMs = (ctx.outputLatency || ctx.baseLatency) * 1000;
+    const audio = ctx.currentTime - stats.outputLatencyMs / 1000;
     // dt as Flow's tick computes it; the solver clamps it again.
     const dt = last ? Math.min(0.033, (wall - last.wall) / 1000) || 0.016 : 0.016;
-    live.frame(last?.audio ?? audio, audio, dt);
+    const t0 = last?.audio ?? audio;
     last = { audio, wall };
-    requestAnimationFrame(tick);
+    try {
+      live.frame(t0, audio, dt);
+    } catch (e) {
+      console.error('[spike] frame', e);
+    }
   };
   requestAnimationFrame(tick);
 }

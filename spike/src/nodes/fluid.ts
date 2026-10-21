@@ -34,7 +34,7 @@ export const fluid: NodeType = {
       fields: { field: sim },
       frame(_t0, t1, dt, inputs) {
         resize(sim);
-        for (const write of inputs.fields('writers') as FieldWriter[]) write(sim, t1);
+        for (const write of inputs.fields('writers')) if (typeof write === 'function') (write as FieldWriter)(sim, t1);
         const start = performance.now();
         sim.step(dt);
         const ms = performance.now() - start;
@@ -46,9 +46,12 @@ export const fluid: NodeType = {
         period.max = Math.max(period.max, ms);
         if (start - period.since >= LOG_EVERY) {
           const lag = stats.splatLag;
+          const draw = stats.render;
+          const render = draw.count ? `; render avg ${(draw.total / draw.count).toFixed(2)} ms, max ${draw.max.toFixed(2)} ms` : '';
           const splats = lag.count ? `; ${lag.count} splats landed avg ${(lag.total / lag.count).toFixed(1)} ms, max ${lag.max.toFixed(1)} ms after their time` : '';
-          console.log(`[spike] fluid step avg ${(period.total / period.steps).toFixed(2)} ms, max ${period.max.toFixed(2)} ms over ${period.steps} frames, grid ${stats.fluidGrid} (${sim.n} cells${isMobile() ? ', mobile budget' : ''})${splats}`);
+          console.log(`[spike] fluid step avg ${(period.total / period.steps).toFixed(2)} ms, max ${period.max.toFixed(2)} ms over ${period.steps} frames, grid ${stats.fluidGrid} (${sim.n} cells${isMobile() ? ', mobile budget' : ''})${render}${splats}, output latency ${stats.outputLatencyMs.toFixed(1)} ms`);
           stats.splatLag = { count: 0, total: 0, max: 0 };
+          stats.render = { count: 0, total: 0, max: 0 };
           period = { steps: 0, total: 0, max: 0, since: start };
         }
       },
@@ -57,6 +60,7 @@ export const fluid: NodeType = {
         if (knob === 'dissipation') sim.persistence = 1 - value;
         if (knob === 'viscosity') sim.drag = 0.994 - value * 0.06;
       },
+      // Unreachable while unique nodes can't be deleted.
       dispose() {
         stats.fluidGrid = '';
         stats.fluidMs = 0;

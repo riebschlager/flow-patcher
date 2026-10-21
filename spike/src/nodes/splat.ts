@@ -5,6 +5,7 @@ import { stats } from '../stats';
 import type { FieldWriter } from './fluid';
 
 const MAX_PENDING = 256; // the per-node event budget
+const finite = (v: unknown): v is number => Number.isFinite(v);
 const STALE = 0.25; // seconds; events this far behind the frame (a hidden tab) are dropped, not splashed at once
 
 /**
@@ -38,9 +39,10 @@ export const splat: NodeType = {
         stats.splatLag.count++;
         stats.splatLag.total += lag;
         stats.splatLag.max = Math.max(stats.splatLag.max, lag);
-        const x = typeof e.x === 'number' ? e.x : knobs.x;
-        const y = typeof e.y === 'number' ? e.y : knobs.y;
-        const velocity = typeof e.velocity === 'number' ? e.velocity : 1;
+        const x = finite(e.x) ? e.x : knobs.x;
+        const y = finite(e.y) ? e.y : knobs.y;
+        // NaN dye would spread through every cell for good; out-of-range velocity would make negative or unbounded dye.
+        const velocity = finite(e.velocity) ? Math.min(1, Math.max(0, e.velocity)) : 1;
         // A landing drop's push, Flow's [±7, 13–25] without the randomness.
         sim.splat(x, y, dye.map((c) => c * velocity), knobs.size, 0, 19);
       }

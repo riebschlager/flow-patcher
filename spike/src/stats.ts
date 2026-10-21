@@ -21,6 +21,10 @@ export const stats = {
   fluidMaxMs: 0,
   /** The fluid grid, e.g. "224×156". */
   fluidGrid: '',
+  /** Renderer draw time in ms since the fluid's last log line, to tell render cost from solver cost. */
+  render: { count: 0, total: 0, max: 0 },
+  /** The output latency the frame clock subtracts, so splashes match when notes are heard. */
+  outputLatencyMs: 0,
   /** How far past their time splats landed, in ms, since the fluid's last log line: at most a frame when in sync. */
   splatLag: { count: 0, total: 0, max: 0 },
   /** Audio times of the last 256 events sinks scheduled, to spot gaps and doubles. */

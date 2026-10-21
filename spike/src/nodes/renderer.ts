@@ -1,7 +1,8 @@
 import { createFluidColorizer, renderFluidPixels } from '../flow/fluid-renderer.js';
+import { Fluid } from '../flow/fluid.js';
 import type { NodeType } from '../registry';
 import { stage } from '../stage';
-import type { Sim } from './fluid';
+import { stats } from '../stats';
 
 const BACKGROUND = '#070b11'; // Flow's canvas fill
 
@@ -19,11 +20,6 @@ export const renderer: NodeType = {
     const inkCtx = ink.getContext('2d')!;
     let pixels: ImageData | null = null;
 
-    const clear = () => {
-      const canvas = stage();
-      canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
-    };
-
     return {
       frame(_t0, _t1, _dt, inputs) {
         const canvas = stage();
@@ -39,8 +35,10 @@ export const renderer: NodeType = {
         }
         ctx.fillStyle = BACKGROUND;
         ctx.fillRect(0, 0, bw, bh);
-        const sim = inputs.fields('field')[0] as Sim | undefined;
+        // Splat's Write is a Field too, so it can be cabled here; only a Fluid draws.
+        const sim = inputs.fields('field').find((f) => f instanceof Fluid);
         if (!sim) return;
+        const start = performance.now();
         if (ink.width !== sim.w || ink.height !== sim.h || !pixels) {
           ink.width = sim.w;
           ink.height = sim.h;
@@ -51,9 +49,14 @@ export const renderer: NodeType = {
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(ink, 0, 0, bw, bh);
+        const ms = performance.now() - start;
+        stats.render.count++;
+        stats.render.total += ms;
+        stats.render.max = Math.max(stats.render.max, ms);
       },
       set() {},
-      dispose: clear,
+      // Unique nodes can't be deleted, so there's nothing to clear.
+      dispose() {},
     };
   },
 };
