@@ -3,6 +3,7 @@ import { instruments, noteName } from '../flow/music.js';
 import { instrumentKeys, loadInstrument, loadPlayer } from '../instruments';
 import { menu } from '../menu';
 import type { NodeType } from '../registry';
+import { caughtUpTime } from '../scheduler';
 import { recordSunk, recordTap, stats } from '../stats';
 
 const MAX_VOICES = 64;
@@ -43,7 +44,7 @@ export const sampledVoice: NodeType = {
             console.log('[spike] note dropped: instrument still loading');
             continue;
           }
-          let when = note.time;
+          let when = caughtUpTime(note.time) ?? note.time;
           if (when < ctx.currentTime) {
             stats.late++;
             when = ctx.currentTime;

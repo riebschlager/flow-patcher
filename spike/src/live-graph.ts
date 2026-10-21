@@ -6,9 +6,14 @@ type Wire = Cable & { type: PortType };
 
 const FADE = 0.01; // seconds; each audio cable fades in and out so rewiring never clicks
 
-/** The immediate path's safety offset in seconds: 10 ms, or ?offset=<ms> to test a smaller one against the late count. */
-const offsetParam = Number(new URLSearchParams(location.search).get('offset') ?? NaN);
-export const IMMEDIATE_OFFSET = (Number.isFinite(offsetParam) && offsetParam >= 0 ? offsetParam : 10) / 1000;
+/**
+ * The immediate path's safety offset: 10 ms, or ?offset=<ms> (0–100) to try another. Too small an offset shows
+ * as uneven timing between taps, judged by ear; the late count can't see it, since currentTime doesn't move within a handler.
+ */
+const offsetRaw = new URLSearchParams(location.search).get('offset')?.trim();
+const offsetParam = offsetRaw ? Number(offsetRaw) : NaN;
+export const IMMEDIATE_OFFSET_MS = Number.isFinite(offsetParam) && offsetParam >= 0 && offsetParam <= 100 ? offsetParam : 10;
+export const IMMEDIATE_OFFSET = IMMEDIATE_OFFSET_MS / 1000;
 
 /** Wires that order run(): events and notes, and values, which are read at event times. Signals and Fields don't. */
 const isEventWire = (w: Wire) => w.type !== 'signal' && w.type !== 'field';

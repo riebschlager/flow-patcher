@@ -7,6 +7,8 @@ export const stats = {
   /** Wakes that ran past the horizon by less than the catch-up limit, so their events played late instead of being skipped, and the largest overrun in ms. */
   caughtUp: 0,
   caughtUpMaxMs: 0,
+  /** Events from caught-up stretches, played late at their original spacing. Not counted in `late`. */
+  caughtUpEvents: 0,
   /** Events that reached a sink after their time had passed. */
   late: 0,
   /** Sampled voices sounding after the latest note, and the most seen (the budget is 64). */
@@ -98,7 +100,7 @@ export function recordFluidStep(ms: number) {
 
 /** Clear the gate measurements, so a run starts from zero once the patch is warm. */
 export function resetMeasurements() {
-  Object.assign(stats, { windows: 0, skipped: 0, caughtUp: 0, caughtUpMaxMs: 0, late: 0, rewiringUntil: 0, tapMs: [], rewires: 0, rewireSkipped: 0, fluidMaxMs: 0, fluidSteps: [], renderSteps: [], longFrames: 0, slowest: [], stalls: [], peakVoices: 0, guardHits: 0 });
+  Object.assign(stats, { windows: 0, skipped: 0, caughtUp: 0, caughtUpMaxMs: 0, caughtUpEvents: 0, late: 0, rewiringUntil: 0, tapMs: [], rewires: 0, rewireSkipped: 0, fluidMaxMs: 0, fluidSteps: [], renderSteps: [], longFrames: 0, slowest: [], stalls: [], peakVoices: 0, guardHits: 0 });
 }
 
 const quantile = (xs: number[], q: number) => {
@@ -120,7 +122,7 @@ export function report(ctx: AudioContext, offsetMs: number) {
     `fluid step (${stats.fluidMode || 'none'}, last ${stats.fluidSteps.length} steps): mean ${ms(mean(stats.fluidSteps))} ms, p95 ${ms(quantile(stats.fluidSteps, 0.95))} ms, max since reset ${ms(stats.fluidMaxMs)} ms, grid ${stats.fluidGrid || 'none'}`,
     ...(stats.fluidMode === 'worker' ? [`color (worker, last step): ${ms(stats.colorMs)} ms`] : []),
     `render (main thread, last ${stats.renderSteps.length} frames): mean ${ms(mean(stats.renderSteps))} ms, p95 ${ms(quantile(stats.renderSteps, 0.95))} ms, max ${ms(stats.renderSteps.length ? Math.max(...stats.renderSteps) : NaN)} ms`,
-    `late wakes played rather than skipped (≤ 100 ms past the horizon): ${stats.caughtUp}, largest ${ms(stats.caughtUpMaxMs)} ms`,
+    `late wakes played rather than skipped (≤ 100 ms past the horizon): ${stats.caughtUp}, largest ${ms(stats.caughtUpMaxMs)} ms, ${stats.caughtUpEvents} events played late`,
     `skips (wall / audio clock since the previous wake; equal = main thread blocked, audio much larger = audio clock jumped): ${stats.stalls.length ? stats.stalls.map((s) => `${s.missed} windows ${s.wallMs.toFixed(0)}/${s.audioMs.toFixed(0)} ms`).join(', ') : 'none'}`,
     `long frames (> 50 ms on the main thread): ${stats.longFrames}${stats.slowest.length ? '; slowest: ' + stats.slowest.map((f) => `${f.ms.toFixed(0)} ms (${f.script})`).join(', ') : ''}`,
     `voices: peak ${stats.peakVoices}; guard hits ${stats.guardHits}`,

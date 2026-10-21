@@ -1,5 +1,6 @@
 import { ramp } from '../audio';
 import type { NodeType } from '../registry';
+import { caughtUpTime } from '../scheduler';
 import { recordSunk, stats } from '../stats';
 
 /** Placeholder event-to-audio voice: a short triangle blip per event, until Sampled Voice lands. */
@@ -20,7 +21,7 @@ export const blip: NodeType = {
       outputs: { out },
       query(_t0, _t1, inputs) {
         for (const event of inputs.events('in')) {
-          let when = event.time;
+          let when = caughtUpTime(event.time) ?? event.time;
           if (when < ctx.currentTime) {
             stats.late++;
             console.log('[spike] late event', (ctx.currentTime - when).toFixed(4), 's');

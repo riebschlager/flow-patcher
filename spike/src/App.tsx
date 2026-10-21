@@ -16,7 +16,7 @@ import { ensureRunning, getCtx } from './audio';
 import { CableEdge, type CableData } from './CableEdge';
 import { canConnect, nodeType, portOf, registry, type CanvasInput } from './registry';
 import { OUTPUT_CEILING } from './nodes/output';
-import { IMMEDIATE_OFFSET } from './live-graph';
+import { IMMEDIATE_OFFSET_MS } from './live-graph';
 import { live, scheduler, startFrames } from './runtime';
 import { setStage } from './stage';
 import { PatchActions, SpikeNodeView, type SpikeNode } from './SpikeNode';
@@ -123,7 +123,7 @@ function Editor() {
   };
 
   const showReport = () => {
-    const text = report(getCtx(), IMMEDIATE_OFFSET * 1000);
+    const text = report(getCtx(), IMMEDIATE_OFFSET_MS);
     console.log(`[spike] report\n${text}`);
     setMeasured(text);
   };
