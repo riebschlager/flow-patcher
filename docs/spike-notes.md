@@ -40,7 +40,9 @@ Gate: tap-to-sound ≤ 20 ms on every reference device, and no audible gap while
 | Surface tablet, run 3 | 92 | 11.7 / 24.9 ms | 48 ms (base 10.0 ms) | 15 edits, 2 skipped (4 overall) | 12.3 / 18.5 / 31.0 ms (157×222) |
 | Surface tablet, run 4: colouring in the worker, catch-up on | 65 | 11.6 / 14.6 ms | 40 ms (base 10.0 ms) | 20 edits, 0 skipped (8 late wakes caught up, largest 29 ms), no gaps or flams heard | 19.4 / 28.3 / 36.4 ms (157×222), plus 11.6 ms colouring |
 
-**The Surface misses both checks, even with the fluid in a Worker.** Its worst tap is 24.8 ms, and 3 windows were skipped while rewiring (8 overall). In runs 1–3 a skip needed the main thread blocked for more than about 120 ms, the lookahead. With the catch-up below, it now takes about 220 ms. The fluid step is slow there, 14.5 ms mean and 22.7 ms p95, but it runs in the worker. Run 2 added main-thread diagnostics:
+**Result: the gate passed** on desktop Chrome (the Worker row), the Surface (run 4) and the phone (run 3, 5 ms offset), and Chris signed off on the human checks. The paragraphs below follow the earlier runs that missed and the fixes that followed.
+
+**Surface runs 1–3 missed, even with the fluid in a Worker.** Its worst tap is 24.8 ms, and 3 windows were skipped while rewiring (8 overall). In runs 1–3 a skip needed the main thread blocked for more than about 120 ms, the lookahead. With the catch-up below, it now takes about 220 ms. The fluid step is slow there, 14.5 ms mean and 22.7 ms p95, but it runs in the worker. Run 2 added main-thread diagnostics:
 - **No frames over 50 ms**, yet 7 windows were skipped. So the skips may not be the main thread at all. They could be the audio clock jumping forward, for example after an audio-device underrun. The report now records, for each skip, how far the wall clock and the audio clock moved since the previous wake. A 500 ms Stall reads 521/522 ms, both moving together.
 - **Run 3 shows the skips are late timers, not audio clock jumps.** Each of the 4 skips moved the wall and audio clocks alike, by 131–149 ms, and there were still no frames over 50 ms. So nothing ran long. The 25 ms wake timer waited behind many short tasks (frames, input, fluid messages), or was throttled, until it was about 20 ms past the 120 ms lookahead. Each such wake drops one window's events: the scheduler skips them rather than playing them late, so a beat can go missing without any stall. Two implications:
   - The lookahead needs margin over the slowest reference device's timer jitter.
@@ -48,15 +50,15 @@ Gate: tap-to-sound ≤ 20 ms on every reference device, and no audible gap while
 - **Run 4 passes both checks**, with colouring in the worker and catch-up on. The worst tap is 14.6 ms. Main-thread render is 0.2 ms. Nothing was skipped: 8 late wakes, up to 29 ms past the horizon, were caught up instead. The cost moved into the worker. A step plus colouring takes about 31 ms there, so on the Surface the fluid updates at about 30 fps while the page draws at 60. The GPU solver (ADR 0003) is still needed for smooth visuals on this class of device.
 - **The Renderer takes 6.4–7.0 ms mean and 10.1–11.2 ms p95 on the main thread**, against 2.2 ms on the Mac. It's the largest main-thread cost left, and why the worst tap (19.9 ms) sits at the gate. Colorizing is most of it, so it now runs in the worker as well. Headless, main-thread render fell from 2.1 ms to under 0.2 ms, and the worst tap from 20.4 to 10.7 ms. Colorizing costs the worker about 3 ms per step on the Mac.
 
-**The Android phone misses the tap gate with no long frames** (17.0 ms median, 23.0 ms worst, 0 frames over 50 ms). What the gate measures is the immediate path's fixed 10 ms offset plus the time from the touch's own timestamp to our handler. On the phone that second part is about 7 ms median and 13 ms worst. Nothing of ours blocks the thread, so it's Android's input pipeline. Two consequences:
+**Phone runs 1 and 2 missed the tap gate with no long frames** (17.0 ms median, 23.0 ms worst, 0 frames over 50 ms). What the gate measures is the immediate path's fixed 10 ms offset plus the time from the touch's own timestamp to our handler. On the phone that second part is about 7 ms median and 13 ms worst. Nothing of ours blocks the thread, so it's Android's input pipeline. Two consequences:
 - The offset is the only part of the measurement we control. `?offset=<ms>` sets it, and the report shows it. Headless, 5 ms gives a 5.3 ms median and 0 ms gives 0.3 ms: the measurement moves one for one.
 - The spike can't show whether a smaller offset is safe. The `late` counter compares a note's time with `currentTime`, which doesn't move within one event handler, so the counter stays 0 even at offset 0. Too small an offset shows up as uneven timing between taps, which has to be judged by ear.
 
 Run 1 was over Bluetooth, which reported 264 ms output latency, against 16 ms on the phone's speaker in run 2. That is on top of every tap and is far larger than anything the gate measures. Run 2, on the current build, still misses with 0.1 ms of main-thread render and no long frames. So the remainder is Android's input delay, about 6.5 ms median and 11 ms worst, plus the 10 ms offset.
 
-The headless row is a stand-in until Chris fills in the reference devices. Headless output latency doesn't reflect real hardware.
+Headless output latency doesn't reflect real hardware.
 
-**The full patch fails the tap gate on the worst case**: 20.2–21.7 ms in headless Chromium, and 27.4 ms in desktop Chrome, against ≤ 20 ms. Every median passes; desktop Chrome's is 17.2 ms. Medians vary from run to run (10.5–16.1 ms), so read the worst case and the median together.
+**Before the Worker, the full patch failed the tap gate on the worst case**: 20.2–21.7 ms in headless Chromium, and 27.4 ms in desktop Chrome, against ≤ 20 ms. Every median passes; desktop Chrome's is 17.2 ms. Medians vary from run to run (10.5–16.1 ms), so read the worst case and the median together.
 
 ### Tap latency and the fluid
 
@@ -131,7 +133,7 @@ Editor
 
 ## Design changes this implies
 
-Applied to [design.md](design.md) in the PR that passed the M0 gate, with [ADR 0016](decisions/0016-main-thread-budget.md) for 1 and [ADR 0017](decisions/0017-immediate-offset-and-catch-up.md) for 7 and 8. The M1 checks in [milestones.md](milestones.md) follow from 1, 2, 7 and 8. Item 6 is recorded as an open question in design.md's Risks.
+Applied to [design.md](design.md) in the PR that passed the M0 gate, with [ADR 0016](decisions/0016-main-thread-budget.md) for 1 and [ADR 0017](decisions/0017-immediate-offset-and-catch-up.md) for 7 and 8. The M1 checks in [milestones.md](milestones.md) follow from 1, 2, 4, 7 and 8; 9 is in M1's editor scope, and 3 and 4 leave open questions for M1 in design.md's Timing section. Item 6 is recorded as an open question in design.md's Risks.
 
 1. **Keep the main thread free during a frame (Timing, Technical architecture, Budgets).** Add a budget: no single main-thread task longer than about 4 ms while the patch plays, so a tap waits at most that long. For the fluid:
    - The GPU solver (ADR 0003) meets it.
@@ -143,7 +145,7 @@ Applied to [design.md](design.md) in the PR that passed the M0 gate, with [ADR 0
 3. **Live input and stateful nodes (Timing).** Say how a node fed by both scheduled and immediate events orders them, because immediate events arrive with times earlier than the scheduler's horizon. One option: stateful nodes keep their immediate-path state separately and merge the two by time.
 4. **Transport (Core concepts, Time and rhythm).** Replace the per-tick beat count with a transport: a shared beat position that Clock writes and Progression and others read. Phase re-anchors at the change time, not at the window start.
 5. **Port types and params (Core concepts).** Write down Value as a port type: sampled at event times, never scheduled. Write down text params with presets that fill them. Write down Field writers as a Write output into Fluid's Writers input.
-6. **Splash timing (Visual system).** Decide whether a tap's own splash skips the output-latency shift, so it appears under the finger at once, while scheduled events stay synced to the sound.
+6. **Splash timing (Visual system; recorded as an open question in Risks).** Decide whether a tap's own splash skips the output-latency shift, so it appears under the finger at once, while scheduled events stay synced to the sound.
 7. **A 5 ms immediate-path offset (Timing, Technical architecture).** Change "about 10 ms" to 5 ms. Android's input delay, about 6.5 ms median and 11 ms worst on the reference phone, uses most of the 20 ms budget, and taps sounded even at 5 ms. Update the M1 check "a note at `currentTime + 10 ms ± 2 ms`" to 5 ms.
 8. **Catch up small overruns; skip only stalls (Timing).** The scheduler queries a stretch it woke up to 100 ms late for, and moves that stretch to start now so its events keep their spacing. Only longer gaps skip. The Surface's wake timer regularly ran 10–30 ms past the 120 ms lookahead with nothing blocking. Add an M1 check: a 150 ms stall loses no events and stacks none.
 9. **Cables and ports for touch (Editor and UX).** Give ports a larger hit area than their drawn size, especially for coarse pointers. Keep a cable's remove control visible when the cable passes behind a node: draw it above the nodes, or let selecting a cable anywhere along its path remove it.

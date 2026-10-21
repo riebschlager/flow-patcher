@@ -17,7 +17,7 @@ A fixed set of music-shaped building blocks around one fluid field, not a genera
 
 - **One Fluid node per patch.** The GPU simulation layer is shared, so later field nodes can sit beside it ([ADR 0003](../decisions/0003-gpu-fluid-one-node.md)).
 - **Solver.** Semi-Lagrangian advection, 20 Gauss-Seidel pressure iterations, vorticity confinement, and an aspect-following grid capped at 35,000 cells on desktop and 16,128 on mobile.
-- **Readers return the previous frame.** They use async GPU readback one frame late, and that delay is what makes Field → Signal feedback legal ([ADR 0010](../decisions/0010-explicit-feedback.md)).
+- **Readers return the previous frame.** On the GPU they use async readback one frame late. On the CPU solver, which runs in a Worker, the engine latches the last finished step's values at each frame, so a read returns the previous frame's latched values ([ADR 0016](../decisions/0016-main-thread-budget.md)). That delay is what makes Field → Signal feedback legal ([ADR 0010](../decisions/0010-explicit-feedback.md)).
 - **Testing.** The CPU solver has bit-exact golden frames. The GPU solver is tested against the CPU solver within a tolerance.
 
 ## Overlay and look

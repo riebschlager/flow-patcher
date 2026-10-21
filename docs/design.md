@@ -49,21 +49,21 @@ The graph runs on one clock, the Web Audio clock. Musical nodes are pure functio
 
 **Window queries.** A single scheduler wakes every 25 ms. It asks the graph for every event in the next window, from `now` to `now + 120 ms` (the lookahead Flow already uses). Each Event node implements `query(t0, t1, inputs) → events[]`, similar to Strudel/Tidal patterns. A node never owns a timer. Generators such as Clock, Euclidean and Arpeggio compute their events from absolute time, so seeking, looping and live edits are deterministic.
 
-**Live input is already in the past.** A pointerdown arrives at `now`, while the scheduler is working 120 ms ahead. Input events are stamped with `ctx.currentTime` plus a small safety offset (5 ms) and pushed straight down their cables. The scheduler does not wait for them. They pass through the same node code with `query` called on a zero-width window. As a result, a tap is scheduled well within 20 ms of the touch: the offset plus the platform's input delay, which the M0 spike measured at up to about 11 ms on Android. Generated material keeps its full lookahead ([ADR 0017](decisions/0017-immediate-offset-and-catch-up.md)).
+**Live input is already in the past.** A pointerdown arrives at `now`, while the scheduler is working 120 ms ahead. Input events are stamped with `ctx.currentTime` plus a small safety offset (5 ms) and pushed straight down their cables. The scheduler does not wait for them. They pass through the same node code with `query` called on a zero-width window. As a result, a tap is scheduled within 20 ms of the touch: the offset plus the platform's input delay, which the M0 spike measured at up to about 11 ms on Android. Generated material keeps its full lookahead ([ADR 0017](decisions/0017-immediate-offset-and-catch-up.md)).
 
-**Live and scheduled events meet out of order.** Immediate events carry times earlier than the scheduler's horizon, so a node fed by both a Clock and live input sees time go backwards. Stateless nodes don't care. A stateful node keeps its immediate-path state apart from its scheduled state and merges the two by time.
+**Live and scheduled events meet out of order.** Immediate events carry times earlier than the scheduler's horizon, so a node fed by both a Clock and live input sees time go backwards. Stateless nodes don't care. For stateful nodes this is open for M1: one option is for the engine, not each node, to keep immediate-path state apart from scheduled state and merge the two by time.
 
-**The transport.** Clock writes a shared beat position: a transport that Progression, and anything else counting beats, reads at an event's time. When the tempo or division changes, the beat and Phase re-anchor at the change time, not at the start of the window the change lands in, so a Phase read never jumps.
+**The transport.** Clock writes a shared beat position: a transport that Progression, and anything else counting beats, reads at an event's time. When the tempo or division changes, the beat and Phase re-anchor where the new plan takes effect, and keep the old anchor for reads before that time, so a Phase read never jumps. Open for M1: whether the transport travels on a cable or is patch-wide, and what zero or two Clocks mean.
 
 **Signals are sampled, not streamed.** When an Event node needs a Signal input (a velocity knob modulated by pointer y), it samples the Signal at each event's timestamp. Frame-rate signals (pointer, fluid) are held and linearly interpolated. Audio-param targets get `setTargetAtTime` ramps.
 
 **Visual nodes run on the frame clock.** Each animation frame, the visual graph reads the events whose timestamps fell in the frame interval. That includes events scheduled earlier, so a splash appears as its note sounds. It then steps the fluid and renders. The frame clock runs behind `currentTime` by the output latency, so splashes land when their notes are heard, not when they are rendered.
 
-**The main thread stays free.** No main-thread task runs longer than about 4 ms while a patch plays, so a pointerdown never waits long for its handler. Fluid solving and coloring run off the main thread ([ADR 0016](decisions/0016-main-thread-budget.md)).
+**The main thread stays free.** No main-thread task runs longer than about 4 ms *(tune)* while a patch plays, so a pointerdown never waits long for its handler. Fluid solving and coloring run off the main thread ([ADR 0016](decisions/0016-main-thread-budget.md)).
 
 **Feedback is explicit.** Cycles are allowed, but each cycle must pass through a delay edge. Any Field → Signal read (for example Fluid Probe) counts as one implicitly: it returns the previous frame's value. A cycle with no delay is rejected when you connect it, and the cable flashes red.
 
-**Lifetimes.** Hidden tabs extend the lookahead to 1.25 s, as Flow does now. A wake that runs up to 100 ms late queries the stretch it missed and plays it late, moved to start now so its events keep their spacing. Longer stalls skip their windows rather than bursting them ([ADR 0017](decisions/0017-immediate-offset-and-catch-up.md)). The runtime limits polyphony (64 voices), events per window, feedback gain and output peak, whatever the patch asks for.
+**Lifetimes.** Hidden tabs extend the lookahead to 1.25 s, as Flow does now. A wake up to 100 ms past its horizon queries the stretch it missed and plays it late, moved to start now so its events keep their spacing. Longer stalls skip their windows rather than bursting them ([ADR 0017](decisions/0017-immediate-offset-and-catch-up.md)). The runtime limits polyphony (64 voices), events per window, feedback gain and output peak, whatever the patch asks for.
 
 ## Canvas event sources
 
@@ -363,7 +363,7 @@ An edit produces a new plan. The scheduler swaps plans at the next window bounda
 | Resource | Limit | Enforced by |
 | --- | --- | --- |
 | Fluid step | GPU step target to be measured. CPU, in a Worker: about 8 ms at 35,000 cells on desktop, about 31 ms with coloring on the Surface; mobile capped at 16,128 cells | Grid budget knob, capped by device class |
-| Main thread | No task over about 4 ms while a patch plays | Fluid work in a Worker or on the GPU; the immediate-path checks run with the Fluid stepping |
+| Main thread | No task over about 4 ms *(tune)* while a patch plays | Fluid work in a Worker or on the GPU; the immediate-path checks run with the Fluid stepping |
 | Voices | 64 simultaneous, oldest stolen first | Runtime voice pool |
 | Events per window | 256 per node, 2,048 per patch | Scheduler; excess dropped with a warning on the node |
 | Feedback | Delay feedback at most 0.42; event cycles need a delay edge | Node limits, graph compiler |

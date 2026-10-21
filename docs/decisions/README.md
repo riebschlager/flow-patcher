@@ -23,4 +23,4 @@ Short records of settled calls. Read the relevant ones before changing anything 
 | [0017](0017-immediate-offset-and-catch-up.md) | A 5 ms immediate-path offset, and catch-up for late scheduler wakes (amends 0008) |
 
 ## Adding a decision
-Copy the shape of an existing file: number, title, `Status: Accepted · <date>`, then Context (if needed), Decision and Consequences. Keep it under a page. If it replaces an older record, set the old one's status to `Superseded by NNNN`.
+Copy the shape of an existing file: number, title, `Status: Accepted · <date>`, then Context (if needed), Decision and Consequences. Keep it under a page. If it replaces an older record, set the old one's status to `Superseded by NNNN`. If it changes only part of an older record, set the old one's status to `Amended by NNNN` and leave its text as written; the new record says what changed.

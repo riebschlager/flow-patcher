@@ -54,11 +54,11 @@ Human
 1. **Harness** (setup guide Step 2): already built before M0 (monorepo, `pnpm check`, `pnpm e2e`, `pnpm run-patch`, the engine-boundary lint rule, CI). M1 extends it as the gate checks below need.
 2. **Types and channels:** the six port types, per-event `channel`, fan-in rules (Event merge in time order, Signal sum, parameter = base + depth × cable).
 3. **Graph compiler:** topologically sorted plan, delay edges marked, cycles without a delay edge rejected.
-4. **Scheduler:** 25 ms wake, 120 ms lookahead, 1.25 s when the tab is hidden; a wake up to 100 ms late catches up, keeping its events' spacing, and longer stalls skip missed windows; immediate path for input events at `currentTime + 5 ms` ([ADR 0017](decisions/0017-immediate-offset-and-catch-up.md)).
+4. **Scheduler:** 25 ms wake, 120 ms lookahead, 1.25 s when the tab is hidden; a wake up to 100 ms past its horizon catches up, keeping its events' spacing, and longer stalls skip missed windows; immediate path for input events at `currentTime + 5 ms` ([ADR 0017](decisions/0017-immediate-offset-and-catch-up.md)).
 5. **Hot patching:** plan swap at the next window boundary; node state kept when the id survives; future events from removed or changed nodes cancelled; sounding notes finish their release.
 6. **Runtime limits:** 256 events per node and 2,048 per patch per window, excess dropped with a warning on the node; seeded RNG, no `Math.random` in engine or nodes.
 7. **Patch format v1:** load/save. Patches record the format version and each node's type version from the start, but migrations and placeholders wait for M4. Until then, a breaking node change updates the example patches and fixtures instead.
-8. **Editor:** typed port colors, connection rules, adapter offer on incompatible cables, knobs with modulation rings, probes (hover value, pinned history), undo/redo on document diffs.
+8. **Editor:** typed port colors, connection rules, adapter offer on incompatible cables, knobs with modulation rings, text params with preset menus, port hit areas larger than drawn, a cable remove control that stays reachable behind nodes, probes (hover value, pinned history), undo/redo on document diffs.
 9. **Nodes:** the M0 set rebuilt properly (Fluid on the CPU solver in a Worker for now, with its colorizer, per [ADR 0016](decisions/0016-main-thread-budget.md)), plus Delay Edge, Probability, Make Note, and Sample & Hold and Threshold/Change so the adapter offer has one adapter in each direction. The Milestone column in `docs/nodes/` lists them. Other nodes follow the unstarred-node rule above.
 
 **Gate: live edits never glitch the audio**
@@ -73,8 +73,9 @@ Automated
 - [ ] **Catch-up:** a simulated 150 ms stall loses no events, and no two caught-up events from one stream land on the same time.
 - [ ] **Offline audio:** an `OfflineAudioContext` render of a sustained patch with edits applied via `suspend()` has no silent gap longer than 5 ms *(tune)* and no peak above the Output ceiling.
 - [ ] **Immediate path:** a scripted pointerdown produces a note at `currentTime + 5 ms ± 2 ms` *(tune)*, without waiting for the next scheduler wake.
-- [ ] **Immediate path under load:** with a Fluid stepping and a Renderer drawing, the worst of 30 scripted taps is ≤ 20 ms from pointerdown to the note's time *(tune)*.
-- [ ] **Output guard:** an offline render of a hot patch (four full-scale saws) clips under 0.1 % of samples at the guard *(tune)*.
+- [ ] **Immediate path under load:** with a Fluid stepping and a Renderer drawing, the worst of 30 scripted taps is ≤ offset + 7 ms from pointerdown to the note's time *(tune)*. That bound fails if the fluid runs on the main thread ([ADR 0016](decisions/0016-main-thread-budget.md)).
+- [ ] **Transport:** across a tempo change mid-run, Phase is continuous and the beat count never repeats or skips; Progression gives the same chords queried in 25 ms windows and in one call.
+- [ ] **Output guard:** in an offline render of a hot patch (four full-scale saws), under 0.1 % of samples reach the Output ceiling *(tune)*.
 - [ ] **Compiler:** a cycle with no delay edge is rejected; the same cycle through Delay Edge compiles.
 - [ ] **Limits:** a node emitting 1,000 events per window is capped at 256 with a warning; a patch over 2,048 is capped.
 - [ ] **Format:** every example patch survives save → load → save byte-identical, with format and node type versions present.
