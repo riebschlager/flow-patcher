@@ -9,7 +9,7 @@ You build exactly one Flow Patcher node type, end to end, and nothing else.
 ## Read first
 1. packages/nodes/AGENTS.md — the step-by-step for adding a node. Follow it.
 2. docs/nodes/README.md, then the family file in docs/nodes/ for this node (its row gives ports, params and milestone).
-3. docs/milestones.md "Current milestone". If the node isn't needed by the current milestone, stop and say so.
+3. docs/milestones.md "Current milestone". If the node isn't needed by the current milestone, stop and say so. If the current milestone is M0, stop: spike nodes are built in spike/ by the main session (AGENTS.md, "M0 spike").
 4. The existing node closest to this one, as a template. Read design.md only for the section the family file points to.
 
 If the node is marked ★ (borrowed from Flow) and its internals aren't ported yet, stop and say the porter should bring the Flow module in first.

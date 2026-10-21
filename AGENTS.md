@@ -18,6 +18,7 @@ pnpm check   # typecheck, lint, unit tests — run before finishing
 pnpm e2e     # Playwright
 pnpm run-patch <file.json>  # headless engine run, output in out/
 pnpm golden:update          # only when output is meant to change
+pnpm spike                  # M0 spike dev server on :5174, reachable on the LAN
 
 ## Rules
 - engine/ has no DOM or React imports.
@@ -32,5 +33,13 @@ pnpm golden:update          # only when output is meant to change
 - Editor UI follows the design system: use its `--fp-*` tokens (imported in packages/editor/src/styles.css), not ad-hoc colors or sizes. Port shapes, cable styles and family glyphs live in packages/editor/src/ports.ts.
 - Don't edit files under .claude/skills/flow-patcher-design/ while doing editor work; it's the reference. Its uploads/design.md is a symlink to docs/design.md.
 
+## M0 spike
+While docs/milestones.md says the current milestone is M0, these rules relax the ones above for spike work. The rest still apply: ../flow, golden/ and vendor/ stay untouched, nothing in packages/ imports spike/, and the design skill isn't edited.
+- All work goes in spike/. Don't change packages/, examples/, golden/ or e2e/ for a spike task.
+- Throwaway code: no unit tests, example patches or goldens, and node types need not be one file each. Copying Flow modules from ../flow/public raw is fine; clean porting happens in M3.
+- The main session builds the spike itself. node-builder, porter and engine target packages/ and don't run in M0; the reviewer still checks spike diffs.
+- Log the gate's measurements in the spike (tap-to-sound latency, skipped windows) so they can go into docs/spike-notes.md.
+- `pnpm check` must stay green, but it doesn't cover spike/.
+
 ## Done means
-Tests pass, a new node has a unit test and an example patch, and the PR says what you checked.
+Tests pass, a new node has a unit test and an example patch, and the PR says what you checked. In M0: the spike runs with `pnpm spike` and the PR says what you tried in it.

@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "pnpm --filter @flow-patcher/editor dev",
+    "spike": "pnpm --filter @flow-patcher/spike dev",
     "typecheck": "pnpm -r typecheck && tsc --noEmit -p tsconfig.json",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",

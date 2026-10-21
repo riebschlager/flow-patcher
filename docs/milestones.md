@@ -8,7 +8,7 @@ Six milestones. Each one starts only after the previous gate passes. The source 
 
 - Work only on the current milestone. If a task needs something from a later milestone, stop and say so instead of building it.
 - A gate passes when every **Automated** check is green in CI and Chris has signed off on every **Human** check. Tick the boxes here in the same PR that passes the gate, and update "Current milestone" above.
-- Commands (`pnpm check`, `pnpm e2e`, `pnpm run-patch`) exist from M1 on. See `CLAUDE.md`.
+- The harness (`pnpm check`, `pnpm e2e`, `pnpm run-patch`, the engine-boundary lint rule and CI) was built ahead of M0, so it exists in every milestone. It doesn't cover `spike/`. See `AGENTS.md`.
 - Thresholds marked *(tune)* are starting points. Change them only with a note in the PR saying why.
 - Flow Patcher is independent of Flow. No check compares against Flow's files or output; borrowed code is tested against golden files generated in this repo.
 - **Reference devices** for every touch or "on device" check: desktop Chrome, Chris's Android phone and Chris's Surface tablet.
@@ -27,7 +27,7 @@ Six milestones. Each one starts only after the previous gate passes. The source 
 
 **Rules**
 - Throwaway code. It lives in `spike/` and nothing in `packages/` imports from it.
-- No harness, no persistence, no undo, no channels beyond one pointer. Move fast.
+- No harness for spike/, no persistence, no undo, no channels beyond one pointer. Move fast. `pnpm spike` serves it on the LAN for the reference devices.
 - Flow modules may be copied in raw; clean porting happens in M3.
 
 **Gate: patching feels fun, and taps sound immediately**
@@ -51,7 +51,7 @@ Human
 **Goal:** the engine the rest of the product is built on, with the harness that lets agents check their own work.
 
 **Scope**
-1. **Harness first** (setup guide Step 2): pnpm monorepo with `packages/engine` (no DOM, no React), `packages/nodes`, `packages/editor`; `pnpm check`, `pnpm e2e`, the headless runner `pnpm run-patch`, and the engine-boundary lint rule.
+1. **Harness** (setup guide Step 2): already built before M0 (monorepo, `pnpm check`, `pnpm e2e`, `pnpm run-patch`, the engine-boundary lint rule, CI). M1 extends it as the gate checks below need.
 2. **Types and channels:** the six port types, per-event `channel`, fan-in rules (Event merge in time order, Signal sum, parameter = base + depth × cable).
 3. **Graph compiler:** topologically sorted plan, delay edges marked, cycles without a delay edge rejected.
 4. **Scheduler:** 25 ms wake, 120 ms lookahead, 1.25 s when the tab is hidden, stalls skip missed windows; immediate path for input events.
