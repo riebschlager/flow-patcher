@@ -6,6 +6,7 @@ export const PORT_COLORS: Record<PortType, string> = {
   note: 'var(--fp-note)',
   signal: 'var(--fp-signal)',
   audio: 'var(--fp-audio)',
+  value: 'var(--fp-value)',
 };
 
 export const CABLE_STYLES: Record<PortType, { width: number; dash?: string; cap?: 'round' }> = {
@@ -13,4 +14,5 @@ export const CABLE_STYLES: Record<PortType, { width: number; dash?: string; cap?
   note: { width: 1.5, dash: '8 3' },
   signal: { width: 1.5, cap: 'round' },
   audio: { width: 3, cap: 'round' },
+  value: { width: 1.8, dash: '0.1 4.5', cap: 'round' },
 };

@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import type { KnobDef } from './registry';
+import type { KnobDef, TextDef } from './registry';
 
 // Knob position is 0–1; the knob's curve maps it to a value.
 const toValue = (k: KnobDef, p: number) => {
@@ -68,6 +68,18 @@ export function Knob({ knob, value, onChange }: { knob: KnobDef; value: number; 
       <span className="knob__label">{knob.label}</span>
       <span className="knob__value">{format(knob, value)}</span>
     </div>
+  );
+}
+
+/** A text param. Every keystroke is kept in the node; the instance only gets text that passes the check. */
+export function TextParam({ def, value, onChange }: { def: TextDef; value: string; onChange: (v: string) => void }) {
+  const error = def.check?.(value) ?? null;
+  return (
+    <label className={`text nodrag nopan${error ? ' text--error' : ''}`}>
+      <span className="knob__label">{def.label}</span>
+      <input value={value} onChange={(e) => onChange(e.target.value)} spellCheck={false} data-text={def.name} />
+      {error && <span className="text__error">{error}</span>}
+    </label>
   );
 }
 

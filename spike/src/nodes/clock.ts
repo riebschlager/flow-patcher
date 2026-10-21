@@ -23,6 +23,8 @@ export const clock: NodeType = {
     let origin = 0; // ticks are counted from audio time 0 until a tempo change re-anchors them
     let period = 60 / knobs.bpm / knobs.division;
     let lastStep = -Infinity; // guards against re-emitting a tick that moved across a window edge
+    // beat = beatBase + (k - stepBase) / division; re-anchored on a Div change so the beat count carries on.
+    let beatBase = 0, stepBase = 0;
 
     const timeOf = (k: number) => origin + k * period + (k % 2 !== 0 ? knobs.swing * period * 0.5 : 0);
 
@@ -32,6 +34,10 @@ export const clock: NodeType = {
         if (next !== period) {
           // Keep the phase at t0 so tick numbering carries on at the new tempo.
           const steps = (t0 - origin) / period;
+          if (pending.division !== knobs.division) {
+            beatBase += (steps - stepBase) / knobs.division;
+            stepBase = steps;
+          }
           origin = t0 - steps * next;
           period = next;
         }
@@ -42,7 +48,10 @@ export const clock: NodeType = {
         for (let k = Math.floor((t0 - origin) / period) - 1; k <= Math.ceil((t1 - origin) / period); k++) {
           const time = timeOf(k);
           if (time >= t0 && time < t1 && k > lastStep) {
-            tick.push({ time, step: k });
+            // beat lets Progression count beats across tempo and Div changes. Rounded, because re-anchoring
+            // leaves float drift (5.99999…) that would move a chord change one tick late.
+            const beat = Math.round((beatBase + (k - stepBase) / knobs.division) * 1e6) / 1e6;
+            tick.push({ time, step: k, beat });
             lastStep = k;
           }
         }

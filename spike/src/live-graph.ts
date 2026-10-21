@@ -15,9 +15,10 @@ export class LivePatch {
   private cables = new Map<string, { from: AudioNode; fade: GainNode }>();
   private wires = new Map<string, Wire>();
 
-  addNode(id: string, type: string, values: Record<string, number>) {
+  addNode(id: string, type: string, values: Record<string, number>, texts: Record<string, string> = {}) {
     const instance = nodeType(type).create(getCtx());
     for (const [knob, value] of Object.entries(values)) instance.set(knob, value);
+    for (const [name, text] of Object.entries(texts)) instance.setText?.(name, text);
     this.nodes.set(id, instance);
   }
 
@@ -31,6 +32,10 @@ export class LivePatch {
 
   set(id: string, knob: string, value: number) {
     this.nodes.get(id)?.set(knob, value);
+  }
+
+  setText(id: string, name: string, text: string) {
+    this.nodes.get(id)?.setText?.(name, text);
   }
 
   /** Audio cables patch Web Audio now; other wires take effect at the next window, when run() next reads them. */
@@ -65,7 +70,7 @@ export class LivePatch {
     }, FADE * 3000);
   }
 
-  /** True if an event wire from `source` to `target` would close a loop. Event cycles need a delay edge, which the spike doesn't have. */
+  /** True if an event or value wire from `source` to `target` would close a loop. Cycles need a delay edge, which the spike doesn't have. */
   wouldCycle(source: string, target: string) {
     const seen = new Set<string>();
     const stack = [target];
@@ -81,6 +86,7 @@ export class LivePatch {
 
   /**
    * Query every event node for [t0, t1) in graph order, handing each node's outputs to the nodes cabled after it.
+   * Value wires count for the order too, so a Value's source has heard this window's events before anyone reads it.
    * With `seed`, only the seed's downstream nodes run, fed the seed's events: the immediate path for live input.
    */
   run(t0: number, t1: number, seed?: { node: string; port: string; events: SpikeEvent[] }) {
@@ -121,6 +127,10 @@ export class LivePatch {
           .map((w) => this.nodes.get(w.source)?.signals?.[w.sourceHandle ?? ''])
           .filter((f) => f !== undefined);
         return feeds.length ? (t) => feeds.reduce((sum, f) => sum + f(t), 0) : null;
+      },
+      value: (port) => {
+        const w = eventWires.findLast((w) => w.type === 'value' && w.target === id && w.targetHandle === port);
+        return (w && this.nodes.get(w.source)?.values?.[w.sourceHandle ?? '']) ?? null;
       },
     };
   }
