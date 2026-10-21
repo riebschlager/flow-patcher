@@ -16,7 +16,8 @@ import { ensureRunning, getCtx } from './audio';
 import { CableEdge, type CableData } from './CableEdge';
 import { canConnect, nodeType, portOf, registry, type CanvasInput } from './registry';
 import { OUTPUT_CEILING } from './nodes/output';
-import { live, scheduler } from './runtime';
+import { live, scheduler, startFrames } from './runtime';
+import { setStage } from './stage';
 import { PatchActions, SpikeNodeView, type SpikeNode } from './SpikeNode';
 import { stats } from './stats';
 
@@ -62,6 +63,7 @@ function Editor() {
     void ensureRunning();
     live.addNode(id, type, values, texts);
     scheduler.start();
+    startFrames();
     const node = { id, type: 'spike' as const, position: screenToFlowPosition(at), data: { type, values, texts }, deletable: !def.unique };
     setNodes((ns) => [...ns, node]);
     setMenu(null);
@@ -76,10 +78,11 @@ function Editor() {
   }, [getNode]);
 
   // Same-type cables only (Note may feed Event), and no event or value loops: the spike has no delay edge.
+  // Field loops can't form with today's nodes (Fluid is unique, Renderer has no outputs, Splat no Field input); a later Field node needs the check.
   const isValidConnection: IsValidConnection<Edge<CableData>> = useCallback((c) => {
     const { from, to } = portsOf(c);
     if (!from || !to || c.source === c.target || !canConnect(from.type, to.type)) return false;
-    return from.type === 'signal' || from.type === 'audio' || !live.wouldCycle(c.source, c.target);
+    return from.type === 'signal' || from.type === 'audio' || from.type === 'field' || !live.wouldCycle(c.source, c.target);
   }, [portsOf]);
 
   const onConnect = useCallback((c: Connection) => {
@@ -143,7 +146,7 @@ function Editor() {
           <span className="spike__name">Flow Patcher spike</span>
           <button className="spike__add" onClick={(e) => setMenu(menu ? null : { x: e.clientX, y: e.clientY + 24, place: stagger() })}>+ Add node</button>
           <span className="spike__hint">
-            {nodes.length === 0 ? 'Try Clock → Euclidean → Chord Tone → Sampled Voice → Output, with Clock → Progression → Chord Tone’s Chord. Or Pointer → Chord Tone and play the canvas.' : 'Play the canvas on the right.'}
+            {nodes.length === 0 ? 'Try Clock → Euclidean → Chord Tone → Sampled Voice → Output, with Clock → Progression → Chord Tone’s Chord. Or Pointer → Chord Tone and play the canvas. For dye: Pointer → Splat → Fluid → Renderer.' : 'Play the canvas on the right.'}
           </span>
           <span className="spike__stats" data-testid="stats">
             windows {counters.windows} · skipped {counters.skipped} · late {counters.late} ·{' '}
@@ -153,6 +156,14 @@ function Editor() {
             <span title="Meter polls where the limiter's output went above the ceiling, so the peak guard clipped">
               guard {counters.guardHits}
             </span>
+            {counters.fluidGrid && (
+              <>
+                {' '}·{' '}
+                <span title={`Fluid step time per frame: running average and highest since load, on a ${counters.fluidGrid} grid`}>
+                  fluid {counters.fluidMs.toFixed(1)} / {counters.fluidMaxMs.toFixed(1)} ms
+                </span>
+              </>
+            )}
           </span>
           <button className="spike__add" onClick={() => stall(500)} title="Block the main thread for 500 ms">Stall</button>
         </header>
@@ -187,7 +198,7 @@ function Editor() {
             </div>
           )}
         </main>
-        <PerformanceCanvas taps={counters.taps} />
+        <PerformanceCanvas taps={counters.taps} rendering={nodes.some((n) => n.data.type === 'renderer')} />
         </div>
       </div>
     </PatchActions.Provider>
@@ -196,9 +207,9 @@ function Editor() {
 
 /**
  * The performance canvas: what you play. Pointer events go to every Pointer node through the
- * immediate path. The Renderer will draw here later (issue #8).
+ * immediate path. The Renderer draws the fluid here.
  */
-function PerformanceCanvas({ taps }: { taps: string[] }) {
+function PerformanceCanvas({ taps, rendering }: { taps: string[]; rendering: boolean }) {
   const send = (kind: CanvasInput['kind'], e: React.PointerEvent<HTMLCanvasElement>) => {
     if (kind === 'move' && e.buttons === 0) return; // hovering isn't playing
     const ctx = getCtx();
@@ -221,6 +232,7 @@ function PerformanceCanvas({ taps }: { taps: string[] }) {
   return (
     <section className="spike__perform">
       <canvas
+        ref={setStage}
         className="spike__canvas"
         data-testid="performance-canvas"
         onPointerDown={(e) => {
@@ -234,7 +246,7 @@ function PerformanceCanvas({ taps }: { taps: string[] }) {
         // A lost capture without an up would otherwise hold the Pointer's one channel forever.
         onLostPointerCapture={(e) => send('cancel', e)}
       />
-      <div className="spike__placeholder">Play here</div>
+      {!rendering && <div className="spike__placeholder">Play here</div>}
       <div className="spike__log">{taps.map((line, i) => <div key={i}>{line}</div>)}</div>
     </section>
   );

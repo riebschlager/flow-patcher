@@ -15,6 +15,7 @@ export function CableEdge({ id, sourceX, sourceY, targetX, targetY, sourcePositi
   return (
     <>
       <BaseEdge path={path} interactionWidth={24} style={{ stroke: PORT_COLORS[type], strokeOpacity: selected ? 1 : 0.7, strokeWidth: cable.width, strokeDasharray: cable.dash, strokeLinecap: cable.cap ?? 'butt' }} />
+      {cable.inner && <path d={path} fill="none" style={{ stroke: 'var(--fp-surface-canvas)', strokeWidth: cable.inner, pointerEvents: 'none' }} />}
       {selected && (
         <EdgeLabelRenderer>
           <button
