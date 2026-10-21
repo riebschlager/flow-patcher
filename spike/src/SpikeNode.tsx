@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react';
 import { Handle, Position, useReactFlow, type Node, type NodeProps } from '@xyflow/react';
-import { Knob } from './Knob';
+import { Knob, Menu } from './Knob';
 import { nodeType } from './registry';
 
 export type SpikeNodeData = { type: string; values: Record<string, number> };
@@ -20,6 +20,7 @@ export function SpikeNodeView({ id, data, selected }: NodeProps<SpikeNode>) {
   const { setKnob } = useContext(PatchActions);
   const { deleteElements } = useReactFlow();
   const rows = Math.max(def.inputs.length, def.outputs.length);
+  const menus = def.knobs.filter((k) => k.options), dials = def.knobs.filter((k) => !k.options);
   return (
     <div className={`spike-node${selected ? ' spike-node--selected' : ''}`} data-node-type={def.type}>
       <div className="spike-node__header">
@@ -37,9 +38,16 @@ export function SpikeNodeView({ id, data, selected }: NodeProps<SpikeNode>) {
           </div>
         ))}
       </div>
-      {def.knobs.length > 0 && (
+      {menus.length > 0 && (
+        <div className="spike-node__menus">
+          {menus.map((k) => (
+            <Menu key={k.name} knob={k} value={data.values[k.name] ?? k.default} onChange={(v) => setKnob(id, k.name, v)} />
+          ))}
+        </div>
+      )}
+      {dials.length > 0 && (
         <div className="spike-node__knobs">
-          {def.knobs.map((k) => (
+          {dials.map((k) => (
             <Knob key={k.name} knob={k} value={data.values[k.name] ?? k.default} onChange={(v) => setKnob(id, k.name, v)} />
           ))}
         </div>
