@@ -53,39 +53,86 @@ class Voice implements VoiceHandle {
   constructor(readonly start: number, public end: number, readonly stop: (at: number) => void) {}
 }
 
+/** The first index in ascending `items` whose key is greater than `t` (or, `orEqual`, at least `t`). */
+function above<T>(items: readonly T[], t: number, key: (item: T) => number, orEqual = false): number {
+  let lo = 0, hi = items.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const k = key(items[mid]!);
+    if (orEqual ? k < t : k <= t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+const self = (t: number) => t;
+const startOf = (v: Voice) => v.start;
+
+/**
+ * Cost: a patch at its event budget can claim 2,048 voices in one window, and
+ * with short notes none of them is stolen or over yet, so the pool holds them
+ * all. Counting the voices sounding at an instant is two binary searches
+ * (starts up to it, minus ends up to it: a voice that has ended has started),
+ * so a claim costs O(log n) plus the array insertions, which are appends when
+ * claims come in time order. A steal scans from the earliest start for the
+ * first voice still sounding, past any that are over but not yet reclaimed.
+ * Measured on an M-series laptop, 2,048 claims in one window take about 1 ms
+ * with short notes, and with long ones that steal from the 65th claim on; a
+ * linear count per claim took 80 ms. The worst found is 1,024 short notes and
+ * then 1,024 long ones in the same window, every steal scanning past the short
+ * ones: about 9 ms, once, for a patch already at both budgets. The main thread
+ * has scheduling and UI to run (ADR 0016), so keep it well under a frame.
+ */
 export class VoicePool {
-  /** Pooled voices in claim order. */
+  /** Pooled voices by start, then claim order. */
   private voices: Voice[] = [];
+  /** Their ends, ascending. */
+  private ends: number[] = [];
 
   /** `now` reads the audio clock (the context's currentTime). */
   constructor(private readonly now: () => number, readonly size: number = VOICE_LIMIT) {}
 
-  /** Takes a voice for [start, end), stealing older voices where the pool is full. */
+  /**
+   * Takes a voice for [start, end), stealing older voices where the pool is
+   * full. `end` may be Infinity, until `setEnd` says otherwise. A claim that
+   * would never sound (a start that isn't finite, or an end that isn't after
+   * it, NaN included) takes no slot: its handle is already over, ending at its start.
+   */
   claim(claim: VoiceClaim): VoiceHandle {
     this.reclaim();
-    const voice = new Voice(claim.start, Math.max(claim.start, claim.end), claim.stop);
-    this.voices.push(voice);
-    this.enforce(voice.start, voice.end);
+    const { start, end } = claim;
+    if (!Number.isFinite(start) || !(end > start)) return new Voice(start, start, claim.stop);
+    const voice = new Voice(start, end, claim.stop);
+    this.voices.splice(above(this.voices, start, startOf), 0, voice);
+    this.ends.splice(above(this.ends, end, self), 0, end);
+    this.enforce(start, end);
     return voice;
   }
 
   /** Frees a voice's slot: the node withdrew its note or stopped it for good. Does nothing for a stolen or reclaimed voice. */
   release(handle: VoiceHandle): void {
-    const index = this.voices.indexOf(handle as Voice);
-    if (index >= 0) this.voices.splice(index, 1);
+    this.remove(handle as Voice);
   }
 
   /**
    * Moves a voice's end, such as a note-off that came earlier or later than first
    * scheduled. Earlier frees its slot sooner; later can steal, from the old end
-   * on, like a claim. Does nothing for a stolen or reclaimed voice.
+   * on, like a claim. An end at or before the start (or NaN) ends the voice at
+   * its start and frees the slot. Does nothing for a stolen or reclaimed voice.
    */
   setEnd(handle: VoiceHandle, end: number): void {
     const voice = handle as Voice;
-    if (!this.voices.includes(voice)) return;
+    if (this.indexOf(voice) < 0) return;
+    if (!(end > voice.start)) {
+      this.remove(voice);
+      voice.end = voice.start;
+      return;
+    }
     const before = voice.end;
-    voice.end = Math.max(voice.start, end);
-    if (voice.end > before) this.enforce(before, voice.end);
+    // Only its end moves: it keeps its place among equal starts.
+    this.ends.splice(above(this.ends, before, self) - 1, 1);
+    this.ends.splice(above(this.ends, end, self), 0, end);
+    voice.end = end;
+    if (end > before) this.enforce(before, end);
   }
 
   /** Voices claimed and not yet over: sounding now or scheduled to. */
@@ -94,26 +141,45 @@ export class VoicePool {
     return this.voices.length;
   }
 
-  /** Drops every voice without stopping it, for a runtime that is shutting audio down. */
-  clear(): void {
-    this.voices = [];
+  /** Where a pooled voice sits in `voices`, or -1. */
+  private indexOf(voice: Voice): number {
+    // Equal starts sit together; the voice is among them, if pooled at all.
+    for (let i = above(this.voices, voice.start, startOf) - 1; i >= 0 && this.voices[i]!.start === voice.start; i--) {
+      if (this.voices[i] === voice) return i;
+    }
+    return -1;
   }
 
+  /** Takes a voice out of the pool. False if it wasn't in. */
+  private remove(voice: Voice): boolean {
+    const i = this.indexOf(voice);
+    if (i < 0) return false;
+    this.voices.splice(i, 1);
+    this.ends.splice(above(this.ends, voice.end, self) - 1, 1);
+    return true;
+  }
+
+  /** Drops voices that are over, once the clock has passed the earliest end. */
   private reclaim(): void {
     const now = this.now();
+    if (!(this.ends[0]! <= now)) return;
     this.voices = this.voices.filter((v) => !(v.end <= now));
+    this.ends.splice(0, above(this.ends, now, self));
   }
 
   /** Keeps at most `size` voices sounding at each start in [from, to). Concurrency only rises at a start, so that covers every instant. */
   private enforce(from: number, to: number): void {
-    const starts = [...new Set(this.voices.map((v) => v.start).filter((t) => t >= from && t < to))].sort((a, b) => a - b);
+    const starts: number[] = [];
+    for (let i = above(this.voices, from, startOf, true); i < this.voices.length && this.voices[i]!.start < to; i++) {
+      if (this.voices[i]!.start !== starts[starts.length - 1]) starts.push(this.voices[i]!.start);
+    }
     for (const at of starts) {
-      let sounding = this.voices.filter((v) => v.start <= at && at < v.end);
-      while (sounding.length > this.size) {
-        // Claim order breaks ties, and `sounding` keeps it, so the first minimum is the first claimed.
-        const victim = sounding.reduce((oldest, v) => (v.start < oldest.start ? v : oldest));
-        sounding = sounding.filter((v) => v !== victim);
-        this.voices.splice(this.voices.indexOf(victim), 1);
+      let sounding = above(this.voices, at, startOf) - above(this.ends, at, self);
+      while (sounding > this.size) {
+        // The first voice in start order still sounding at `at`: the earliest start, then the first claimed.
+        const victim = this.voices.find((v) => v.end > at)!;
+        this.remove(victim);
+        sounding--;
         victim.end = at;
         victim.stolen = true;
         victim.stop(at);

@@ -129,6 +129,99 @@ describe('VoicePool', () => {
     expect(a.end).toBe(0.5);
   });
 
+  it('keeps its place among equal starts when its end moves', () => {
+    const { voices, stops, claim } = pool(2);
+    const a = claim('a', 0, 2);
+    claim('b', 0, 2);
+    voices.setEnd(a, 3);
+    claim('c', 0.5, 2);
+    expect(stops).toEqual(['a@0.5']);
+  });
+
+  it('holds an Infinity end until told, and gives NaN times no slot', () => {
+    const { voices, stops, claim, set } = pool(2);
+    const held = claim('held', 0, Infinity);
+    set(100);
+    expect(voices.inUse()).toBe(1);
+
+    // A NaN end ends at once, at the start; so does a non-finite start. Neither counts or steals.
+    const nanEnd = claim('nanEnd', 100, NaN);
+    expect(nanEnd.end).toBe(100);
+    const nanStart = claim('nanStart', NaN, 101);
+    expect(voices.inUse()).toBe(1);
+    voices.release(nanEnd);
+    voices.release(nanStart);
+    claim('b', 100, 101);
+    expect(stops).toEqual([]);
+
+    // setEnd(NaN) ends the voice at its start and frees its slot.
+    voices.setEnd(held, NaN);
+    expect(held.end).toBe(0);
+    expect(voices.inUse()).toBe(1);
+    claim('c', 100, 101);
+    claim('d', 100.5, 101);
+    expect(stops).toEqual(['b@100.5']);
+  });
+
+  it('steals what a plain scan over every voice would, under random claims, releases and end moves', () => {
+    // The rule written out directly: at each start in the added time, steal the earliest start sounding there.
+    type Ref = { id: string; start: number; end: number; at: number };
+    const reference = (pooled: Ref[], from: number, to: number, size: number, stops: string[]) => {
+      const starts = [...new Set(pooled.map((v) => v.start).filter((t) => t >= from && t < to))].sort((a, b) => a - b);
+      for (const at of starts) {
+        for (;;) {
+          const sounding = pooled.filter((v) => v.start <= at && at < v.end).sort((a, b) => a.start - b.start || a.at - b.at);
+          if (sounding.length <= size) break;
+          const victim = sounding[0]!;
+          pooled.splice(pooled.indexOf(victim), 1);
+          stops.push(`${victim.id}@${at}`);
+        }
+      }
+    };
+    let seed = 7;
+    const random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+    let steals = 0;
+    for (let round = 0; round < 20; round++) {
+      const { voices, stops, claim } = pool(4);
+      const expected: string[] = [];
+      let pooled: Ref[] = [];
+      const handles: [VoiceHandle, Ref][] = [];
+      for (let i = 0; i < 120; i++) {
+        const roll = random();
+        if (roll < 0.15 && handles.length) {
+          const [handle, ref] = handles[Math.floor(random() * handles.length)]!;
+          voices.release(handle);
+          pooled = pooled.filter((v) => v !== ref);
+        } else if (roll < 0.3 && handles.length) {
+          const [handle, ref] = handles[Math.floor(random() * handles.length)]!;
+          const end = ref.start + Math.round(random() * 20) / 10;
+          voices.setEnd(handle, end);
+          if (pooled.includes(ref)) {
+            if (!(end > ref.start)) pooled = pooled.filter((v) => v !== ref);
+            else {
+              const before = ref.end;
+              ref.end = end;
+              if (end > before) reference(pooled, before, end, 4, expected);
+            }
+          }
+        } else {
+          // Starts on a coarse grid, so ties happen, and not always in order.
+          const start = Math.round(random() * 40) / 10, end = start + Math.round(random() * 15) / 10;
+          const ref = { id: `v${i}`, start, end, at: i };
+          handles.push([claim(ref.id, start, end), ref]);
+          if (end > start) {
+            pooled.push(ref);
+            reference(pooled, start, end, 4, expected);
+          }
+        }
+      }
+      expect(stops).toEqual(expected);
+      expect(voices.inUse()).toBe(pooled.length);
+      steals += stops.length;
+    }
+    expect(steals).toBeGreaterThan(100);
+  });
+
   it('steals the same voices for the same claims, however the clock was read between them', () => {
     const run = (clockAt: (i: number) => number) => {
       const { stops, claim, set } = pool(4);
