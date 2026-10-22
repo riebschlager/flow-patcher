@@ -171,19 +171,35 @@ describe('transport', () => {
   });
 
   it('keeps a bounded history under constant modulation, exact for recent reads', () => {
+    const maxBpm = 140;
     const sample = (t: number) => tempo(100 + 40 * Math.sin(t), 0.25, 0);
     const transport = createTransport(sample(0), 0);
     const reads: [number, number][] = [];
+    // At most maxBpm / 60 / 0.25 ticks a second (9.3), each a new anchor; the
+    // window start keeps TRANSPORT_HISTORY seconds of them, plus this window's.
+    const bound = Math.ceil((TRANSPORT_HISTORY + 0.025) * (maxBpm / 60 / 0.25)) + 2;
     for (let i = 0; i < 1200; i++) {
       const t0 = i * 0.025, t1 = (i + 1) * 0.025;
       advanceTransport(transport, t0, t1, sample);
       for (let t = t0; t < t1; t += 0.005) reads.push([t, beatAt(transport, t)]);
-      // About 6 ticks a second, each a new anchor: TRANSPORT_HISTORY seconds of them.
-      expect(transport.anchors.length).toBeLessThan((TRANSPORT_HISTORY + 0.025) * 10);
+      expect(transport.anchors.length).toBeLessThanOrEqual(bound);
       // Reads up to TRANSPORT_HISTORY behind the window start don't change.
       for (const [t, beat] of reads.slice(-500)) if (t >= t0 - TRANSPORT_HISTORY) expect(beatAt(transport, t)).toBe(beat);
     }
     expect(reads.length).toBeGreaterThan(5000);
+  });
+});
+
+describe('transport queried backwards', () => {
+  it('gives the ticks the anchors have, without re-anchoring in the past or throwing', () => {
+    const sample = (t: number) => tempo(120 + 60 * Math.sin(3 * t), 0.25, 0.2);
+    const transport = createTransport(sample(0), 0);
+    const forward = advanceTransport(transport, 0, 2, sample);
+    const anchors = structuredClone(transport.anchors);
+    const again = advanceTransport(transport, 1, 1.5, sample);
+    expect(again.length).toBeGreaterThan(0);
+    expect(again).toEqual(forward.filter((t) => t.time >= 1 && t.time < 1.5));
+    expect(transport.anchors).toEqual(anchors);
   });
 });
 

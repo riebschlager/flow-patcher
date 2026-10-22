@@ -198,6 +198,9 @@ export function ticksIn(transport: Transport, t0: number, t1: number): Transport
  * depends on where windows start, but every read the NodeState contract
  * allows (this window, frames up to 1.25 s behind) and every tick is the same
  * however time is split into windows.
+ *
+ * A window that starts before the newest anchor (queried again without its
+ * state restored) gets the ticks the anchors give and doesn't re-anchor.
  */
 export function advanceTransport(transport: Transport, t0: number, t1: number, sample?: (t: number) => TransportTempo): TransportTick[] {
   trimTransport(transport, t0 - TRANSPORT_HISTORY);
@@ -207,8 +210,12 @@ export function advanceTransport(transport: Transport, t0: number, t1: number, s
   for (let i = 0; i < pending.length; i++) {
     const tick = pending[i]!;
     ticks.push(tick);
+    const newest = transport.anchors.at(-1)!;
+    // A window before the newest anchor (queried again without restoring state)
+    // reads the anchors as they stand; it can't re-anchor in the past.
+    if (tick.time < newest.time) continue;
     const tempo = sample(tick.time);
-    if (sameTempo(transport.anchors.at(-1)!, tempo)) continue;
+    if (sameTempo(newest, tempo)) continue;
     retune(transport, tick.time, tempo, tick.step + 1);
     pending = ticksIn(transport, tick.time, t1).filter((next) => next.step > tick.step);
     i = -1;

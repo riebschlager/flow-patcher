@@ -91,9 +91,12 @@ export const clock: NodeDefinition = {
     } else if (!s.knobs || !sameKnobs(s.knobs, knobs)) {
       // A new plan took effect at this window. Compare knobs, not the anchor's
       // tempo, so a modulated tempo doesn't re-anchor at every window.
-      const last = s.transport.anchors.at(-1)!;
-      if (t0 >= last.time) retune(s.transport, t0, sample(t0));
-      s.knobs = knobs;
+      // A window before the newest anchor can't re-anchor in the past; keep
+      // the old knobs so the next window at or after it still sees the change.
+      if (t0 >= s.transport.anchors.at(-1)!.time) {
+        retune(s.transport, t0, sample(t0));
+        s.knobs = knobs;
+      }
     }
     const tick: EngineEvent[] = advanceTransport(s.transport, t0, t1, sample).map((k) => ({ time: k.time, channel: 0, index: k.step }));
     return { tick };

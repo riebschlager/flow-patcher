@@ -210,6 +210,34 @@ describe('clock', () => {
     });
   });
 
+  describe('queried backwards without a state restore', () => {
+    it('gives ticks and does not throw on a modulated Clock', () => {
+      const mods = { bpm: [{ depth: 60, signal: (t: number) => Math.sin(t * 3) }] };
+      const c = instance({ params: { bpm: 120, division: '1/16' }, mods });
+      const forward = c.query(0, 2);
+      let again: EngineEvent[] = [];
+      expect(() => (again = c.query(1, 1.5))).not.toThrow();
+      expect(again.length).toBeGreaterThan(0);
+      expect(again).toEqual(forward.filter((e) => e.time >= 1 && e.time < 1.5));
+    });
+
+    it('gives ticks and does not throw after a knob change, which still lands at the next window', () => {
+      const mods = { bpm: [{ depth: 30, signal: (t: number) => Math.sin(t * 2) }] };
+      const c = instance({ params: { bpm: 120, division: '1/8' }, mods });
+      c.query(0, 2);
+      c.set({ bpm: 90, division: '1/8' });
+      let again: EngineEvent[] = [];
+      expect(() => (again = c.query(1, 1.5))).not.toThrow();
+      expect(again.length).toBeGreaterThan(0);
+      // The skipped re-anchor isn't lost: the next window at or after the newest anchor takes it.
+      const anchors = (c.state.transport as { anchors: { time: number }[] }).anchors;
+      const before = anchors.length;
+      c.query(2, 2.5);
+      expect(anchors.some((a) => a.time === 2)).toBe(true);
+      expect(anchors.length).toBeGreaterThan(before);
+    });
+  });
+
   it('reads 0 before the first query, and a reader with no cable stays at beat 0', () => {
     const c = instance({ params: { bpm: 120 } });
     expect(c.beat(1)).toBe(0);
