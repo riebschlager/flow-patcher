@@ -1,7 +1,7 @@
 // Hot patching with the real nodes, through the headless runner's scripted
 // edits (tools/lib/run.ts). Gate check "Hot swap" (docs/milestones.md, M1):
-// Clock → Euclidean → Probability → Make Note → Simple Synth (standing in for
-// Sampled Voice until it lands) under 100 seeded edits. Also ADR 0021's rule
+// Clock → Euclidean → Probability → Make Note → Sampled Voice under 100 seeded
+// edits, on the real samples (the runner preloads them). Also ADR 0021's rule
 // that a knob change takes effect at the new plan's first window, when a tap
 // rewinds to before the swap. The swap mechanics are packages/engine/test/hot-swap.test.ts.
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -25,7 +25,7 @@ import {
   type Runtime,
   type Transport,
 } from '@flow-patcher/engine';
-import { nodeRegistry, simpleSynth } from '@flow-patcher/nodes';
+import { nodeRegistry, sampledVoice, skippedNotes } from '@flow-patcher/nodes';
 import { formatEvents, loadEdits, loadPatch, runPatch, scriptedEdits, type RunEdit } from './lib/run';
 import { ROOT } from '../test-support/golden';
 
@@ -96,7 +96,7 @@ describe('a knob change across a rewind (ADR 0021)', () => {
   });
 });
 
-describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → Simple Synth under 100 edits', () => {
+describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → Sampled Voice under 100 edits', () => {
   const SECONDS = 10;
   const EDITS = 100;
   const PAIRS = 10;
@@ -107,7 +107,7 @@ describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → S
       node('euclid', 'euclidean', { hits: 7, steps: 16 }),
       node('prob', 'probability', { chance: 0.8 }),
       node('note', 'make-note', { pitch: 57, length: 0.15 }),
-      node('synth', 'simple-synth', { release: 0.2, level: 0.25 }),
+      node('synth', 'sampled-voice', { instrument: 'vibes', release: 0.2, level: 0.8 }),
       node('out', 'output', { level: 0.7 }),
     ],
     [cable('clock', 'tick', 'euclid', 'tick'), cable('euclid', 'hit', 'prob', 'in'), cable('prob', 'out', 'note', 'trigger'), cable('note', 'note', 'synth', 'note'), cable('synth', 'audio', 'out', 'audio')],
@@ -174,7 +174,7 @@ describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → S
           case 'euclid': edits = [pick([set('hits', int(4, 16)), set('steps', int(8, 16)), set('rotate', int(-4, 4))])]; break;
           case 'prob': case 'prob2': edits = [set('chance', round(0.4 + rng.next() * 0.6))]; break;
           case 'note': case 'note2': edits = [pick([set('pitch', int(48, 72)), set('length', round(0.05 + rng.next() * 0.25))])]; break;
-          case 'synth': edits = [pick([set('release', round(0.05 + rng.next() * 0.4)), set('level', round(0.2 + rng.next() * 0.2))])]; break;
+          case 'synth': edits = [pick([set('release', round(0.05 + rng.next() * 0.4)), set('level', round(0.6 + rng.next() * 0.4))])]; break;
         }
       }
       p = applyPatchEdits(p, edits);
@@ -182,7 +182,7 @@ describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → S
     });
   }
 
-  /** Every Simple Synth instance the run builds, by audio context, recording what it was handed. */
+  /** Every Sampled Voice instance the run builds, by audio context, recording what it was handed. */
   interface Voice {
     live: Set<EngineEvent>;
     disposedAt: number | null;
@@ -191,9 +191,9 @@ describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → S
   /** `voices` and `failures` are per audio context: a live run that starts over gets a new one. */
   function recordingSynth(voices: Map<AudioContextLike, Voice[]>, failuresBy: Map<AudioContextLike, string[]>): NodeDefinition {
     return {
-      ...simpleSynth,
+      ...sampledVoice,
       audio(ctx) {
-        const inner = simpleSynth.audio!(ctx);
+        const inner = sampledVoice.audio!(ctx);
         const voice: Voice = { live: new Set(), disposedAt: null, idleAtDispose: 0 };
         if (!failuresBy.has(ctx.audio)) failuresBy.set(ctx.audio, []);
         const failures = failuresBy.get(ctx.audio)!;
@@ -255,7 +255,7 @@ describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → S
     const plan = script();
     const voices = new Map<AudioContextLike, Voice[]>();
     const synthFailures = new Map<AudioContextLike, string[]>();
-    const registry = new Map(nodeRegistry).set('simple-synth', recordingSynth(voices, synthFailures));
+    const registry = new Map(nodeRegistry).set('sampled-voice', recordingSynth(voices, synthFailures));
     // Per attempt (a live run may start over): the plans in force, the audio context, the taps.
     const fresh = (run: { runtime: Runtime; context: AudioContextLike | null; patch: Patch }) => ({ runtime: run.runtime, context: run.context, stages: [{ time: 0, patch: run.patch }], taps: [] as { time: number; crossed: boolean }[], failures: [] as string[] });
     let attempt: ReturnType<typeof fresh> | null = null;
@@ -351,6 +351,9 @@ describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → S
     const played = instances.flatMap((v) => [...v.live]).filter((e) => e.time < SECONDS).map(key).sort();
     const logged = notes.map(key).sort();
     if (played.join() !== logged.join()) failures.push(`synth played ${played.length} notes, the log has ${logged.length}`);
+    // Every rebuild found the instrument in the shared cache: no note went unvoiced while it loaded.
+    expect(run.runtime.stateOf('synth')).toBeDefined();
+    if (skippedNotes(run.runtime.stateOf('synth')) !== 0) failures.push(`synth skipped ${skippedNotes(run.runtime.stateOf('synth'))} notes`);
     // Rebuilt instances were disposed only once their last note had released.
     expect(instances.length).toBeGreaterThan(3);
     expect(instances.filter((v) => v.disposedAt !== null && v.disposedAt < SECONDS - 1e-6).length).toBeGreaterThan(0);
