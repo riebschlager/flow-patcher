@@ -11,6 +11,8 @@ Immediate-path events are stamped `ctx.currentTime + 5 ms` ([ADR 0017](0017-imme
 - Events those nodes had already scheduled after t are cancelled and replaced by the re-run's events.
 - Results depend only on event times, never on when the scheduler happened to wake.
 
+Implementation note (#19): the snapshot restored is the latest at or before t. Signal, Value and param sources upstream of the affected nodes, outside them, are restored and re-queried in each re-run chunk for their state only, so the affected nodes read them as they were at that time; the events those sources emit are not replaced, logged again or re-delivered.
+
 Rejected:
 - **Per-node handling.** Every stateful node would need its own merge logic, each with its own subtle bugs.
 - **Separate state per path,** merged by time. The two paths never see each other, so a tap can't move an arpeggio that the Clock is driving.

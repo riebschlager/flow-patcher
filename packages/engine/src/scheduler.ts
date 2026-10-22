@@ -202,14 +202,18 @@ export class Scheduler {
           audioMs: last ? (now - last.audio) * 1000 : null,
         });
         t0 = now;
-      } else if (late > 0) {
-        catchUp = { until: now, shift: late };
-        this.own.catchUps++;
-        this.own.catchUpMaxMs = Math.max(this.own.catchUpMaxMs, late * 1000);
       }
     }
     // Whoever queried the runtime last, never query a stretch twice.
     t0 = Math.max(t0, this.runtime.horizon ?? -Infinity);
+    // What's still missed after that, [t0, now), is caught up: moved to start now.
+    // (A fresh start and a stall both begin at now or later, so they never catch up;
+    // within the limit, `late` was at most catchUpLimit, and the clamp only shrinks it.)
+    if (t0 < now) {
+      catchUp = { until: now, shift: now - t0 };
+      this.own.catchUps++;
+      this.own.catchUpMaxMs = Math.max(this.own.catchUpMaxMs, catchUp.shift * 1000);
+    }
     const t1 = now + (this.clock.hidden?.() ? this.hiddenLookahead : this.lookahead);
     // An extra wake (a visibility change, a push, a resume) may find the window already queried.
     if (t1 > t0) {
@@ -221,7 +225,11 @@ export class Scheduler {
       this.runtime.retain(now);
     }
     // Pushes made while the clock was suspended are stamped now, relative to the resume.
-    for (const { nodeId, port, fields } of this.deferred.splice(0)) this.push(nodeId, port, fields);
+    // One at a time, so a push that throws leaves the rest held for the next wake.
+    while (this.deferred.length) {
+      const { nodeId, port, fields } = this.deferred.shift()!;
+      this.push(nodeId, port, fields);
+    }
   }
 
   /**

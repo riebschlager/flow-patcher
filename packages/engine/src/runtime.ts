@@ -318,11 +318,6 @@ export interface DeliveryTiming {
   path?: 'scheduled' | 'immediate';
 }
 
-/** A rewind's timing: only events at the live event's own time count as immediate (ADR 0020). */
-interface RewindTiming extends DeliveryTiming {
-  immediateAt?: number;
-}
-
 /** Running totals of what the runtime handed to audio nodes. */
 export interface RuntimeCounters {
   /** Events handed to audio nodes. */
@@ -408,7 +403,7 @@ interface Scope {
 /** What a chunk does with its results. Without it the chunk only advances state (a replay). */
 interface Emit {
   log: LoggedEvent[];
-  timing?: RewindTiming;
+  timing?: DeliveryTiming;
   /** A rewind's re-run: diff audio deliveries against what was already sent. */
   rewind?: boolean;
 }
@@ -623,8 +618,9 @@ export class Runtime {
       for (const [port, events] of this.pendingFrames.get(id) ?? []) this.pendingFrames.get(id)!.set(port, events.filter((e) => e.time < t));
     }
 
-    // Only events at the live event's own time take the immediate path; the rest are scheduled.
-    const emit: Emit = { log: [], timing: timing && { now: timing.now, path: 'scheduled', immediateAt: t }, rewind: true };
+    // Re-run deliveries are all at or after t >= timing.now (push refuses earlier), so none
+    // can be late; they count as scheduled, and there is no catch-up shift.
+    const emit: Emit = { log: [], timing: timing && { now: timing.now, path: 'scheduled' }, rewind: true };
     let queries = 0;
     for (let j = first; j < history.length; j++) {
       const window = history[j]!;
@@ -777,7 +773,7 @@ export class Runtime {
     }
   }
 
-  private send(id: string, instance: AudioInstance, port: string, events: readonly EngineEvent[], timing: RewindTiming | undefined): void {
+  private send(id: string, instance: AudioInstance, port: string, events: readonly EngineEvent[], timing: DeliveryTiming | undefined): void {
     const sent = events.map((event) => this.timed(event, timing));
     instance.schedule!(port, sent);
     this.counters.delivered += sent.length;
@@ -790,7 +786,7 @@ export class Runtime {
   }
 
   /** The time an audio node gets: moved by a catch-up, never before currentTime. */
-  private timed(event: EngineEvent, timing: RewindTiming | undefined): EngineEvent {
+  private timed(event: EngineEvent, timing: DeliveryTiming | undefined): EngineEvent {
     if (!timing) return event;
     let time = event.time;
     if (timing.catchUp && time < timing.catchUp.until) {
@@ -799,7 +795,7 @@ export class Runtime {
     }
     if (!(time >= timing.now)) {
       time = timing.now;
-      if (timing.path === 'immediate' || event.time === timing.immediateAt) this.counters.lateImmediate++;
+      if (timing.path === 'immediate') this.counters.lateImmediate++;
       else this.counters.lateScheduled++;
     }
     return time === event.time ? event : { ...event, time };

@@ -350,15 +350,21 @@ describe('rewind and re-query', () => {
 
 describe('rewind with a stateful Signal source upstream', () => {
   /** Stateful Signal source: counts its `set` events, and only knows the current window's
-   *  changes, so a read is right only if its state matches the window being run. */
+   *  changes, so a read is right only if its state matches the window being run. It also
+   *  emits an event per `set` (up to two hops, so a loop through a delay ends). */
   const tally: NodeDefinition = {
     type: 'tally', version: 1, label: 'Tally', category: 'control-logic', description: '',
-    ports: [{ name: 'set', type: 'event', direction: 'in' }, { name: 'out', type: 'signal', direction: 'out' }],
+    ports: [{ name: 'set', type: 'event', direction: 'in' }, { name: 'out', type: 'signal', direction: 'out' }, { name: 'ev', type: 'event', direction: 'out' }],
     params: [],
     query: ({ inputs, state }) => {
       state.base = (state.base as number | undefined ?? 0) + ((state.times as number[] | undefined)?.length ?? 0);
       state.times = (inputs.set ?? []).map((e) => e.time);
-      return {};
+      const base = state.base as number;
+      return {
+        ev: (inputs.set ?? [])
+          .map((e, i) => ({ time: e.time, channel: e.channel, n: base + i + 1, hops: ((e.hops as number | undefined) ?? 0) + 1 }))
+          .filter((e) => e.hops <= 2),
+      };
     },
     signal: (ctx, _port, t) => ((ctx.state.base as number | undefined) ?? 0) + ((ctx.state.times as number[] | undefined) ?? []).filter((x) => x <= t).length,
   };
@@ -369,15 +375,22 @@ describe('rewind with a stateful Signal source upstream', () => {
     params: [],
     query: ({ inputs, signal }) => ({ out: (inputs.in ?? []).map((e) => ({ time: e.time, channel: e.channel, tally: signal('sig', e.time, e.channel) })) }),
   };
-  const p = patch(
-    [node('m1', 'metro', { period: 0.031 }), node('h', 'tally'), node('m2', 'metro', { period: 0.05 }), node('t', 'tap'), node('x', 'reader'), node('r', 'recorder')],
-    [{ from: { node: 'm1', port: 'out' }, to: { node: 'h', port: 'set' } }, { from: { node: 'h', port: 'out' }, to: { node: 'x', port: 'sig' } }, cable('m2', 'x'), cable('t', 'x'), cable('x', 'r')],
+  const link = (a: string, from: string, b: string, to: string) => ({ from: { node: a, port: from }, to: { node: b, port: to } });
+  /** The source's events go to a second recorder, `r2`, outside the re-run. With `loop`, they also
+   *  come back into the source through a delay. */
+  const build = (loop: boolean) => patch(
+    [node('m1', 'metro', { period: 0.031 }), node('h', 'tally'), node('m2', 'metro', { period: 0.05 }), node('t', 'tap'), node('x', 'reader'), node('r', 'recorder'), node('r2', 'recorder2'), node('d', 'delay', { time: 0.07 })],
+    [
+      link('m1', 'out', 'h', 'set'), link('h', 'out', 'x', 'sig'), cable('m2', 'x'), cable('t', 'x'), cable('x', 'r'), link('h', 'ev', 'r2', 'in'),
+      ...(loop ? [link('h', 'ev', 'd', 'in'), link('d', 'out', 'h', 'set')] : []),
+    ],
   );
   const pushes = [0.3123, 0.71, 1.0004, 1.5];
-  function perform(wakes: number[], options: Partial<SchedulerOptions> = {}, hidden = false) {
+  function perform(wakes: number[], options: Partial<SchedulerOptions> = {}, hidden = false, loop = false) {
     const clock = new ManualClock();
     const deliveries: Delivery[] = [];
-    const compiled = compilePatch(p, new Map([metro, tap, tally, reader, recorderType(clock, deliveries)].map((d) => [d.type, d])));
+    const outside: Delivery[] = [];
+    const compiled = compilePatch(build(loop), new Map([metro, tap, tally, reader, delay, recorderType(clock, deliveries), { ...recorderType(clock, outside), type: 'recorder2' }].map((d) => [d.type, d])));
     if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
     const runtime = new Runtime(compiled.plan);
     runtime.attachAudio({} as AudioContextLike);
@@ -389,7 +402,8 @@ describe('rewind with a stateful Signal source upstream', () => {
       if (push) scheduler.push('t', 'out', { channel: 0 });
       else scheduler.wake();
     }
-    return { scheduler, log: json(scheduler.events().filter((e) => e.time < 2.5)) };
+    const before = (e: { time: number }) => e.time < 2.5;
+    return { scheduler, outside, log: json(scheduler.events().filter(before)), sourceLog: json(scheduler.events().filter((e) => before(e) && (e.node === 'h' || e.node === 'd'))) };
   }
   const grid = (step: number) => Array.from({ length: Math.ceil(2.6 / step) }, (_, k) => k * step);
 
@@ -404,9 +418,25 @@ describe('rewind with a stateful Signal source upstream', () => {
     expect(costs[0]!.rewind!.affected.has('h')).toBe(false);
     expect(hidden.log).toBe(reference.log);
     expect(regular.log).toBe(reference.log);
-    // The source's own outputs aren't replaced: it emits nothing, and stays unlogged.
-    expect(hidden.scheduler.events().some((e) => e.node === 'h')).toBe(false);
   });
+
+  for (const loop of [false, true]) {
+    it(`never re-logs or re-delivers the followed source's own events${loop ? ', fed back through a delay' : ''}`, () => {
+      const reference = perform(grid(0.002), { lookahead: 0.004 }, false, loop);
+      for (const run of [perform(grid(0.3), {}, true, loop), perform(grid(0.025), {}, false, loop)]) {
+        expect(run.scheduler.stats.rewinds).toBe(pushes.length);
+        expect(run.scheduler.stats.cancelled).toBe(0);
+        expect(run.sourceLog).toBe(reference.sourceLog);
+        expect(run.log).toBe(reference.log);
+        // Each of the source's events reached r2 once, as in the reference run.
+        const keys = run.outside.map((d) => json(d.event));
+        expect(new Set(keys).size).toBe(keys.length);
+        expect(run.outside.every((d) => !d.cancelled)).toBe(true);
+        expect(json(keys.filter((_, i) => run.outside[i]!.event.time < 2.5).sort())).toBe(json(reference.outside.map((d) => json(d.event)).filter((_, i) => reference.outside[i]!.event.time < 2.5).sort()));
+      }
+      expect(reference.outside.some((d) => d.event.hops === 2)).toBe(loop);
+    });
+  }
 });
 
 describe('push rules', () => {
@@ -556,6 +586,76 @@ describe('scheduler', () => {
     wakeAt(0.9);
     expect(deliveries.map((d) => [d.at, d.event.time, d.event.channel])).toEqual([[0.9, 0.9 + IMMEDIATE_OFFSET, 1]]);
     expect(scheduler.stats).toMatchObject({ deferredPushes: 1, pushes: 1 });
+  });
+
+  it('keeps rewinding a held push whose resume wake queries nothing', () => {
+    const p = patch([node('m', 'metro', { period: 0.05 }), node('t', 'tap'), node('c', 'counter'), node('r', 'recorder')], [cable('m', 'c'), cable('t', 'c'), cable('c', 'r')]);
+    // Hidden: the window reaches 1.275 s, so the visible resume at 0.05 finds nothing to query.
+    const run = setup(p);
+    run.wakeAt(0);
+    run.clock.isHidden = true;
+    run.wakeAt(0.025);
+    run.clock.isRunning = false;
+    run.clock.set(0.03);
+    expect(run.scheduler.push('t', 'out', { channel: 0 })).toBeNull();
+    run.clock.isHidden = false;
+    run.clock.isRunning = true;
+    const windows = run.scheduler.stats.windows;
+    run.wakeAt(0.05);
+    expect(run.scheduler.stats.windows).toBe(windows);
+    expect(run.scheduler.stats).toMatchObject({ rewinds: 1, deferredPushes: 1 });
+    expect(run.live().filter((d) => d.at === 0.05).map((d) => d.event.time)[0]).toBeCloseTo(0.05 + IMMEDIATE_OFFSET, 12);
+    // The same as a push at 0.05 known in advance.
+    const reference = setup(p, { lookahead: 0.004 });
+    const timeline = Array.from({ length: 700 }, (_, k) => k * 0.002);
+    for (const at of timeline) {
+      reference.wakeAt(at);
+      if (at === 0.05) reference.scheduler.push('t', 'out', { channel: 0 });
+    }
+    const upTo = (events: LoggedEvent[]) => json(events.filter((e) => e.time < 1.2));
+    expect(upTo(run.scheduler.events())).toBe(upTo(reference.scheduler.events()));
+  });
+
+  it('keeps later held pushes when one throws', () => {
+    // onPush runs after each push completes; a throw there must not lose the pushes behind it.
+    let fail = true;
+    const { scheduler, clock, deliveries, wakeAt } = setup(patch([node('t', 'tap'), node('r', 'recorder')], [cable('t', 'r')]), {
+      onPush: () => {
+        if (fail) {
+          fail = false;
+          throw new Error('listener');
+        }
+      },
+    });
+    wakeAt(0);
+    clock.isRunning = false;
+    scheduler.push('t', 'out', { channel: 1 });
+    scheduler.push('t', 'out', { channel: 2 });
+    clock.isRunning = true;
+    clock.set(0.01);
+    expect(() => scheduler.wake()).toThrow('listener');
+    expect(deliveries.map((d) => d.event.channel)).toEqual([1]);
+    wakeAt(0.02);
+    expect(deliveries.map((d) => [d.event.channel, d.event.time])).toEqual([[1, 0.01 + IMMEDIATE_OFFSET], [2, 0.02 + IMMEDIATE_OFFSET]]);
+  });
+
+  it('catches up only what is still missed after the runtime horizon', () => {
+    // Someone else queried part of the missed stretch: the catch-up shift shrinks to what's left.
+    const part = setup(patch([node('m', 'metro', { period: 0.005 }), node('r', 'recorder')], [cable('m', 'r')]));
+    part.wakeAt(0);
+    part.runtime.query(0.12, 0.13);
+    part.wakeAt(0.15);
+    expect(part.scheduler.stats.catchUps).toBe(1);
+    expect(part.scheduler.stats.catchUpMaxMs).toBeCloseTo(20, 6);
+    const shifted = part.deliveries.filter((d) => d.at === 0.15 && (d.event.index as number) * 0.005 < 0.15);
+    expect(shifted.length).toBeGreaterThan(0);
+    for (const d of shifted) expect(d.event.time).toBeCloseTo((d.event.index as number) * 0.005 + 0.02, 9);
+    // All of it queried already: no catch-up at all.
+    const all = setup(metroPatch());
+    all.wakeAt(0);
+    all.runtime.query(0.12, 0.2);
+    all.wakeAt(0.15);
+    expect(all.scheduler.stats).toMatchObject({ catchUps: 0, caughtUp: 0, lateScheduled: 0 });
   });
 
   it('counts snapshots, and skips empty state', () => {
