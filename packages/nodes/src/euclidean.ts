@@ -3,7 +3,8 @@ import type { EngineEvent, NodeDefinition } from '@flow-patcher/engine';
 // Pattern helpers ported from Flow's rhythm.js (`euclidean`, `rotatePattern`).
 // Changes from Flow:
 // - `euclideanPattern` (Flow's `euclidean`) takes a step count instead of a fixed 16 steps.
-// - Non-finite hits give no hits (Flow fell back to 4), so a broken cable is silent, not busy.
+// - In the helpers, non-finite hits give no hits (Flow fell back to 4); through the node,
+//   params are resolved and clamped first, so the helpers only see finite, in-range knobs.
 // - An empty pattern (zero or non-finite steps) stays empty instead of rotating by NaN.
 
 /** Velocity of an accented hit (one on every fourth step of the unrotated pattern) and of the others. */

@@ -132,7 +132,8 @@ describe('euclidean node', () => {
   it('handles odd input without throwing', () => {
     // Out-of-range and non-finite knobs resolve to the spec's range and defaults.
     expect(query(euclidean, 0, 2, { params: { hits: 99, steps: 4 }, inputs: { tick: steps(8) } }).hit).toHaveLength(8);
-    expect(query(euclidean, 0, 2, { params: { hits: NaN, steps: 0, rotate: -1000 }, inputs: { tick: steps(16) } }).hit!.length).toBeGreaterThan(0);
+    // NaN hits → default 4, clamped to 1 step; steps 0 → 1; rotate -1000 → -64. One step with one hit: every tick hits, accented.
+    expect(query(euclidean, 0, 2, { params: { hits: NaN, steps: 0, rotate: -1000 }, inputs: { tick: steps(16) } }).hit).toEqual(steps(16).map((e) => ({ ...e, velocity: ACCENT })));
     expect(query(euclidean, 0, 2, { params: { hits: 0 }, inputs: { tick: steps(16) } }).hit).toEqual([]);
     expect(query(euclidean, 0, 2, { params: { rotate: -3 }, inputs: { tick: steps(16) } }).hit!.map((e) => e.index)).toEqual([1, 5, 9, 13]);
     // Ticks without a numeric index are dropped; negative and fractional indices wrap and round.
