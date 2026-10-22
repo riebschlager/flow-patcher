@@ -85,7 +85,7 @@ describe('bootstrap runtime', () => {
     runtime.frame(0, 0.02, 0.02);
     runtime.frame(0.02, 0.04, 0.02);
     runtime.frame(0.04, 0.06, 0.02);
-    const state = (runtime as unknown as { states: Map<string, { seen?: number[] }> }).states.get('v');
+    const state = runtime.stateOf('v') as { seen?: number[] } | undefined;
     expect(state?.seen).toEqual([0.03]);
   });
 

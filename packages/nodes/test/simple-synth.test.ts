@@ -58,6 +58,26 @@ describe('simple-synth', () => {
     expect(blocks.slice(4).every((v) => v === 0)).toBe(true);
   });
 
+  it('is idle once the last note has released, so a removed synth can finish its notes', async () => {
+    let idle: number[] = [];
+    await renderOffline(0.2, (context) => {
+      const instance = simpleSynth.audio!(audioSetup(simpleSynth, context, { params: { attack: 0.01, release: 0.2 } }));
+      idle = [instance.idleAt!()];
+      const notes: NoteEvent[] = [
+        { time: 0.1, channel: 0, pitch: 60, velocity: 1, duration: 0.3 },
+        { time: 0.05, channel: 0, pitch: 64, velocity: 1, duration: 0.1 },
+      ];
+      instance.schedule!('note', notes);
+      idle.push(instance.idleAt!());
+      instance.cancel!('note', [notes[0]!]);
+      idle.push(instance.idleAt!());
+    });
+    // Nothing scheduled; then the first note's end (0.1 + 0.3 + 0.2); then the second's, once the first is withdrawn.
+    expect(idle[0]).toBe(0);
+    expect(idle[1]).toBeCloseTo(0.6, 9);
+    expect(idle[2]).toBeCloseTo(0.35, 9);
+  });
+
   it('ignores events that are not notes', async () => {
     const audio = await renderOffline(0.5, (context) => {
       const instance = simpleSynth.audio!(audioSetup(simpleSynth, context));

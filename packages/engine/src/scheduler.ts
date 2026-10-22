@@ -11,7 +11,7 @@
 // The clocks and the timer are injected, so the same code runs in the
 // browser, headless and in tests that simulate stalls.
 import type { EngineEvent } from './events';
-import type { LoggedEvent, RewindReport, Runtime, RuntimeCounters } from './runtime';
+import type { LoggedEvent, Plan, RewindReport, Runtime, RuntimeCounters, SwapReport } from './runtime';
 
 /** Seconds between wakes. */
 export const WAKE_INTERVAL = 0.025;
@@ -103,6 +103,8 @@ export interface SchedulerStats extends RuntimeCounters {
   pushMsTotal: number;
   /** Pushes held while the audio clock was suspended, and stamped at the resume. */
   deferredPushes: number;
+  /** Plans swapped in (`swap`). */
+  swaps: number;
 }
 
 /** The scheduler. One per running patch. */
@@ -123,7 +125,7 @@ export class Scheduler {
   private readonly deferred: { nodeId: string; port: string; fields: Omit<EngineEvent, 'time'> }[] = [];
   private stop: (() => void) | null = null;
   private log: LoggedEvent[] | null;
-  private readonly own = { windows: 0, skipped: 0, stalls: 0, catchUps: 0, catchUpMaxMs: 0, pushes: 0, rewinds: 0, pushQueries: 0, pushMsMax: 0, pushMsTotal: 0, deferredPushes: 0 };
+  private readonly own = { windows: 0, skipped: 0, stalls: 0, catchUps: 0, catchUpMaxMs: 0, pushes: 0, rewinds: 0, pushQueries: 0, pushMsMax: 0, pushMsTotal: 0, deferredPushes: 0, swaps: 0 };
 
   constructor(runtime: Runtime, options: SchedulerOptions) {
     this.runtime = runtime;
@@ -277,6 +279,25 @@ export class Scheduler {
     this.own.pushMsMax = Math.max(this.own.pushMsMax, ms);
     this.options.onPush?.({ time: event.time, rewind, queries, ms });
     return event;
+  }
+
+  /**
+   * Hot patching: `plan` (compiled from the edited patch) takes over at the
+   * next window boundary at or after currentTime, re-running the windows
+   * already queried from there (`Runtime.swap`, ADR 0023). The recorded log
+   * drops what the removed and re-run nodes had logged from then on and takes
+   * the re-run's events.
+   */
+  swap(plan: Plan): SwapReport {
+    const now = this.clock.audioTime();
+    const report = this.runtime.swap(plan, { now, path: 'scheduled' });
+    this.own.swaps++;
+    if (this.log && report.windows > 0) {
+      const { replaced, time } = report;
+      this.log = this.log.filter((e) => !(replaced.has(e.node) && e.time >= time));
+      this.log.push(...report.events);
+    }
+    return report;
   }
 
   /** The recorded log in log order, with every rewind applied. Needs `record`. */

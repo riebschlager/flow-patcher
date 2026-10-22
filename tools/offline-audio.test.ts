@@ -3,15 +3,16 @@
 // render and edits applied at suspend() points, has no silent gap and never
 // passes the Output ceiling.
 //
-// The edits are what the engine can change live today: immediate-path pushes
-// (each rewinds Clock, Make Note and Simple Synth from the push to the
-// horizon) and Output level changes. Hot swap (#22) adds knob changes and cable
-// and node adds and removes to this test.
+// The first test's edits are immediate-path pushes (each rewinds Clock, Make
+// Note and Simple Synth from the push to the horizon) and Output level changes
+// on a stand-in stage. The second's are hot swaps (#22): knob changes on every
+// node, which rebuild Simple Synth and Output, and a Make Note added and
+// removed on a second cable into the synth.
 import { describe, expect, it } from 'vitest';
-import { createOutputStage, OUTPUT_CEILING, parsePatch, type NodeDefinition, type OutputStage, type Patch } from '@flow-patcher/engine';
+import { createOutputStage, OUTPUT_CEILING, parsePatch, type NodeDefinition, type OutputStage, type Patch, type PatchEdit } from '@flow-patcher/engine';
 import { nodeRegistry, output } from '@flow-patcher/nodes';
 import { longestSilence, maxDifference, peak, RENDER_TOLERANCE, SuspendRaceError } from './lib/audio';
-import { formatEvents, runPatch, type RunEdit } from './lib/run';
+import { formatEvents, runPatch, scriptedEdits, type RunEdit, type ScriptedEdit } from './lib/run';
 
 const SECONDS = 4;
 
@@ -93,6 +94,43 @@ describe('offline audio with live edits', () => {
     expect(stats.uncancelled).toBe(0);
     expect(stats.lateScheduled + stats.lateImmediate + stats.skipped).toBe(0);
     expect(stats.windows).toBeGreaterThan(SECONDS / 0.025 - 2);
+  });
+
+  it('Offline audio gate with hot swaps: rebuilt voices finish their notes, so no gap over 5 ms', async () => {
+    const script: ScriptedEdit[] = [];
+    const set = (node: string, param: string, value: number | string): PatchEdit => ({ op: 'set-param', node, param, value });
+    const addHigh: PatchEdit[] = [
+      { op: 'add-node', node: { id: 'high', type: 'make-note', typeVersion: nodeRegistry.get('make-note')!.version, params: { pitch: 60, length: 0.3 }, position: { x: 0, y: 0 } } },
+      { op: 'add-cable', cable: { from: { node: 'clock', port: 'tick' }, to: { node: 'high', port: 'trigger' } } },
+      { op: 'add-cable', cable: { from: { node: 'high', port: 'note' }, to: { node: 'synth', port: 'note' } } },
+    ];
+    let high = false;
+    for (let k = 0, t = 0.31; t < SECONDS - 0.3; k++, t += 0.23) {
+      const edits = [
+        () => [set('note', 'pitch', 48 + (k % 5))],
+        () => [set('synth', 'release', k % 2 ? 0.3 : 0.25)],
+        () => [set('clock', 'bpm', k % 2 ? 120 : 132)],
+        () => [set('out', 'level', k % 2 ? 0.7 : 0.5)],
+        // A second Make Note on its own cable into the synth, in and out in turn.
+        () => {
+          high = !high;
+          return high ? addHigh : [{ op: 'remove-node', node: 'high' } as const];
+        },
+      ][k % 5]!();
+      script.push({ time: Math.round(t * 1000) / 1000, edits });
+    }
+    const result = await runPatch(sustainedPatch(), { seconds: SECONDS, fps: 0, live: true }, { edits: scriptedEdits(script) });
+    const audio = result.audio!;
+    expect(longestSilence(audio, 1e-4, 0.1, SECONDS - 0.1)).toBeLessThanOrEqual(0.005);
+    expect(peak(audio)).toBeLessThanOrEqual(OUTPUT_CEILING);
+    // The swaps really happened: the synth and Output were rebuilt, and the second line came and went.
+    expect(result.swaps.length).toBe(script.length);
+    expect(result.swaps.filter((s) => s.report.changed.includes('synth')).length).toBeGreaterThan(2);
+    expect(result.swaps.filter((s) => s.report.added.includes('high')).length).toBeGreaterThan(0);
+    expect(result.swaps.filter((s) => s.report.removed.includes('high')).length).toBeGreaterThan(0);
+    expect(result.events.some((e) => e.node === 'high')).toBe(true);
+    const stats = result.scheduler;
+    expect(stats.uncancelled + stats.lateScheduled + stats.lateImmediate + stats.skipped).toBe(0);
   });
 
   it('starts a live run over when a suspend does not take, and gets the clean run', async () => {
