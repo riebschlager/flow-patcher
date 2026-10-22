@@ -6,7 +6,7 @@
     {
       "id": "pointer",
       "type": "pointer",
-      "typeVersion": 1,
+      "typeVersion": 2,
       "params": {},
       "position": {
         "x": 0,
@@ -19,7 +19,7 @@
       "typeVersion": 2,
       "params": {
         "length": 0.3,
-        "pitch": 64,
+        "pitch": 76,
         "velocity": 0.8
       },
       "position": {
@@ -65,6 +65,17 @@
         "node": "note",
         "port": "trigger"
       }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "y"
+      },
+      "to": {
+        "node": "note",
+        "port": "pitch"
+      },
+      "depth": -24
     },
     {
       "from": {

@@ -892,7 +892,7 @@
    "y": 0.8,
    "pressure": 0.6,
    "pointerType": "touch",
-   "pitch": 64,
+   "pitch": 57,
    "velocity": 0.8,
    "duration": 0.3
   },
@@ -978,7 +978,7 @@
    "y": 0.2,
    "pressure": 0.6,
    "pointerType": "touch",
-   "pitch": 64,
+   "pitch": 71,
    "velocity": 0.8,
    "duration": 0.3
   },
@@ -1051,7 +1051,7 @@
    "y": 0.1,
    "pressure": 0.6,
    "pointerType": "touch",
-   "pitch": 64,
+   "pitch": 74,
    "velocity": 0.8,
    "duration": 0.3
   },
