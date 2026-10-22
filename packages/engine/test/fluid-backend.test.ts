@@ -271,4 +271,59 @@ describe('FluidHost', () => {
     host.step(work(1));
     expect(host.stats.sent).toBe(2);
   });
+
+  it('reports work that was lost, so a later latch does not count it as shown', () => {
+    const { host, deliver, dropNext } = emulatedWorker();
+    // fail() loses the step in flight: steps 1 and 2 (2 waited, then went out on 1's reply).
+    host.step(work(0)); // 1, sent
+    dropNext();
+    host.step(work(1)); // 2, waits
+    deliver(); // 1 finished; 2 sent and never answered
+    host.fail('worker error');
+    expect(host.lostThrough).toBe(2);
+    host.step(work(2)); // 3, sent
+    deliver();
+    host.latch();
+    expect(host.latchedThrough).toBe(3);
+    // reset() loses everything so far, owed work included.
+    host.step(work(3)); // 4, sent
+    host.step(work(4)); // 5, waits
+    host.reset();
+    expect(host.lostThrough).toBe(5);
+    deliver();
+    host.step(work(5)); // 6
+    deliver();
+    host.latch();
+    expect([host.latchedThrough, host.lostThrough]).toEqual([6, 5]);
+  });
+
+  it('a cap drop loses the steps whose splats were cut, up to the newest one', () => {
+    const { host } = emulatedWorker();
+    const splats = (n: number): SplatArgs[] => Array.from({ length: n }, (_, i) => [i / n, 0.5, 1, 0, 0, 0.05, 0, 0]);
+    host.step({ ...work(1), splats: [] }); // 1, in flight and never answered
+    host.step({ ...work(1), splats: splats(200) }); // 2
+    host.step({ ...work(1), splats: splats(50) }); // 3
+    expect(host.lostThrough).toBe(0);
+    host.step({ ...work(1), splats: splats(100) }); // 4: 350 waiting, 94 of step 2's go
+    expect(host.lostThrough).toBe(2);
+    host.step({ ...work(1), splats: splats(200) }); // 5: 106 of 2's, 50 of 3's, 44 of 4's go
+    expect(host.lostThrough).toBe(4);
+  });
+
+  it('a post that throws on a reply does not escape receive(): the step is failed and lost', () => {
+    const step = createFluidStepper();
+    let calls = 0, reply: FluidStepReply | null = null;
+    const host = new FluidHost((request) => {
+      if (++calls === 2) throw new Error('DataCloneError');
+      reply = step(request);
+    });
+    host.step(work(0)); // 1, sent
+    host.step(work(1)); // 2, waits
+    expect(() => host.receive(reply!)).not.toThrow(); // sending 2 throws inside
+    expect(host.pending).toBe(false);
+    expect(host.stats).toMatchObject({ failed: 1, received: 1 });
+    expect(host.lostThrough).toBe(2);
+    host.step(work(2));
+    expect(host.stats.sent).toBe(3);
+  });
 });

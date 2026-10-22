@@ -1735,10 +1735,15 @@ export class Runtime {
         if (rerun && (immediate ? wasShown(link.toPort, event) : event.time < this.framedTo)) continue;
         insertInOrder(queued, { event, path: immediate ? 'immediate' : 'scheduled' });
       }
-      while (queued.length > FRAME_QUEUE_LIMIT) {
-        const oldest = queued.findIndex((item) => item.path === 'scheduled');
-        if (oldest < 0) break;
-        queued.splice(oldest, 1);
+      let excess = queued.length - FRAME_QUEUE_LIMIT;
+      if (excess > 0) {
+        // One pass: the oldest scheduled events go; immediate ones stay.
+        let w = 0;
+        for (const item of queued) {
+          if (excess > 0 && item.path === 'scheduled') excess--;
+          else queued[w++] = item;
+        }
+        queued.length = w;
       }
     }
   }

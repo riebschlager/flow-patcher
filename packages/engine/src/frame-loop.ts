@@ -13,7 +13,8 @@ export const MAX_FRAME_DT = 0.033;
 /** The step for a first frame, or when the wall clock didn't move forward. */
 export const FALLBACK_FRAME_DT = 0.016;
 /** The widest frame interval, in seconds. After a hidden tab or a long stall the first frame back
- *  covers only the last stretch of this length, rather than everything since the last frame. */
+ *  covers only the last stretch of this length, [t1 − MAX_FRAME_SPAN, t1). Scheduled events from
+ *  t1 − (MAX_FRAME_SPAN + FRAME_BACKLOG) on still arrive in it, late; older ones are dropped. */
 export const MAX_FRAME_SPAN = 0.25;
 /** How far behind a frame's t0 a scheduled event may still be shown late, in seconds (Runtime.frame).
  *  Covers a catch-up's late events (ADR 0017, at most 100 ms); older ones are dropped. */

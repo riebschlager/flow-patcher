@@ -190,12 +190,15 @@ export class FluidHost implements FluidBackend {
   private seq = 0;
   /** Work waiting for the next request; its splats array is the host's own, appended in place. */
   private owed: (FluidWork & { splats: SplatArgs[] }) | null = null;
+  /** The `step` call each owed splat came from, beside `owed.splats`. */
+  private owedSteps: number[] = [];
   private generation = 0;
   /** `step` calls so far, and how many of them the step in flight, the newest finished one and the latched one include. */
   private steps = 0;
   private inFlightThrough = 0;
   private finishedThrough = 0;
   private through = 0;
+  private lost = 0;
   /** The reply readers see this frame, and the newest one not yet latched. */
   private shown: FluidImage | null = null;
   private finished: FluidImage | null = null;
@@ -217,13 +220,26 @@ export class FluidHost implements FluidBackend {
   }
 
   /**
-   * How many `step` calls the latched picture includes, counted from the
-   * host's creation (resets included). A host that knows the frame whose step
-   * took some work (a tap's splash: `Runtime.lastFrame`) reads `stepCount`
-   * after that frame; the work is on screen once `latchedThrough` reaches it.
+   * How many `step` calls the latched picture covers, counted from the host's
+   * creation (resets included): every call up to it either reached the solver
+   * before this picture or was lost (`lostThrough`). A host that knows the
+   * frame whose step took some work (a tap's splash: `Runtime.lastFrame`)
+   * reads `stepCount` after that frame as the work's step number n; the work
+   * is on screen once `latchedThrough >= n`, unless `lostThrough >= n`.
+   * Work in a hung worker is neither: `latchedThrough` stops moving.
    */
   get latchedThrough(): number {
     return this.through;
+  }
+
+  /**
+   * The highest `step` call whose work, or part of it, never reached the
+   * solver, or was cleared from it: `fail()` loses the step in flight,
+   * `reset()` everything so far, and the MAX_OWED_SPLATS cap the oldest
+   * waiting splats. 0 when nothing was lost.
+   */
+  get lostThrough(): number {
+    return this.lost;
   }
 
   /** `step` calls so far. */
@@ -247,11 +263,17 @@ export class FluidHost implements FluidBackend {
       owed.palette = work.palette;
       owed.time = work.time;
       owed.splats.push(...work.splats);
-    } else this.owed = { ...work, splats: [...work.splats] };
+    } else {
+      this.owed = { ...work, splats: [...work.splats] };
+      this.owedSteps = [];
+    }
+    for (let i = 0; i < work.splats.length; i++) this.owedSteps.push(this.steps);
     const splats = this.owed!.splats;
     if (splats.length > MAX_OWED_SPLATS) {
       const drop = splats.length - MAX_OWED_SPLATS;
       splats.splice(0, drop);
+      this.lost = Math.max(this.lost, this.owedSteps[drop - 1]!);
+      this.owedSteps.splice(0, drop);
       this.stats.droppedSplats += drop;
     }
     if (this.inFlight !== null) {
@@ -263,6 +285,7 @@ export class FluidHost implements FluidBackend {
 
   reset(): void {
     this.generation++;
+    this.lost = this.steps;
     this.owed = null;
     this.shown = this.finished = null;
   }
@@ -293,18 +316,22 @@ export class FluidHost implements FluidBackend {
       this.finished = { width: reply.w, height: reply.h, pixels: reply.pixels };
       this.finishedThrough = this.inFlightThrough;
     }
-    this.flush();
+    // Called from the worker's onmessage: a post that throws there has nobody to catch it.
+    this.flush(false);
   }
 
   /** The worker failed a step (onerror, onmessageerror). Its buffers are gone; the next frame sends again. */
   fail(_reason?: unknown): void {
+    if (this.inFlight !== null) this.lost = Math.max(this.lost, this.inFlightThrough);
     this.inFlight = null;
     this.stats.waitingFrames = 0;
     this.spare = null;
     this.stats.failed++;
   }
 
-  private flush(): void {
+  /** Sends the owed work if no step is in flight. A post that throws fails the step (it is lost),
+   *  and the error is rethrown unless `rethrow` is false. */
+  private flush(rethrow = true): void {
     if (this.inFlight !== null || !this.owed) return;
     const work = this.owed;
     const recycle = this.spare;
@@ -320,7 +347,7 @@ export class FluidHost implements FluidBackend {
     } catch (error) {
       // A post that throws never reaches the worker; nothing will reply.
       if (this.inFlight === seq) this.fail(error);
-      throw error;
+      if (rethrow) throw error;
     }
   }
 }
