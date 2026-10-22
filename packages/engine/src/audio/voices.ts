@@ -117,9 +117,12 @@ export class VoicePool {
    * Moves a voice's end, such as a note-off that came earlier or later than first
    * scheduled. Earlier frees its slot sooner; later can steal, from the old end
    * on, like a claim. An end at or before the start (or NaN) ends the voice at
-   * its start and frees the slot. Does nothing for a stolen or reclaimed voice.
+   * its start and frees the slot. Does nothing for a stolen voice or one whose
+   * end the clock has passed.
    */
   setEnd(handle: VoiceHandle, end: number): void {
+    // A voice that is over stays over: reclaim first, so it isn't extended.
+    this.reclaim();
     const voice = handle as Voice;
     if (this.indexOf(voice) < 0) return;
     if (!(end > voice.start)) {

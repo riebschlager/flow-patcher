@@ -163,7 +163,7 @@ describe('VoicePool', () => {
     expect(stops).toEqual(['b@100.5']);
   });
 
-  it('steals what a plain scan over every voice would, under random claims, releases and end moves', () => {
+  it('steals what a plain scan over every voice would, under random claims, releases, end moves and clock steps', () => {
     // The rule written out directly: at each start in the added time, steal the earliest start sounding there.
     type Ref = { id: string; start: number; end: number; at: number };
     const reference = (pooled: Ref[], from: number, to: number, size: number, stops: string[]) => {
@@ -182,22 +182,30 @@ describe('VoicePool', () => {
     const random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
     let steals = 0;
     for (let round = 0; round < 20; round++) {
-      const { voices, stops, claim } = pool(4);
+      const { voices, stops, claim, set } = pool(4);
       const expected: string[] = [];
       let pooled: Ref[] = [];
       const handles: [VoiceHandle, Ref][] = [];
-      for (let i = 0; i < 120; i++) {
+      let now = 0;
+      let reclaimed = 0;
+      for (let i = 0; i < 160; i++) {
         const roll = random();
-        if (roll < 0.15 && handles.length) {
+        if (roll < 0.1) {
+          // The clock moves on; voices it has passed are over, in the reference at once, in the pool lazily.
+          now += Math.round(random() * 5) / 10;
+          set(now);
+          reclaimed += pooled.filter((v) => v.end <= now).length;
+          pooled = pooled.filter((v) => !(v.end <= now));
+        } else if (roll < 0.22 && handles.length) {
           const [handle, ref] = handles[Math.floor(random() * handles.length)]!;
           voices.release(handle);
           pooled = pooled.filter((v) => v !== ref);
-        } else if (roll < 0.3 && handles.length) {
+        } else if (roll < 0.36 && handles.length) {
           const [handle, ref] = handles[Math.floor(random() * handles.length)]!;
-          const end = ref.start + Math.round(random() * 20) / 10;
+          const end = random() < 0.15 ? Infinity : ref.start + Math.round(random() * 20) / 10;
           voices.setEnd(handle, end);
           if (pooled.includes(ref)) {
-            if (!(end > ref.start)) pooled = pooled.filter((v) => v !== ref);
+            if (!(end > ref.start) || end <= now) pooled = pooled.filter((v) => v !== ref);
             else {
               const before = ref.end;
               ref.end = end;
@@ -205,8 +213,10 @@ describe('VoicePool', () => {
             }
           }
         } else {
-          // Starts on a coarse grid, so ties happen, and not always in order.
-          const start = Math.round(random() * 40) / 10, end = start + Math.round(random() * 15) / 10;
+          // Starts on a coarse grid at or after the clock, as the runtime hands them out, so ties
+          // happen, and not always in order. Now and then a note held until told.
+          const start = now + Math.round(random() * 40) / 10;
+          const end = random() < 0.05 ? Infinity : start + Math.round(random() * 15) / 10;
           const ref = { id: `v${i}`, start, end, at: i };
           handles.push([claim(ref.id, start, end), ref]);
           if (end > start) {
@@ -218,6 +228,7 @@ describe('VoicePool', () => {
       expect(stops).toEqual(expected);
       expect(voices.inUse()).toBe(pooled.length);
       steals += stops.length;
+      expect(reclaimed).toBeGreaterThan(0);
     }
     expect(steals).toBeGreaterThan(100);
   });
