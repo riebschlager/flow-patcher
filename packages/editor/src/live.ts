@@ -1,8 +1,22 @@
 // Runs a patch in the browser: one AudioContext, the real Scheduler on the
-// audio clock, and the performance canvas's pointer events on the immediate
-// path (design.md, Timing and evaluation; Platform rules).
-import { compilePatch, Runtime, Scheduler, type AudioContextLike, type Patch, type SchedulerStats } from '@flow-patcher/engine';
-import { nodeRegistry } from '@flow-patcher/nodes';
+// audio clock, the frame loop on requestAnimationFrame with the fluid in a
+// Worker, and the performance canvas's pointer events on the immediate path
+// (design.md, Timing and evaluation; Visual nodes run on the frame clock;
+// Platform rules; ADR 0016, 0020).
+import {
+  compilePatch,
+  FLUID_BACKGROUND,
+  FluidHost,
+  FrameLoop,
+  outputLatencyOf,
+  Runtime,
+  Scheduler,
+  type AudioContextLike,
+  type FluidHostStats,
+  type Patch,
+  type SchedulerStats,
+} from '@flow-patcher/engine';
+import { nodeRegistry, rendererImage } from '@flow-patcher/nodes';
 
 /** Pointer events the canvas forwards, as Pointer node output ports. */
 export type PointerPort = 'down' | 'move' | 'up' | 'cancel';
@@ -11,6 +25,8 @@ export type PointerPort = 'down' | 'move' | 'up' | 'cancel';
 export interface Tap {
   /** currentTime when the handler ran, in seconds. */
   at: number;
+  /** The pointerdown on the audio clock: `at` less the time the event waited before its handler ran. */
+  down: number;
   /** The time the push was stamped, or null when it was held for the AudioContext to start. */
   stamped: number | null;
   /** When the first note it caused starts sounding: the earliest oscillator start scheduled during the push.
@@ -18,6 +34,30 @@ export interface Tap {
   note: number | null;
   /** The push had to start the AudioContext, so its timing includes startup. */
   cold: boolean;
+  /** When the Renderer first drew the tap's splash (ADR 0020): frames after the push, and ms after the
+   *  pointerdown. Null until it has, or with no Renderer. */
+  splash: { frames: number; ms: number } | null;
+}
+
+/** The frame loop's counters, for the Immediate path under load gate check. */
+export interface FrameStats {
+  /** Frames ticked. */
+  frames: number;
+  /** Frames the Renderer had a picture for. */
+  drawn: number;
+  /** The fluid Worker's steps and timings, or null with no Fluid. */
+  fluid: FluidHostStats | null;
+}
+
+/** A splash on its way to the canvas: it is drawn once the Worker has answered the request that carried it. */
+interface PendingSplash {
+  tap: Tap;
+  /** Wall time of the pointerdown, ms. */
+  downWall: number;
+  /** Frames ticked when the push ran. */
+  frame: number;
+  /** Requests the fluid had sent when the push ran; the next one carries the splash. */
+  sent: number;
 }
 
 export interface LiveStatus {
@@ -36,13 +76,25 @@ export class LivePatch {
   private starts: number[] | null = null;
   /** A cold tap still waiting for its held push to run. */
   private coldTap: Tap | null = null;
+  private readonly frames: FrameLoop;
+  private readonly fluid: { host: FluidHost; worker: Worker } | null;
+  /** The Renderer the canvas shows: the first in plan order (one per patch). */
+  private readonly renderer: string | null;
+  private canvas: HTMLCanvasElement | null = null;
+  /** The fluid's pixels at grid size, scaled onto the canvas. */
+  private readonly ink = document.createElement('canvas');
+  private readonly frameCounts = { frames: 0, drawn: 0 };
+  private readonly splashes: PendingSplash[] = [];
+  private raf = 0;
   private readonly listeners = new Set<() => void>();
   private readonly onVisibility = () => this.scheduler.wake();
 
   constructor(patch: Patch) {
     const compiled = compilePatch(patch, nodeRegistry);
     if (!compiled.ok) throw new Error(compiled.errors.join('; '));
-    this.runtime = new Runtime(compiled.plan);
+    this.fluid = compiled.plan.order.some((node) => node.definition.type === 'fluid') ? createFluidWorker() : null;
+    this.runtime = new Runtime(compiled.plan, { services: this.fluid ? { fluid: this.fluid.host } : {} });
+    this.renderer = compiled.plan.order.find((node) => node.definition.type === 'renderer')?.id ?? null;
     this.runtime.onWarning = (message) => console.warn(`[live] ${message}`);
     this.pointers = compiled.plan.order.filter((node) => node.definition.type === 'pointer').map((node) => node.id);
     this.context = new AudioContext({ latencyHint: 'interactive' });
@@ -70,6 +122,19 @@ export class LivePatch {
     });
     document.addEventListener('visibilitychange', this.onVisibility);
     this.scheduler.start();
+    this.frames = new FrameLoop(this.runtime, {
+      clock: {
+        audioTime: () => context.currentTime,
+        wallTime: () => performance.now(),
+        outputLatency: () => outputLatencyOf(context),
+      },
+    });
+    const run = () => {
+      // Ask for the next frame first, so a frame that throws doesn't stop the loop.
+      this.raf = requestAnimationFrame(run);
+      this.frame();
+    };
+    this.raf = requestAnimationFrame(run);
   }
 
   get status(): LiveStatus {
@@ -80,13 +145,27 @@ export class LivePatch {
     return this.scheduler.stats;
   }
 
+  get frameStats(): FrameStats {
+    return { ...this.frameCounts, fluid: this.fluid ? { ...this.fluid.host.stats } : null };
+  }
+
+  /** The canvas the Renderer draws into, or null to stop drawing. */
+  attachCanvas(canvas: HTMLCanvasElement | null): void {
+    this.canvas = canvas;
+  }
+
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
   /** Sends one pointer event to every Pointer node. x and y are 0–1, y = 0 at the top. */
-  pointer(port: PointerPort, fields: { channel: number; x: number; y: number; pressure: number; pointerType: string }): void {
+  pointer(
+    port: PointerPort,
+    fields: { channel: number; x: number; y: number; pressure: number; pointerType: string },
+    /** The event's timeStamp (performance.now() time), when it came from a real input event. */
+    timeStamp?: number,
+  ): void {
     const cold = this.context.state !== 'running';
     // The first pointerdown starts audio. Its push is held until then, so the first touch still sounds (Platform rules).
     if (cold && port === 'down') void this.context.resume();
@@ -94,6 +173,9 @@ export class LivePatch {
     // replay as a burst that the event cap can cut the Down out of. Down carries the position anyway.
     if (!this.pointers.length || (cold && port === 'move')) return;
     const at = this.context.currentTime;
+    const wall = performance.now();
+    const waited = timeStamp !== undefined && timeStamp <= wall ? (wall - timeStamp) / 1000 : 0;
+    const sent = this.fluid?.host.stats.sent ?? 0;
     this.starts = [];
     let stamped: number | null = null;
     try {
@@ -102,21 +184,62 @@ export class LivePatch {
       const starts = this.starts;
       this.starts = null;
       if (port === 'down') {
-        const tap: Tap = { at, stamped, note: starts.length ? Math.min(...starts) : null, cold };
+        const tap: Tap = { at, down: at - waited, stamped, note: starts.length ? Math.min(...starts) : null, cold, splash: null };
         if (cold && tap.note === null) this.coldTap = tap;
+        if (this.renderer && this.fluid && stamped !== null) {
+          this.splashes.push({ tap, downWall: wall - waited * 1000, frame: this.frameCounts.frames, sent });
+        }
         this.taps.push(tap);
         if (this.taps.length > 100) this.taps.shift();
-        console.debug(`[live] tap: stamped ${ms(tap.stamped, at)}, note ${ms(tap.note, at)} after currentTime${cold ? ' (cold)' : ''}`);
+        console.debug(`[live] tap: stamped ${ms(tap.stamped, tap.down)}, note ${ms(tap.note, tap.down)} after pointerdown${cold ? ' (cold)' : ''}`);
       }
     }
   }
 
   dispose(): void {
+    cancelAnimationFrame(this.raf);
+    this.fluid?.worker.terminate();
     this.scheduler.halt();
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.runtime.dispose();
     void this.context.close();
     this.listeners.clear();
+  }
+
+  /** One animation frame: the visual nodes on the frame clock, then the Renderer's picture onto the canvas. */
+  private frame(): void {
+    this.frameCounts.frames++;
+    this.frames.tick();
+    const image = this.renderer ? rendererImage(this.runtime.stateOf(this.renderer) ?? {}) : null;
+    if (image) this.frameCounts.drawn++;
+    this.draw(image);
+    // The Fluid latched its newest reply at the start of this frame, so a splash whose request has been answered is on screen now.
+    const received = this.fluid?.host.stats.received ?? 0;
+    while (this.splashes.length && received > this.splashes[0]!.sent) {
+      const { tap, downWall, frame } = this.splashes.shift()!;
+      tap.splash = { frames: this.frameCounts.frames - frame, ms: performance.now() - downWall };
+      console.debug(`[live] splash: ${tap.splash.frames} frame(s), ${tap.splash.ms.toFixed(1)} ms after pointerdown`);
+    }
+  }
+
+  private draw(image: ReturnType<typeof rendererImage>): void {
+    const canvas = this.canvas;
+    const g = canvas?.getContext('2d');
+    if (!canvas || !g) return;
+    if (!image) {
+      g.fillStyle = `rgb(${FLUID_BACKGROUND.join(' ')})`;
+      g.fillRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+    // The pixels go back to the Worker at the next latch, so they're drawn now and not kept.
+    if (this.ink.width !== image.width || this.ink.height !== image.height) {
+      this.ink.width = image.width;
+      this.ink.height = image.height;
+    }
+    this.ink.getContext('2d')!.putImageData(new ImageData(image.pixels as Uint8ClampedArray<ArrayBuffer>, image.width, image.height), 0, 0);
+    g.imageSmoothingEnabled = true;
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(this.ink, 0, 0, canvas.width, canvas.height);
   }
 
   private emit(): void {
@@ -158,3 +281,16 @@ export class LivePatch {
 }
 
 const ms = (time: number | null, from: number) => (time === null ? '—' : `${((time - from) * 1000).toFixed(2)} ms`);
+
+/** The fluid's Worker and the host that talks to it (fluid/backend.ts). */
+function createFluidWorker(): { host: FluidHost; worker: Worker } {
+  const worker = new Worker(new URL('./fluid-worker.ts', import.meta.url), { type: 'module' });
+  const host = new FluidHost((request, transfer) => worker.postMessage(request, transfer));
+  worker.onmessage = (event) => host.receive(event.data);
+  worker.onerror = (event) => {
+    console.warn(`[live] fluid worker: ${event.message}`);
+    host.fail(event.message);
+  };
+  worker.onmessageerror = () => host.fail('reply could not be read');
+  return { host, worker };
+}

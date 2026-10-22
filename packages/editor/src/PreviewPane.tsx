@@ -15,7 +15,13 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
   );
   const running = status === 'running';
 
-  // Keep the backing store at device pixels; the Renderer draws into it once it exists (#28).
+  // The Renderer draws into the canvas each frame.
+  useEffect(() => {
+    live?.attachCanvas(canvas.current);
+    return () => live?.attachCanvas(null);
+  }, [live]);
+
+  // Keep the backing store at device pixels.
   useEffect(() => {
     const element = canvas.current;
     if (!element) return;
@@ -39,7 +45,7 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
       // Mice report 0.5 while a button is down and 0 otherwise.
       pressure: event.pressure,
       pointerType: event.pointerType,
-    });
+    }, event.timeStamp);
   };
 
   const resize = (event: ReactPointerEvent<HTMLDivElement>) => {
