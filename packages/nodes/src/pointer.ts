@@ -73,12 +73,12 @@ function apply(contacts: Contacts, change: Change): void {
   }
 }
 
-const contactsOf = (state: NodeState): Contacts => (state.contacts ??= []) as Contacts;
 const pendingOf = (state: NodeState): Change[] => (state.pending ?? []) as Change[];
 
 /** The contacts as they are at time t: the base plus this window's changes at or before t. */
 function contactsAt(state: NodeState, t: number): readonly Contact[] {
-  const base = contactsOf(state);
+  // Reads never write state: only query() changes it (NodeState contract).
+  const base = (state.contacts ?? []) as Contacts;
   const pending = pendingOf(state);
   if (!(pending.length && pending[0]!.time <= t)) return base;
   const contacts = base.map((c) => ({ ...c }));
@@ -118,10 +118,16 @@ function contactsAt(state: NodeState, t: number): readonly Contact[] {
  * Down, Move, Up, Cancel. `query` folds the previous window's pending changes in
  * first; `signal(t)` applies the pending ones at or before t, so a read mid-window
  * sees only earlier changes and the results don't depend on the window size.
+ *
+ * Same-time ties: the scheduler stamps pushes on render quanta (about 2.7 ms), so a
+ * Down and an Up on one pointer can share a time. The signals then apply Down, Move,
+ * Up, Cancel in that order, whatever the push order (the event outputs keep push
+ * order). A tap shorter than a quantum so ends lifted rather than stuck down, but a
+ * re-press (Up then Down) inside one quantum reads lifted until that pointer's next event.
  */
 export const pointer: NodeDefinition = {
   type: 'pointer',
-  version: 2,
+  version: 1,
   label: 'Pointer',
   category: 'canvas-sources',
   description: 'Down, Move, Up and Cancel events from pointers on the canvas, one channel per pointer, with X, Y, Pressure and Count signals.',
@@ -137,7 +143,7 @@ export const pointer: NodeDefinition = {
   ],
   params: [],
   query({ state, pushed }) {
-    const contacts = contactsOf(state);
+    const contacts = (state.contacts ??= []) as Contacts;
     for (const change of pendingOf(state)) apply(contacts, change);
     const pending: Change[] = [];
     EVENT_PORTS.forEach((port, kind) => {

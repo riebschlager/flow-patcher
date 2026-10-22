@@ -288,6 +288,17 @@ describe('pointer signals', () => {
     expect(edgeReference.find((r) => r.t === 0.5 && r.channel === 4)).toMatchObject({ x: 0.6, y: 0.4, pressure: 0, count: 0 });
   });
 
+  it('never writes state from a signal read, before or after a query', () => {
+    const state: Record<string, unknown> = {};
+    const ctx = context(pointer, { state });
+    for (const port of SIGNALS) pointer.signal!(ctx, port, 0.5, 3);
+    expect(state).toEqual({});
+    query(pointer, 0, 1, { state, pushed: pushedOf(gestures) });
+    const before = JSON.stringify(state);
+    for (const port of SIGNALS) for (const t of [0, 0.25, 0.5, 2]) pointer.signal!(ctx, port, t, 3);
+    expect(JSON.stringify(state)).toBe(before);
+  });
+
   it('returns no pushed events from query, in any window', () => {
     const pushed = pushedOf(gestures);
     expect(query(pointer, 0, 1, { pushed })).toEqual({});
