@@ -16,7 +16,7 @@ import {
   type Patch,
   type SchedulerStats,
 } from '@flow-patcher/engine';
-import { nodeRegistry, rendererImage } from '@flow-patcher/nodes';
+import { INSTRUMENTS, instrumentCache, nodeRegistry, rendererImage } from '@flow-patcher/nodes';
 
 /** Pointer events the canvas forwards, as Pointer node output ports. */
 export type PointerPort = 'down' | 'move' | 'up' | 'cancel';
@@ -70,6 +70,21 @@ interface PendingSplash {
   carried: { handed: number; step: number } | null;
 }
 
+/** Sampled Voice's samples, served from the repo's vendor/ (packages/editor/vite.config.ts). */
+async function fetchSample(file: string): Promise<string> {
+  const response = await fetch(`/vendor/${encodeURIComponent(file)}`);
+  if (!response.ok) throw new Error(`Couldn't load ${file} (HTTP ${response.status})`);
+  return response.text();
+}
+
+/** An inline status on a node's card (design system: Node `status`). */
+export interface NodeStatus {
+  kind: 'loading' | 'error';
+  message: string;
+  /** Label of the action that `retry()` performs. */
+  action?: string;
+}
+
 export interface LiveStatus {
   audio: AudioContextState;
   pointers: number;
@@ -79,6 +94,11 @@ export class LivePatch {
   readonly scheduler: Scheduler;
   readonly taps: Tap[] = [];
   private readonly context: AudioContext;
+  /** The context as the runtime sees it: the instrument cache is keyed by this object. */
+  private readonly audio: AudioContextLike;
+  /** Each Sampled Voice's instrument, by node id. */
+  private readonly instruments: Map<string, string>;
+  private readonly unsubscribeInstruments: () => void;
   private readonly runtime: Runtime;
   /** Pointer nodes the canvas feeds. Canvas sources are host-fed, so the runner finds them by type. */
   private readonly pointers: string[];
@@ -104,12 +124,17 @@ export class LivePatch {
     const compiled = compilePatch(patch, nodeRegistry);
     if (!compiled.ok) throw new Error(compiled.errors.join('; '));
     this.fluid = compiled.plan.order.some((node) => node.definition.type === 'fluid') ? createFluidWorker() : null;
-    this.runtime = new Runtime(compiled.plan, { services: this.fluid ? { fluid: this.fluid.host } : {} });
+    this.runtime = new Runtime(compiled.plan, { services: { ...(this.fluid && { fluid: this.fluid.host }), samples: fetchSample } });
     this.renderer = compiled.plan.order.find((node) => node.definition.type === 'renderer')?.id ?? null;
     this.runtime.onWarning = (message) => console.warn(`[live] ${message}`);
     this.pointers = compiled.plan.order.filter((node) => node.definition.type === 'pointer').map((node) => node.id);
+    this.instruments = new Map(compiled.plan.order.filter((node) => node.definition.type === 'sampled-voice').map((node) => [node.id, node.params.instrument as string]));
+    this.unsubscribeInstruments = instrumentCache.subscribe((audio) => {
+      if (audio === this.audio) this.emit();
+    });
     this.context = new AudioContext({ latencyHint: 'interactive' });
-    this.runtime.attachAudio(this.observeStarts(this.context));
+    this.audio = this.observeStarts(this.context);
+    this.runtime.attachAudio(this.audio);
     const context = this.context;
     this.scheduler = new Scheduler(this.runtime, {
       clock: {
@@ -152,8 +177,31 @@ export class LivePatch {
     return { audio: this.context.state, pointers: this.pointers.length };
   }
 
+  /** What a node's card shows inline: a Sampled Voice's instrument loading or failed to load. Null when there's nothing to say. */
+  nodeStatus(nodeId: string): NodeStatus | null {
+    const key = this.instruments.get(nodeId);
+    if (key === undefined) return null;
+    const name = (INSTRUMENTS[key]?.name ?? key).toLowerCase();
+    switch (instrumentCache.status(this.audio, key)) {
+      case 'loading': return { kind: 'loading', message: `Loading ${name}` };
+      case 'error': return { kind: 'error', message: `Couldn't load ${name}. Check your connection, then retry.`, action: 'Retry' };
+      default: return null;
+    }
+  }
+
+  /** The action on an error status: loads a Sampled Voice's instrument again. Its notes play once it's ready. */
+  retry(nodeId: string): void {
+    const key = this.instruments.get(nodeId);
+    if (key !== undefined) instrumentCache.load(this.audio, key, fetchSample).catch(() => {});
+  }
+
   get stats(): SchedulerStats {
     return this.scheduler.stats;
+  }
+
+  /** A node's state, for e2e and the console (such as Sampled Voice's skipped-note count). */
+  stateOf(nodeId: string): Readonly<Record<string, unknown>> | undefined {
+    return this.runtime.stateOf(nodeId);
   }
 
   get frameStats(): FrameStats {
@@ -212,6 +260,7 @@ export class LivePatch {
     this.scheduler.halt();
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.runtime.dispose();
+    this.unsubscribeInstruments();
     void this.context.close();
     this.listeners.clear();
   }

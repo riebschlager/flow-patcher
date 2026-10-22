@@ -1,6 +1,7 @@
 // Headless engine run: load a patch, run window queries and frames, and collect
 // events, audio and frame images. Used by `pnpm run-patch` and by tests.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import {
   applyPatchEdits,
@@ -23,7 +24,7 @@ import {
   type SchedulerStats,
   type SwapReport,
 } from '@flow-patcher/engine';
-import { nodeRegistry } from '@flow-patcher/nodes';
+import { instrumentCache, nodeRegistry } from '@flow-patcher/nodes';
 import { encodeWav, peak, renderOffline, SuspendRaceError, type AudioEdit, type RenderedAudio } from './audio';
 import { encodePng } from './png';
 
@@ -234,12 +235,23 @@ export async function runPatch(patch: Patch, options: RunOptions = {}, hooks: Ru
   }
 }
 
+/** Sampled Voice's samples, read from the repo's vendor/ (the browser fetches them from /vendor). */
+const VENDOR = new URL('../../vendor/', import.meta.url);
+export const vendorSamples = (file: string): Promise<string> => readFile(new URL(file, VENDOR), 'utf8');
+
 async function runOnce(patch: Patch, opts: Required<RunOptions>, hooks: RunHooks, attempt: number): Promise<RunResult> {
   const registry = hooks.registry ?? nodeRegistry;
   const compiled = compilePatch(patch, registry);
   if (!compiled.ok) throw new PatchError(compiled.errors);
   // The fluid steps in process, in lockstep with the frames, so its output is bit-exact.
-  const runtime = new Runtime(compiled.plan, { services: { fluid: createInProcessFluid() } });
+  const runtime = new Runtime(compiled.plan, { services: { fluid: createInProcessFluid(), samples: vendorSamples } });
+  // Decode the patch's instruments on each render's context before anything is scheduled, so no
+  // note is skipped while one loads and the audio is the same every run. An instrument an edit
+  // brings in later still loads lazily, partway through the render.
+  const instruments = [...new Set(compiled.plan.order.filter((node) => node.definition.type === 'sampled-voice').map((node) => node.params.instrument as string))];
+  const prepare = async (context: AudioContextLike) => {
+    await Promise.all(instruments.map((key) => instrumentCache.load(context, key, vendorSamples)));
+  };
   runtime.onWarning = (message) => console.warn(`[run-patch] ${message}`);
   for (const { node, port, event } of hooks.inputs ?? []) runtime.push(node, port, event);
   // The real scheduler on a simulated clock: every wake is on time, so no window is caught up or skipped.
@@ -344,7 +356,7 @@ async function runOnce(patch: Patch, opts: Required<RunOptions>, hooks: RunHooks
           scheduler.wake();
           framesUntil(scheduler.horizon ?? 0, false);
         },
-        { edits: steps, testLateSuspend: hooks.testLateSuspend && (() => hooks.testLateSuspend!(attempt)) },
+        { edits: steps, prepare, testLateSuspend: hooks.testLateSuspend && (() => hooks.testLateSuspend!(attempt)) },
       );
     } catch (error) {
       runtime.dispose();
@@ -357,7 +369,7 @@ async function runOnce(patch: Patch, opts: Required<RunOptions>, hooks: RunHooks
     audio = await renderOffline(opts.seconds, (context) => {
       runtime.attachAudio(context);
       run();
-    });
+    }, { prepare });
   } else {
     run();
   }
