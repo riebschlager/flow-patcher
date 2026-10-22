@@ -298,6 +298,7 @@ describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → S
     if (!run) throw new Error('no edit ran');
     // Only the attempt that finished counts: one a lost suspend aborted may have left half-made checks.
     if (result.attempts > 1) console.warn(`[hot-swap gate] the live run took ${result.attempts} attempts; checking the last`);
+    expect(run.context).not.toBeNull();
     const failures = [...run.failures, ...(synthFailures.get(run.context!) ?? [])];
     const { events } = result;
     expect(result.audio).not.toBeNull();

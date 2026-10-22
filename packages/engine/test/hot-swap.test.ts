@@ -385,13 +385,16 @@ describe('hot swap', () => {
 
   it('orders ties by the plan in force at their time, before and after a rewind', () => {
     // Plan 1 runs m, r, d, u; plan 2 drops r and adds u → d, so it runs m, u, d.
-    const run = setup(patch([node('m', 'metro', { period: 0.05 }), node('r', 'counter'), node('d', 'counter'), node('u', 'counter')], [cable('m', 'r'), cable('m', 'd'), cable('m', 'u')]));
-    run.wakeEvery(0, 0.5);
-    const report = run.edit(0.49, { op: 'remove-node', node: 'r' }, { op: 'add-cable', cable: cable('u', 'd') });
+    // A tick every 10 ms, so one lands exactly on the swap's boundary, 0.47.
+    const run = setup(patch([node('m', 'metro', { period: 0.01 }), node('r', 'counter'), node('d', 'counter'), node('u', 'counter')], [cable('m', 'r'), cable('m', 'd'), cable('m', 'u')]));
+    run.wakeEvery(0, 0.46);
+    const report = run.edit(0.46, { op: 'remove-node', node: 'r' }, { op: 'add-cable', cable: cable('u', 'd') });
     const T = report.time;
+    expect(T).toBeCloseTo(0.47, 12);
+    expect(run.of('m').some((e) => e.time === T)).toBe(true);
     run.wakeEvery(0.5, 0.6);
     const at = (t: number) => run.scheduler.events().filter((e) => Math.abs(e.time - t) < 1e-9 && e.node !== 'm').map((e) => e.node);
-    const before = 0.45, after = Math.ceil(T / 0.05) * 0.05;
+    const before = 0.46, after = T;
     expect(at(before)).toEqual(['r', 'd', 'u']);
     // Out-of-scope u and re-run d both rank by plan 2 at that time.
     expect(at(after)).toEqual(['u', 'd', 'd']);
@@ -404,6 +407,32 @@ describe('hot swap', () => {
     expect(at(before)).toEqual(['r', 'd', 'u']);
     expect(at(after)).toEqual(['u', 'd', 'd']);
     expect(at(0.65)).toEqual(['u', 'd', 'd']);
+  });
+
+  it('never swaps before the plan it replaces, so swap times stay in order', () => {
+    const definitions = new Map([metro, counter].map((d) => [d.type, d]));
+    const compile = (p: Patch) => {
+      const compiled = compilePatch(p, definitions);
+      if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+      return compiled.plan;
+    };
+    const base = [node('m', 'metro', { period: 0.05 }), node('a', 'counter'), node('b', 'counter')];
+    const runtime = new Runtime(compile(patch(base, [cable('m', 'a'), cable('m', 'b')])), { history: true });
+    const log: LoggedEvent[] = [];
+    for (let k = 0; k < 10; k++) log.push(...runtime.query(k / 10, (k + 1) / 10));
+    // Without timing: at the horizon, 1.0. b → a puts b first, and n is added.
+    const r1 = runtime.swap(compile(patch([...base, node('n', 'counter')], [cable('m', 'a'), cable('m', 'b'), cable('b', 'a'), cable('m', 'n')])));
+    // With an earlier now: clamped to 1.0, so it replaces r1 there, keeps n new and restores a, b.
+    const r2 = runtime.swap(compile(patch([...base, node('n', 'counter', { step: 10 })], [cable('m', 'a'), cable('m', 'b'), cable('m', 'n')])), { now: 0.55 });
+    expect([r1.time, r2.time]).toEqual([1, 1]);
+    expect(r2.windows).toBe(0);
+    for (let k = 10; k < 12; k++) log.push(...runtime.query(k / 10, (k + 1) / 10));
+    const nodesAt = (t: number) => runtime.sortLog([...log]).filter((e) => Math.abs(e.time - t) < 1e-9 && e.node !== 'm').map((e) => e.node);
+    expect(nodesAt(0.65)).toEqual(['a', 'b']);
+    expect(nodesAt(1.05)).toEqual(['a', 'b', 'n']);
+    const n = log.filter((e) => e.node === 'n');
+    expect(n[0]!.time).toBeCloseTo(1, 9);
+    expect(n.map((e) => e.count)).toEqual(n.map((_, i) => 10 * (i + 1)));
   });
 
   it('keeps a node an earlier swap added when a later swap at a later horizon has nothing to do with it (no history)', () => {

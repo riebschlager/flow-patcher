@@ -526,7 +526,9 @@ export class Runtime {
    */
   private readonly delayInputs = new Map<string, PortEvents>();
   /** The log's tie-breaks over time: each plan's node and output port positions from the
-   *  time it took effect, ascending. Only the positions, so old plans don't stay alive. */
+   *  time it took effect, ascending. Only the positions, so old plans don't stay alive. It grows
+   *  by one entry per swap and isn't pruned with history: a recorded log (Scheduler.events)
+   *  may still sort events from long before the oldest retained window. */
   private readonly ranks: { from: number; position: Map<string, number>; outPosition: Map<string, Map<string, number>> }[] = [];
   /** Live events, in time order, merged into their node's output in the chunk their time falls in. */
   private injected: Injected[] = [];
@@ -733,6 +735,12 @@ export class Runtime {
         time = history[j]!.t0;
       }
     }
+    // Never before the plan it replaces took effect: a swap without timing may have put that
+    // at the horizon, past now. Swap times then stay in order, and the fold below applies.
+    if (time < prev.from) {
+      time = prev.from;
+      first = history?.findIndex((w) => w.t0 >= time) ?? -1;
+    }
 
     const next = this.makeStage(plan, time, prev, kept);
     let cancelled = 0;
@@ -748,7 +756,7 @@ export class Runtime {
     }
     this.stage = this.active = next;
     // A swap to the same time as the last one replaces its ranks; that plan never ran.
-    if (this.ranks.at(-1)!.from === time) this.ranks.pop();
+    while (this.ranks.length > 1 && this.ranks.at(-1)!.from >= time) this.ranks.pop();
     this.ranks.push({ from: time, position: next.position, outPosition: next.outPosition });
     if (this.audioContext) this.rewire();
     for (const id of removed) {
