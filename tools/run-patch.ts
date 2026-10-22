@@ -1,5 +1,8 @@
 // pnpm run-patch <file.flowpatch> [--seconds 4] [--windows N] [--frames N]
-//                 [--window 0.025] [--fps 60] [--no-audio] [--live] [--out out/<name>]
+//                 [--window 0.025] [--fps 60] [--latency 0] [--no-audio] [--live] [--out out/<name>]
+//
+// --latency shifts frames back by that many seconds of output latency, as the
+// editor's frame clock does.
 //
 // --live wakes the scheduler during the audio render (suspending it at each
 // wake) instead of querying every window before rendering.
@@ -22,6 +25,7 @@ const { values, positionals } = parseArgs({
     frames: { type: 'string' },
     window: { type: 'string', default: '0.025' },
     fps: { type: 'string', default: '60' },
+    latency: { type: 'string', default: '0' },
     'no-audio': { type: 'boolean', default: false },
     live: { type: 'boolean', default: false },
     out: { type: 'string' },
@@ -31,7 +35,7 @@ const { values, positionals } = parseArgs({
 
 const file = positionals[0];
 if (values.help || !file) {
-  console.log('Usage: pnpm run-patch <file.flowpatch> [--seconds S | --windows N | --frames N] [--window 0.025] [--fps 60] [--no-audio] [--live] [--out DIR]');
+  console.log('Usage: pnpm run-patch <file.flowpatch> [--seconds S | --windows N | --frames N] [--window 0.025] [--fps 60] [--latency 0] [--no-audio] [--live] [--out DIR]');
   process.exit(file ? 0 : 1);
 }
 
@@ -47,6 +51,11 @@ const number = (name: string, value: string | undefined): number | undefined => 
 
 const window = number('window', values.window)!;
 const fps = number('fps', values.fps)!;
+const latency = Number(values.latency);
+if (!Number.isFinite(latency) || latency < 0) {
+  console.error('--latency must be 0 or more seconds');
+  process.exit(1);
+}
 const windows = number('windows', values.windows), frames = number('frames', values.frames);
 const seconds = number('seconds', values.seconds) ?? (windows ? windows * window : frames ? frames / fps : 4);
 
@@ -55,7 +64,7 @@ try {
   // Scripted edits (<name>.edits.json) swap plans mid-run, which needs a live run when there is audio.
   const edits = scriptedEdits(loadEdits(file));
   const live = values.live || (edits.length > 0 && !values['no-audio']);
-  const result = await runPatch(loadPatch(file), { seconds, window, fps, audio: !values['no-audio'], live }, { inputs: loadInputs(file), edits });
+  const result = await runPatch(loadPatch(file), { seconds, window, fps, latency, audio: !values['no-audio'], live }, { inputs: loadInputs(file), edits });
   const written = writeRun(result, values.out ?? join('out', name), name);
   console.log(`${name}: ${result.events.length} events, ${result.frames} frames, ${seconds}s`);
   for (const path of written) console.log(`  ${path}`);

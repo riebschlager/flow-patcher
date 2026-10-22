@@ -5,6 +5,7 @@ import {
   type AudioSetupContext,
   type BoundContext,
   type EngineEvent,
+  type HostServices,
   type NodeDefinition,
   type NodeWiring,
   type QueryResult,
@@ -21,6 +22,10 @@ export interface ContextOptions {
   values?: NodeWiring['values'];
   /** Signal cables into number params, with their depth. */
   mods?: NodeWiring['mods'];
+  /** Field cables per input port. */
+  fields?: NodeWiring['fields'];
+  /** The host's platform resources, as `RuntimeOptions.services`. */
+  services?: HostServices;
   /** Live events pushed onto the node's own output ports, as `Runtime.push` would. `query` and
    *  `queryTiled` hand each window the ones in [t0, t1), sorted by time then channel. */
   pushed?: Record<string, EngineEvent[]>;
@@ -39,9 +44,25 @@ export function pushedIn(pushed: Record<string, EngineEvent[]>, t0: number, t1: 
 /** The same context the runtime builds, wired to the given sources. */
 export function context(
   definition: NodeDefinition,
-  { params = {}, seed = 1, nodeId = 'n', state = {}, events, signals, values, mods }: Omit<ContextOptions, 'pushed'> & { events?: readonly string[] } = {},
+  { params = {}, seed = 1, nodeId = 'n', state = {}, events, signals, values, mods, fields, services }: Omit<ContextOptions, 'pushed'> & { events?: readonly string[] } = {},
 ): BoundContext {
-  return createNodeContext({ nodeId, seed, definition, params: resolveParams(definition, params), state }, { events, signals, values, mods });
+  return createNodeContext({ nodeId, seed, definition, params: resolveParams(definition, params), state, services }, { events, signals, values, mods, fields });
+}
+
+/** Calls a node's frame() as the runtime does. `immediate` lists the input events that came by the immediate path. */
+export function frame(
+  definition: NodeDefinition,
+  t0: number,
+  t1: number,
+  { inputs = {}, immediate = [], dt = t1 - t0, ...options }: Omit<ContextOptions, 'pushed'> & { inputs?: Record<string, EngineEvent[]>; immediate?: readonly EngineEvent[]; dt?: number } = {},
+): void {
+  if (!definition.frame) throw new Error(`${definition.type} has no frame()`);
+  const marked = new Set(immediate);
+  definition.frame({
+    ...context(definition, { ...options, events: Object.keys(inputs) }),
+    inputs, t0, t1, dt,
+    pathOf: (event) => (marked.has(event) ? 'immediate' : 'scheduled'),
+  });
 }
 
 /** Calls a node's query directly with resolved params. */

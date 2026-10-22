@@ -5,6 +5,7 @@ import { basename, dirname, extname, join } from 'node:path';
 import {
   applyPatchEdits,
   compilePatch,
+  createInProcessFluid,
   LOOKAHEAD,
   PATCH_EDIT_OPS,
   ManualClock,
@@ -35,6 +36,9 @@ export interface RunOptions {
   window?: number;
   /** Visual frame rate. 0 skips frames. */
   fps?: number;
+  /** Output latency in seconds: frame k covers [k/fps − latency, (k+1)/fps − latency)
+   *  on the audio clock, as the live FrameLoop shifts frames. Default 0. */
+  latency?: number;
   /** Render audio through a native OfflineAudioContext. */
   audio?: boolean;
   /** Wake the scheduler during the render, suspending it at every wake, the way
@@ -218,7 +222,8 @@ export const scriptedEdits = (script: readonly ScriptedEdit[]): RunEdit[] =>
   script.map(({ time, edits }) => ({ time, apply: (run) => void run.edit(edits) }));
 
 export async function runPatch(patch: Patch, options: RunOptions = {}, hooks: RunHooks = {}): Promise<RunResult> {
-  const opts: Required<RunOptions> = { seconds: 4, window: 0.025, fps: 60, audio: true, live: false, ...options };
+  const opts: Required<RunOptions> = { seconds: 4, window: 0.025, fps: 60, latency: 0, audio: true, live: false, ...options };
+  if (!(Number.isFinite(opts.latency) && opts.latency >= 0)) throw new RangeError(`runPatch: latency must be 0 or more seconds, got ${opts.latency}`);
   for (let attempt = 1; ; attempt++) {
     try {
       return await runOnce(patch, opts, hooks, attempt);
@@ -233,7 +238,8 @@ async function runOnce(patch: Patch, opts: Required<RunOptions>, hooks: RunHooks
   const registry = hooks.registry ?? nodeRegistry;
   const compiled = compilePatch(patch, registry);
   if (!compiled.ok) throw new PatchError(compiled.errors);
-  const runtime = new Runtime(compiled.plan);
+  // The fluid steps in process, in lockstep with the frames, so its output is bit-exact.
+  const runtime = new Runtime(compiled.plan, { services: { fluid: createInProcessFluid() } });
   runtime.onWarning = (message) => console.warn(`[run-patch] ${message}`);
   for (const { node, port, event } of hooks.inputs ?? []) runtime.push(node, port, event);
   // The real scheduler on a simulated clock: every wake is on time, so no window is caught up or skipped.
@@ -289,7 +295,7 @@ async function runOnce(patch: Patch, opts: Required<RunOptions>, hooks: RunHooks
   /** Steps every frame up to `limit` whose window has been queried, or queries it first when `query` is set. */
   const framesUntil = (limit: number, query: boolean) => {
     for (; frames < frameCount; frames++) {
-      const t0 = frames / opts.fps, t1 = (frames + 1) / opts.fps;
+      const t0 = frames / opts.fps - opts.latency, t1 = (frames + 1) / opts.fps - opts.latency;
       if (t1 > limit) break;
       if (query) queryUntil(t1);
       runtime.frame(t0, t1, 1 / opts.fps);

@@ -38,6 +38,7 @@ A fixed set of music-shaped building blocks around one fluid field, not a genera
 ## Rules for this family
 
 - **Frame clock.** Visual nodes implement `frame()`. Each frame they read the events whose timestamps fell in the frame interval, so a Ripple fed by a note appears as the note sounds, even though it was scheduled 120 ms earlier.
+- **Writers and readers.** A writer's Write output returns a `FluidWriter` from `field()`; Fluid calls its `write(target)` once a frame, before stepping. Readers get Fluid's `FluidField`, whose `image()` is the step latched at the frame's start. The contract is in `packages/engine/src/fluid/field.ts`.
 - **Separate drawing from state.** Flow's visual modules read Flow's app state directly. Borrowing them means separating the drawing code from that state, and taking palette and energy as inputs.
 - **Reduced motion.** Every overlay obeys reduced-motion: it keeps color and drops added motion.
 - **One Renderer** per patch, and one canvas ([ADR 0005](../decisions/0005-single-canvas.md)).

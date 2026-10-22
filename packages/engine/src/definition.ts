@@ -1,7 +1,8 @@
 // The shape of a node type. One file per node type in packages/nodes exports one
 // of these; the palette, inspector and (later) server validation read it.
 import type { AudioContextLike, AudioNodeLike } from './audio/types';
-import type { EngineEvent, PortType } from './events';
+import type { EngineEvent, EventPath, PortType } from './events';
+import type { FluidBackend } from './fluid/backend';
 
 export type NodeCategory =
   | 'canvas-sources'
@@ -109,6 +110,18 @@ export type ParamValues = Readonly<Record<string, ParamValue>>;
  */
 export type NodeState = Record<string, unknown>;
 
+/**
+ * Platform resources the host gives the runtime (`RuntimeOptions.services`),
+ * the way it gives audio nodes an AudioContext (ADR 0013). Every node sees
+ * them as `ctx.services`. All optional: a node falls back to an in-process
+ * stand-in, so headless runs and tests need none.
+ */
+export interface HostServices {
+  /** Where Fluid steps: a FluidHost around a Worker in the browser (ADR 0016),
+   *  `createInProcessFluid()` headless. One per running patch. */
+  fluid?: FluidBackend;
+}
+
 /** What a node sees in every hook: its params, state and the cables into it. */
 export interface NodeContext {
   readonly nodeId: string;
@@ -125,6 +138,8 @@ export interface NodeContext {
   param(name: string, t: number, channel?: number): number;
   /** True when a cable feeds this input port or param. */
   connected(port: string): boolean;
+  /** The host's platform resources. */
+  readonly services: HostServices;
 }
 
 interface EventContext extends NodeContext {
@@ -158,13 +173,23 @@ export interface QueryContext extends EventContext {
   readonly pushed: Readonly<Record<string, readonly EngineEvent[]>>;
 }
 
-/** A visual frame covers [t0, t1) on the audio clock; `dt` is the frame step in seconds. */
+/**
+ * A visual frame covers [t0, t1) on the frame clock: the audio clock shifted
+ * back by the output latency (FrameLoop). `dt` is the frame step in seconds.
+ *
+ * `inputs` holds the events due this frame, per port, in time order: every
+ * scheduled event before t1 not handed over yet, and every immediate event
+ * (a tap's own, ADR 0020) that arrived since the last frame, whatever its
+ * time. Each event is handed over once, rewinds included.
+ */
 export interface FrameContext extends EventContext {
   readonly t0: number;
   readonly t1: number;
   readonly dt: number;
   /** The shared object behind each Field cable into `port`, in patch order. */
   fields(port: string): readonly unknown[];
+  /** Which path an event in `inputs` came by. */
+  pathOf(event: EngineEvent): EventPath;
 }
 
 export type QueryResult = Partial<Record<string, EngineEvent[]>>;
@@ -234,7 +259,9 @@ export interface NodeDefinition {
   signal?(ctx: NodeContext, port: string, t: number, channel: number): number;
   /** Value outputs: valid for any t this node has been queried up to. */
   value?(ctx: NodeContext, port: string, t: number): unknown;
-  /** Field outputs: the object shared by reference with every reader. */
+  /** Field outputs: the object shared by reference with every reader. A Fluid
+   *  output gives a `FluidField`, a Write output a `FluidWriter` (fluid/field.ts
+   *  has the writer contract). */
   field?(ctx: NodeContext, port: string): unknown;
   /** Visual nodes: runs once per animation frame. */
   frame?(ctx: FrameContext): void;

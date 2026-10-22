@@ -72,7 +72,7 @@
     {
       "id": "fluid",
       "type": "fluid",
-      "typeVersion": 1,
+      "typeVersion": 2,
       "params": {
         "palette": "aurora",
         "size": 0.06
