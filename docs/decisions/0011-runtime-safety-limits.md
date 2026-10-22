@@ -1,6 +1,6 @@
 # 0011 · Safety limits live in the runtime
 
-Status: Accepted · 2026-10-21 · Amended by [0022](0022-event-caps-on-a-fixed-grid.md) (event caps count on a fixed 120 ms grid)
+Status: Accepted · 2026-10-21 · Amended by [0022](0022-event-caps-on-a-fixed-grid.md) (event caps count on a fixed 120 ms grid), [0024](0024-voice-pool-steals.md) (voices: oldest means earliest start; steals aren't undone)
 
 ## Context
 "Weird is allowed; broken is not." Strange patches should give strange results, never crashes, runaway feedback, clipped output or a frozen tab.

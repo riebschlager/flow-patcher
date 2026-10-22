@@ -13,9 +13,10 @@
 //
 // Steals are decided at schedule time and never undone. If the stealing note is
 // later withdrawn (a rewind's cancel, ADR 0019, or a hot swap's), the node
-// releases it and its slot frees, but the voice it stole stays cut: Web Audio
-// can't take back a scheduled stop cheaply, and the cut happens ahead of time,
-// usually before anyone could hear the difference.
+// releases it and its slot frees, but the voice it stole stays cut. Undoing it
+// would mean putting the voice back in the pool, which could push a later start
+// over the limit again and start another round of steals. It takes a full pool
+// plus a rewind or swap to happen at all (ADR 0024).
 //
 // Voices whose end has passed (end <= currentTime) are reclaimed lazily, at the
 // next claim or count. Audio nodes never get times before currentTime, so a
