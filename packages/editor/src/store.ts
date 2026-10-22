@@ -4,6 +4,7 @@
 // undo and redo are document diffs too.
 import { createStore } from 'zustand/vanilla';
 import { applyPatchEdits, invertPatchEdits, PATCH_FORMAT, PATCH_VERSION, type Patch, type PatchEdit } from '@flow-patcher/engine';
+import { cableId } from './patch-graph';
 
 export interface HistoryEntry {
   edits: PatchEdit[];
@@ -42,6 +43,12 @@ export const emptyPatch = (): Patch => ({
 
 const push = (stack: HistoryEntry[], entry: HistoryEntry) => [...stack, entry].slice(-HISTORY_LIMIT);
 
+/** The selection less what the document no longer has, so a reused id doesn't come back selected. */
+function prune(selection: ReadonlySet<string>, doc: Patch): ReadonlySet<string> {
+  const ids = new Set([...doc.nodes.map((n) => n.id), ...doc.cables.map(cableId)]);
+  return [...selection].every((id) => ids.has(id)) ? selection : new Set([...selection].filter((id) => ids.has(id)));
+}
+
 export function createEditorStore(doc: Patch) {
   return createStore<EditorState>()((set, get) => ({
     doc,
@@ -52,7 +59,8 @@ export function createEditorStore(doc: Patch) {
       if (!edits.length) return;
       const { doc, past } = get();
       const inverse = invertPatchEdits(doc, edits);
-      set({ doc: applyPatchEdits(doc, edits), past: push(past, { edits, inverse }), future: [] });
+      const next = applyPatchEdits(doc, edits);
+      set({ doc: next, past: push(past, { edits, inverse }), future: [], selection: prune(get().selection, next) });
     },
     preview(edits) {
       if (edits.length) set({ doc: applyPatchEdits(get().doc, edits) });
@@ -70,7 +78,7 @@ export function createEditorStore(doc: Patch) {
       const { doc, past, future } = get();
       const entry = future.at(-1);
       if (!entry) return;
-      set({ doc: applyPatchEdits(doc, entry.edits), past: [...past, entry], future: future.slice(0, -1), selection: new Set() });
+      set({ doc: applyPatchEdits(doc, entry.edits), past: push(past, entry), future: future.slice(0, -1), selection: new Set() });
     },
     load(doc) {
       set({ doc, past: [], future: [], selection: new Set() });

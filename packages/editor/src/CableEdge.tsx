@@ -5,6 +5,10 @@ import { CABLE_STYLES, PORT_COLORS } from './ports';
 /** React Flow z-index above every node, selected ones included. */
 export const ABOVE_NODES = 2000;
 
+/** How long a refused cable shows before it's gone, ms; its fade runs over the same time. */
+export const REFUSED_MS = 900;
+const fade = { animationDuration: `${REFUSED_MS}ms` };
+
 export type CableEdgeData = {
   portType: PortType;
   /** A cable the editor refused, drawn in red with this reason until it fades. */
@@ -18,10 +22,10 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, sourcePosition, 
   const cable = CABLE_STYLES[type];
   if (data?.refused) {
     return (
-      <g className="cable-refused" data-testid="cable-refused">
+      <g className="cable-refused" style={fade} data-testid="cable-refused">
         <BaseEdge path={path} style={{ stroke: 'var(--fp-error)', strokeWidth: cable.width, strokeDasharray: cable.dash, strokeLinecap: cable.cap ?? 'butt' }} />
         <EdgeLabelRenderer>
-          <span className="cable-chip--error cable-refused" style={{ position: 'absolute', zIndex: ABOVE_NODES, transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}>
+          <span className="cable-chip--error cable-refused" style={{ ...fade, position: 'absolute', zIndex: ABOVE_NODES, transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}>
             <i className="icon-triangle-alert" />
             {data.refused}
           </span>

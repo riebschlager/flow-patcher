@@ -53,6 +53,7 @@ test('builds a patch from the palette while it plays, edits, undoes, saves and o
   await page.keyboard.press('Tab');
   await pick(page, 'eucl', 'euclidean');
   await page.mouse.dblclick(560, 440);
+  await expect(page.getByRole('textbox', { name: 'Search nodes' })).toBeFocused();
   await page.keyboard.type('make note');
   await page.keyboard.press('Enter');
   await page.mouse.dblclick(1040, 440);
@@ -110,6 +111,14 @@ test('builds a patch from the palette while it plays, edits, undoes, saves and o
   await expect(page.getByTestId('patch-node')).toHaveCount(5);
   await expect(edges(page)).toHaveCount(4);
   await expect(page.getByTestId('compile-status')).toHaveText('5 nodes compiled');
+  // An arrow-key nudge is an undo step of its own.
+  const clock = page.locator('.react-flow__node[data-id="clock-1"]');
+  const before = await clock.boundingBox();
+  await clock.click();
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(async () => (await clock.boundingBox())!.x).toBeGreaterThan(before!.x);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(async () => (await clock.boundingBox())!.x).toBe(before!.x);
   await page.screenshot({ path: 'test-results/live-editing-edited.png' });
 
   // Save, open the file in a fresh page, and save again: the same document.
@@ -119,6 +128,12 @@ test('builds a patch from the palette while it plays, edits, undoes, saves and o
   expect(JSON.parse(first).nodes.map((n: { type: string }) => n.type)).toEqual(['clock', 'euclidean', 'make-note', 'output', 'sampled-voice']);
 
   await page.goto('/?patch=new');
+  await expect(page.getByTestId('patch-node')).toHaveCount(0);
+  // A file that wouldn't run is refused whole: here, the loop the editor refused above.
+  const loop = JSON.parse(first);
+  loop.cables.push({ from: { node: 'euclidean-1', port: 'hit' }, to: { node: 'euclidean-1', port: 'tick' } });
+  await page.getByTestId('open-file').setInputFiles({ name: 'loop.flowpatch', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(loop)) });
+  await expect(page.getByTestId('compile-status')).toContainText("Couldn't open loop.flowpatch: cycle without a delay edge");
   await expect(page.getByTestId('patch-node')).toHaveCount(0);
   await page.getByTestId('open-file').setInputFiles({ name: 'patch.flowpatch', mimeType: 'application/json', buffer: Buffer.from(first) });
   await expect(page.getByTestId('patch-node')).toHaveCount(5);

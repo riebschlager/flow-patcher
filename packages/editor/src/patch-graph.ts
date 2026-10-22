@@ -1,5 +1,5 @@
 import type { Connection, Edge, Node } from '@xyflow/react';
-import { portsCompatible, portsOf, type NodeDefinition, type Patch, type PatchCable, type PortSpec } from '@flow-patcher/engine';
+import { compilePatch, portsCompatible, portsOf, type NodeDefinition, type Patch, type PatchCable, type PortSpec } from '@flow-patcher/engine';
 import type { CableEdgeData } from './CableEdge';
 
 export interface PatchNodeData extends Record<string, unknown> {
@@ -63,6 +63,20 @@ export function cableFor(patch: Patch, registry: Registry, connection: Connectio
   if (patch.cables.some((c) => cableId(c) === id)) return null;
   if (into.type === 'value' && patch.cables.some((c) => c.to.node === cable.to.node && c.to.port === cable.to.port)) return null;
   return cable;
+}
+
+/** Why a document can't be opened into the editor: it doesn't compile, or two cables share both ends
+ *  (each cable's edge id is its ends). Empty when it can. */
+export function loadErrors(patch: Patch, registry: Registry): string[] {
+  const seen = new Set<string>();
+  const duplicates = patch.cables.flatMap((cable, i) => {
+    const id = cableId(cable);
+    if (seen.has(id)) return [`cables[${i}]: a second cable ${id.replace('→', ' → ')}`];
+    seen.add(id);
+    return [];
+  });
+  const compiled = compilePatch(patch, registry);
+  return [...duplicates, ...(compiled.ok ? [] : compiled.errors)];
 }
 
 /** A port a cable was dragged from, on its way to the palette. */

@@ -1,4 +1,4 @@
-import type { NodeCategory, PortType } from '@flow-patcher/engine';
+import type { NodeCategory, NodeDefinition, PortType } from '@flow-patcher/engine';
 
 /** Port colors decide what can connect to what at a glance (design.md, Core concepts). Tokens come from the flow-patcher-design skill. */
 export const PORT_COLORS: Record<PortType, string> = {
@@ -8,6 +8,16 @@ export const PORT_COLORS: Record<PortType, string> = {
   audio: 'var(--fp-audio)',
   field: 'var(--fp-field)',
   value: 'var(--fp-value)',
+};
+
+/** Tinted fills per type, for chips that name a type (the palette's "Accepts note"). */
+export const PORT_SOFT_COLORS: Record<PortType, string> = {
+  event: 'var(--fp-event-soft)',
+  note: 'var(--fp-note-soft)',
+  signal: 'var(--fp-signal-soft)',
+  audio: 'var(--fp-audio-soft)',
+  field: 'var(--fp-field-soft)',
+  value: 'var(--fp-value-soft)',
 };
 
 /** Port shape footprint in px, [width, height]. Shape backs up color so the graph reads in grayscale. */
@@ -41,6 +51,9 @@ export const FAMILY_ICONS: Record<NodeCategory, string> = {
   'effects-mix': 'audio-waveform',
   visual: 'droplets',
 };
+
+/** A node's glyph: its family's, except Output, which has its own (design system: family glyphs). */
+export const nodeIcon = (definition: NodeDefinition) => (definition.type === 'output' ? 'speaker' : FAMILY_ICONS[definition.category]);
 
 /** Short family names, as the palette lists them (design system FamilyChip). */
 export const FAMILY_LABELS: Record<NodeCategory, string> = {

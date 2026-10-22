@@ -104,12 +104,6 @@ html, body, #root { height: 100%; margin: 0; background: var(--fp-surface-canvas
 .palette__input::placeholder { color: var(--fp-fg-4); }
 .palette__accepts { height: 20px; display: flex; align-items: center; gap: var(--fp-space-2); padding: 0 var(--fp-space-3); border-radius: var(--fp-radius-full); font-size: var(--fp-text-micro); white-space: nowrap; }
 .palette__accepts-mark { width: var(--fp-space-3); height: var(--fp-space-3); background: currentColor; transform: rotate(45deg); }
-.palette__accepts--event { background: var(--fp-event-soft); color: var(--fp-event); }
-.palette__accepts--note { background: var(--fp-note-soft); color: var(--fp-note); }
-.palette__accepts--signal { background: var(--fp-signal-soft); color: var(--fp-signal); }
-.palette__accepts--audio { background: var(--fp-audio-soft); color: var(--fp-audio); }
-.palette__accepts--field { background: var(--fp-field-soft); color: var(--fp-field); }
-.palette__accepts--value { background: var(--fp-value-soft); color: var(--fp-value); }
 .palette__list { display: grid; gap: 1px; padding: var(--fp-space-3); max-height: 300px; overflow: auto; }
 .palette__item { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: var(--fp-space-5); align-items: center; padding: 7px var(--fp-space-4); border-radius: var(--fp-radius-md); cursor: pointer; }
 .palette__item--active { background: var(--fp-bg-3); }
@@ -123,8 +117,8 @@ html, body, #root { height: 100%; margin: 0; background: var(--fp-surface-canvas
 .palette__empty { padding: var(--fp-space-6) 10px; font-size: var(--fp-text-sm); color: var(--fp-fg-3); }
 .palette__keys { display: flex; gap: 14px; padding: var(--fp-space-4) var(--fp-space-5); border-top: 1px solid var(--fp-line-1); font-size: var(--fp-text-xs); color: var(--fp-fg-4); }
 
-/* A refused cable: drawn in red with its reason, then fades (design system CableChip "error"). */
-.cable-refused { animation: cable-refused 900ms var(--fp-ease-out) forwards; pointer-events: none; }
+/* A refused cable: drawn in red with its reason, then fades (design system CableChip "error"). Its duration is REFUSED_MS, set inline. */
+.cable-refused { animation: cable-refused var(--fp-ease-out) forwards; pointer-events: none; }
 @keyframes cable-refused { 0%, 60% { opacity: 1; } 100% { opacity: 0; } }
 .cable-chip--error { display: inline-flex; align-items: center; gap: var(--fp-space-3); height: 22px; padding: 0 var(--fp-space-4); border: 1px solid var(--fp-error); border-radius: var(--fp-radius-full); background: var(--fp-bg-2); font-size: var(--fp-text-xs); color: var(--fp-fg-1); white-space: nowrap; }
 .cable-chip--error i { font-size: 12px; color: var(--fp-error); }

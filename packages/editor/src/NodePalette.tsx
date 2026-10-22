@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { NodeDefinition, PortType } from '@flow-patcher/engine';
-import { FAMILY_ICONS, FAMILY_LABELS } from './ports';
+import { FAMILY_LABELS, nodeIcon, PORT_COLORS, PORT_SOFT_COLORS } from './ports';
 
 export interface PaletteItem {
   definition: NodeDefinition;
@@ -9,8 +9,6 @@ export interface PaletteItem {
 }
 
 const LIMIT = 8;
-
-const iconOf = (definition: NodeDefinition) => (definition.type === 'output' ? 'speaker' : FAMILY_ICONS[definition.category]);
 
 /** The searchable node palette (design system NodePalette): Tab, double-click, or a cable dropped on empty canvas. */
 export function NodePalette({ items, accepts, at, onPick, onClose }: {
@@ -70,7 +68,7 @@ export function NodePalette({ items, accepts, at, onPick, onClose }: {
           }}
         />
         {accepts && (
-          <span className={`palette__accepts palette__accepts--${accepts}`} data-testid="palette-accepts">
+          <span className="palette__accepts" data-testid="palette-accepts" style={{ background: PORT_SOFT_COLORS[accepts], color: PORT_COLORS[accepts] }}>
             <span className="palette__accepts-mark" />Accepts {accepts}
           </span>
         )}
@@ -90,7 +88,7 @@ export function NodePalette({ items, accepts, at, onPick, onClose }: {
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => pick(item)}
           >
-            <i className={`icon-${iconOf(item.definition)} palette__item-icon`} />
+            <i className={`icon-${nodeIcon(item.definition)} palette__item-icon`} />
             <span className="palette__item-text">
               <span className="palette__item-name">{item.definition.label}</span>
               <span className="palette__item-description">{item.disabled ?? item.definition.description}</span>

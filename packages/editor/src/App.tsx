@@ -18,9 +18,9 @@ import {
 import { useStore } from 'zustand';
 import { applyPatchEdits, compilePatch, defaultParams, parsePatch, serializePatch, type NodeDefinition, type Patch, type PatchEdit } from '@flow-patcher/engine';
 import { nodeDefinitions, nodeRegistry } from '@flow-patcher/nodes';
-import { cableFor, cableId, handlePort, matchingPort, nextNodeId, patchToGraph, type CableEnd } from './patch-graph';
+import { cableFor, cableId, handlePort, loadErrors, matchingPort, nextNodeId, patchToGraph, type CableEnd } from './patch-graph';
 import { LivePatchContext, PatchNode } from './PatchNode';
-import { ABOVE_NODES, CableEdge, connectionLineStyle, type CableEdgeData } from './CableEdge';
+import { ABOVE_NODES, CableEdge, REFUSED_MS, connectionLineStyle, type CableEdgeData } from './CableEdge';
 import { LivePatch } from './live';
 import { PreviewPane } from './PreviewPane';
 import { NodePalette, type PaletteItem } from './NodePalette';
@@ -40,8 +40,6 @@ declare global {
 
 /** Snap grid, as the canvas draws it (design system: 20px). */
 const GRID = 20;
-/** How long a refused cable stays on screen, ms (its fade is in styles.css). */
-const REFUSED_MS = 900;
 
 
 /** `?patch=<name>` opens examples/<name>.flowpatch, `?patch=new` an empty patch; clock-blips by default. Read once per page load. */
@@ -116,32 +114,41 @@ function Editor() {
   const graph = useMemo(() => patchToGraph(doc, nodeRegistry, selection), [doc, selection]);
   // React Flow keeps measured sizes on the nodes it's given; the document doesn't hold them.
   const nodes = useMemo(() => graph.nodes.map((node) => ({ ...node, measured: sizes.get(node.id) })), [graph, sizes]);
+  // A removed node's size goes with it, so a node that reuses its id is measured afresh.
+  useEffect(() => store.subscribe(({ doc }) => {
+    const ids = new Set(doc.nodes.map((n) => n.id));
+    setSizes((prev) => ([...prev.keys()].every((id) => ids.has(id)) ? prev : new Map([...prev].filter(([id]) => ids.has(id)))));
+  }), []);
   const edges = useMemo(() => (refused ? [...graph.edges, refused] : graph.edges), [graph, refused]);
 
   const onNodesChange = useCallback((changes: NodeChange<Node>[]) => {
     const { doc, selection } = store.getState();
-    const moves: PatchEdit[] = [];
+    const moves: PatchEdit[] = [], nudges: PatchEdit[] = [];
     let selected: Set<string> | null = null;
-    let measured: Map<string, { width: number; height: number }> | null = null;
+    const measured: [string, { width: number; height: number }][] = [];
     for (const change of changes) {
       if (change.type === 'position' && change.position) {
-        const node = doc.nodes.find((n) => n.id === change.id);
-        if (node && !dragStart.current.has(change.id)) dragStart.current.set(change.id, node.position);
-        moves.push({ op: 'move-node', node: change.id, position: change.position });
+        const move: PatchEdit = { op: 'move-node', node: change.id, position: change.position };
+        // A mouse drag follows the pointer and becomes one undo step when it stops; an arrow-key nudge is one on its own.
+        if (change.dragging || dragStart.current.size) {
+          const node = doc.nodes.find((n) => n.id === change.id);
+          if (node && !dragStart.current.has(change.id)) dragStart.current.set(change.id, node.position);
+          moves.push(move);
+        } else nudges.push(move);
       } else if (change.type === 'select') {
         selected ??= new Set(selection);
         if (change.selected) selected.add(change.id);
         else selected.delete(change.id);
       } else if (change.type === 'dimensions' && change.dimensions) {
-        measured ??= new Map(sizes);
-        measured.set(change.id, change.dimensions);
+        measured.push([change.id, change.dimensions]);
       }
       // Removals arrive through onDelete, nodes and cables together, as one undo step.
     }
     if (moves.length) store.getState().preview(moves);
+    if (nudges.length) store.getState().apply(nudges);
     if (selected) store.getState().select(selected);
-    if (measured) setSizes(measured);
-  }, [sizes]);
+    if (measured.length) setSizes((prev) => new Map([...prev, ...measured]));
+  }, []);
 
   const onNodeDragStop = useCallback(() => {
     const { doc, record } = store.getState();
@@ -225,10 +232,11 @@ function Editor() {
   const onConnectEnd = useCallback((event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
     const end = dragging;
     setDragging(null);
-    // Dropped on empty canvas: offer the nodes that could take the cable.
-    if (!end || state.toHandle || !(event.target instanceof Element) || !event.target.classList.contains('react-flow__pane')) return;
+    if (!end || state.toHandle) return;
     const touch = 'changedTouches' in event ? event.changedTouches[0] : undefined;
-    openPalette(touch ? { x: touch.clientX, y: touch.clientY } : { x: (event as MouseEvent).clientX, y: (event as MouseEvent).clientY }, end);
+    const at = touch ? { x: touch.clientX, y: touch.clientY } : { x: (event as MouseEvent).clientX, y: (event as MouseEvent).clientY };
+    // Dropped on empty canvas: offer the nodes that could take the cable. A touch's target is where it started, so look up where it ended.
+    if (document.elementFromPoint(at.x, at.y)?.classList.contains('react-flow__pane')) openPalette(at, end);
   }, [dragging, openPalette]);
 
   const items = useMemo((): PaletteItem[] => {
@@ -269,6 +277,8 @@ function Editor() {
       if (mod && event.key.toLowerCase() === 'z') store.getState()[event.shiftKey ? 'redo' : 'undo']();
       else if (mod && event.key.toLowerCase() === 'y') store.getState().redo();
       else if (event.key === 'Tab' && !mod && !event.altKey) {
+        // Tab still moves focus through the toolbar and the preview; it opens the palette from the graph.
+        if (document.activeElement !== document.body && !area.current?.contains(document.activeElement)) return;
         const box = area.current?.getBoundingClientRect();
         if (!box) return;
         openPalette(pointer.current ?? { x: box.left + box.width / 3, y: box.top + box.height / 3 }, null);
@@ -291,7 +301,8 @@ function Editor() {
     const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
     const link = Object.assign(document.createElement('a'), { href: url, download: 'patch.flowpatch' });
     link.click();
-    URL.revokeObjectURL(url);
+    // Some browsers read the URL after click() returns.
+    setTimeout(() => URL.revokeObjectURL(url));
   };
   const open = async (event: ChangeEvent<HTMLInputElement>) => {
     const picked = event.target.files?.[0];
@@ -302,6 +313,11 @@ function Editor() {
       parsed = parsePatch(JSON.parse(await picked.text()));
     } catch {
       parsed = { ok: false, errors: ['not a JSON file'] };
+    }
+    // A file that wouldn't run is refused whole, so the canvas never shows one patch while another plays.
+    if (parsed.ok) {
+      const errors = loadErrors(parsed.patch, nodeRegistry);
+      if (errors.length) parsed = { ok: false, errors };
     }
     if (parsed.ok) {
       store.getState().load(parsed.patch);
