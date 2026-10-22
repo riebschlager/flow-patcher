@@ -1,0 +1,181 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261022,
+  "nodes": [
+    {
+      "id": "clock",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 96,
+        "division": "1/16"
+      },
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "sweep",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 96,
+        "division": "1/1"
+      },
+      "position": {
+        "x": 0,
+        "y": 260
+      }
+    },
+    {
+      "id": "rhythm",
+      "type": "euclidean",
+      "typeVersion": 1,
+      "params": {
+        "hits": 5,
+        "rotate": 0,
+        "steps": 8
+      },
+      "position": {
+        "x": 240,
+        "y": 100
+      }
+    },
+    {
+      "id": "prog",
+      "type": "progression",
+      "typeVersion": 1,
+      "params": {
+        "beats": 4,
+        "chords": "Cmaj7, Am7, Fmaj7, G"
+      },
+      "position": {
+        "x": 240,
+        "y": 0
+      }
+    },
+    {
+      "id": "tone",
+      "type": "chord-tone",
+      "typeVersion": 1,
+      "params": {
+        "down": 0,
+        "length": 0.35,
+        "symbol": "Cmaj7",
+        "up": 1,
+        "velocity": 0.8
+      },
+      "position": {
+        "x": 480,
+        "y": 100
+      }
+    },
+    {
+      "id": "vibes",
+      "type": "sampled-voice",
+      "typeVersion": 1,
+      "params": {
+        "attack": 0.005,
+        "cutoff": 9000,
+        "decay": 0.25,
+        "glide": 0,
+        "glideTime": 0.18,
+        "instrument": "vibes",
+        "level": 1,
+        "q": 0.55,
+        "release": 0.8,
+        "sustain": 0.5
+      },
+      "position": {
+        "x": 720,
+        "y": 100
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.8
+      },
+      "position": {
+        "x": 960,
+        "y": 100
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "clock",
+        "port": "transport"
+      },
+      "to": {
+        "node": "prog",
+        "port": "transport"
+      }
+    },
+    {
+      "from": {
+        "node": "clock",
+        "port": "tick"
+      },
+      "to": {
+        "node": "rhythm",
+        "port": "tick"
+      }
+    },
+    {
+      "from": {
+        "node": "rhythm",
+        "port": "hit"
+      },
+      "to": {
+        "node": "tone",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "sweep",
+        "port": "phase"
+      },
+      "to": {
+        "node": "tone",
+        "port": "position"
+      }
+    },
+    {
+      "from": {
+        "node": "prog",
+        "port": "chord"
+      },
+      "to": {
+        "node": "tone",
+        "port": "chord"
+      }
+    },
+    {
+      "from": {
+        "node": "tone",
+        "port": "note"
+      },
+      "to": {
+        "node": "vibes",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "vibes",
+        "port": "audio"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    }
+  ]
+}
