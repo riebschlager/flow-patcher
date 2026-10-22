@@ -1,6 +1,6 @@
 # 0018 · The transport travels on a cable
 
-Status: Accepted · 2026-10-21
+Status: Accepted · 2026-10-21 · Amended by [0021](0021-transport-tempo-changes.md) (tempo, division and swing changes keep Phase continuous)
 
 ## Context
 The M0 spike put a beat count on each Clock tick, and Phase jumped after a tempo change. [spike-notes.md](../spike-notes.md) (item 4) replaced the count with a transport: a beat position that Clock writes and Progression and other beat-counting nodes read. design.md's Timing section left open how readers reach it, and what zero or two Clocks mean.

@@ -4,7 +4,7 @@ Event generators and event transformers. Design: "Timing and evaluation" and "No
 
 | Node | What it does | Flow source | Milestone |
 | --- | --- | --- | --- |
-| Clock | BPM, swing and a rate multiplier; emits ticks at a chosen division and a Phase signal, and outputs the beat position on its Transport port | New | M1 |
+| Clock | BPM, swing and a rate multiplier; emits ticks at a chosen division and a Phase signal, and outputs the beat position on its Transport port. Ports: Tick (Event, carries the transport's step `index`), Phase (Signal, the even unswung ramp through each step), Transport (Value, beats). A modulated tempo is sampled at each tick and held until the next | New | M1 |
 | Euclidean ★ | Hits and steps knobs, Rotate; outputs hits on clock ticks | `rhythm.js`: `euclidean`, `rotatePattern` | M1 |
 | Step Sequencer ★ | 16-step grid with off/ghost/hit/accent velocities (Flow's beat studio lane) | `rhythm.js`: grooves, kits, `varyPattern` | M3 |
 | Probability ★ | Passes each event with chance p, from a separate seeded random stream | *Locate* (likely `ArpEngine` / `RhythmEngine`) | M1 |

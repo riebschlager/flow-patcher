@@ -6,7 +6,7 @@
     {
       "id": "clock",
       "type": "clock",
-      "typeVersion": 2,
+      "typeVersion": 3,
       "params": {
         "bpm": 96,
         "division": "1/8"
@@ -19,7 +19,7 @@
     {
       "id": "slow",
       "type": "clock",
-      "typeVersion": 2,
+      "typeVersion": 3,
       "params": {
         "bpm": 96,
         "division": "1/2"
