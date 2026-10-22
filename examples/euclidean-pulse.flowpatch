@@ -1,0 +1,117 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261022,
+  "nodes": [
+    {
+      "id": "clock",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 104,
+        "division": "1/16"
+      },
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "euclid",
+      "type": "euclidean",
+      "typeVersion": 1,
+      "params": {
+        "hits": 5,
+        "rotate": 2,
+        "steps": 16
+      },
+      "position": {
+        "x": 240,
+        "y": 100
+      }
+    },
+    {
+      "id": "note",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.12,
+        "pitch": 57,
+        "velocity": 0.8
+      },
+      "position": {
+        "x": 480,
+        "y": 100
+      }
+    },
+    {
+      "id": "synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.003,
+        "level": 0.3,
+        "release": 0.25,
+        "wave": "triangle"
+      },
+      "position": {
+        "x": 720,
+        "y": 100
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 960,
+        "y": 100
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "clock",
+        "port": "tick"
+      },
+      "to": {
+        "node": "euclid",
+        "port": "tick"
+      }
+    },
+    {
+      "from": {
+        "node": "euclid",
+        "port": "hit"
+      },
+      "to": {
+        "node": "note",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "note",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    }
+  ]
+}
