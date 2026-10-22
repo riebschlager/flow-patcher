@@ -3,8 +3,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import {
+  applyPatchEdits,
   compilePatch,
   LOOKAHEAD,
+  PATCH_EDIT_OPS,
   ManualClock,
   parsePatch,
   Runtime,
@@ -16,7 +18,9 @@ import {
   type NodeImage,
   type NodeWarning,
   type Patch,
+  type PatchEdit,
   type SchedulerStats,
+  type SwapReport,
 } from '@flow-patcher/engine';
 import { nodeRegistry } from '@flow-patcher/nodes';
 import { encodeWav, peak, renderOffline, SuspendRaceError, type AudioEdit, type RenderedAudio } from './audio';
@@ -40,19 +44,44 @@ export interface RunOptions {
   live?: boolean;
 }
 
-/** What an edit in a live run can reach. */
+/** What an edit during a run can reach. */
 export interface LiveRun {
-  /** The render's currentTime, which the scheduler's clock is set to. */
+  /** The scheduler clock's time: a live run's render currentTime. */
   time: number;
-  context: AudioContextLike;
+  /** The render's context in a live run; null in a run without audio. */
+  context: AudioContextLike | null;
   scheduler: Scheduler;
   runtime: Runtime;
+  /** The patch with every edit so far applied. */
+  readonly patch: Patch;
+  /**
+   * Hot patching: applies `edits` to the patch, compiles it and swaps the plan
+   * in at the next window boundary (Scheduler.swap). Throws a PatchError when
+   * the edited patch doesn't compile; the running plan and patch then stay.
+   */
+  edit(edits: readonly PatchEdit[]): SwapReport;
 }
 
-/** A change made during a live run at `time` (rounded down to a render quantum), after that moment's wake. */
+/**
+ * A change made during a run at `time`, after that moment's wake. In a live
+ * run `time` is rounded down to a render quantum; in a run without audio the
+ * scheduler's clock is set to `time` itself, between two wakes.
+ */
 export interface RunEdit {
   time: number;
   apply(run: LiveRun): void;
+}
+
+/** Scripted patch edits, as in `<name>.edits.json`: at `time`, apply `edits` as one swap. */
+export interface ScriptedEdit {
+  time: number;
+  edits: PatchEdit[];
+}
+
+/** A swap made during a run: the clock time it was asked for at, and what it did. */
+export interface RunSwap {
+  at: number;
+  report: SwapReport;
 }
 
 /** An event pushed onto a node's output before the run starts, the way a canvas source's host pushes it live. */
@@ -66,8 +95,10 @@ export interface RunHooks {
   /** Scripted input, such as pointer gestures for a Pointer node. Pushed before
    *  the first window is queried, so it never rewinds. */
   inputs?: readonly RunInput[];
-  /** Edits during a live run (`live: true` with audio). If a suspend() doesn't take,
-   *  the run starts over (LIVE_ATTEMPTS) and the edits apply again to the new one. */
+  /** Edits during the run: a live run (`live: true` with audio), or a run without
+   *  audio (`audio: false`, or a patch with no audio nodes). If a suspend() doesn't
+   *  take, a live run starts over (LIVE_ATTEMPTS) and the edits apply again to the new one.
+   *  `scriptedEdits` turns patch edits into these. */
   edits?: readonly RunEdit[];
   /** Node types to compile against. Default: every node in @flow-patcher/nodes. */
   registry?: ReadonlyMap<string, NodeDefinition>;
@@ -81,6 +112,8 @@ export interface RunResult {
   /** Runs it took: more than 1 when a live run had to start over (SuspendRaceError). */
   attempts: number;
   events: LoggedEvent[];
+  /** Every swap the edits made (`LiveRun.edit`), in order. */
+  swaps: RunSwap[];
   /** The scheduler's counters at the end of the run. */
   scheduler: SchedulerStats;
   /** The runtime's per-node warnings at the end of the run, such as an event cap biting. */
@@ -124,6 +157,26 @@ export function loadInputs(patchFile: string): RunInput[] {
   return inputs;
 }
 
+/** The scripted edits beside a patch file (`<name>.edits.json`), or none. */
+export function loadEdits(patchFile: string): ScriptedEdit[] {
+  const file = join(dirname(patchFile), `${patchName(patchFile)}.edits.json`);
+  if (!existsSync(file)) return [];
+  const edits: unknown = JSON.parse(readFileSync(file, 'utf8'));
+  const ops: readonly string[] = PATCH_EDIT_OPS;
+  const valid = (e: unknown): e is ScriptedEdit => {
+    if (typeof e !== 'object' || e === null) return false;
+    const { time, edits } = e as Record<string, unknown>;
+    return typeof time === 'number' && Number.isFinite(time) && time >= 0 && Array.isArray(edits)
+      && edits.every((edit) => typeof edit === 'object' && edit !== null && ops.includes((edit as { op?: unknown }).op as string));
+  };
+  if (!Array.isArray(edits) || !edits.every(valid)) throw new Error(`${file}: expected [{ time, edits: [{ op: ${PATCH_EDIT_OPS.join(' | ')}, … }] }]`);
+  return edits;
+}
+
+/** Run edits that apply scripted patch edits, each set as one swap. */
+export const scriptedEdits = (script: readonly ScriptedEdit[]): RunEdit[] =>
+  script.map(({ time, edits }) => ({ time, apply: (run) => void run.edit(edits) }));
+
 export async function runPatch(patch: Patch, options: RunOptions = {}, hooks: RunHooks = {}): Promise<RunResult> {
   const opts: Required<RunOptions> = { seconds: 4, window: 0.025, fps: 60, audio: true, live: false, ...options };
   for (let attempt = 1; ; attempt++) {
@@ -137,7 +190,8 @@ export async function runPatch(patch: Patch, options: RunOptions = {}, hooks: Ru
 }
 
 async function runOnce(patch: Patch, opts: Required<RunOptions>, hooks: RunHooks, attempt: number): Promise<RunResult> {
-  const compiled = compilePatch(patch, hooks.registry ?? nodeRegistry);
+  const registry = hooks.registry ?? nodeRegistry;
+  const compiled = compilePatch(patch, registry);
   if (!compiled.ok) throw new PatchError(compiled.errors);
   const runtime = new Runtime(compiled.plan);
   runtime.onWarning = (message) => console.warn(`[run-patch] ${message}`);
@@ -147,13 +201,49 @@ async function runOnce(patch: Patch, opts: Required<RunOptions>, hooks: RunHooks
   const scheduler = new Scheduler(runtime, { clock, wakeInterval: opts.window, lookahead: Math.max(LOOKAHEAD, opts.window), record: true });
   let frames = 0;
 
+  const hasAudio = compiled.plan.order.some((node) => node.definition.audio);
+  const live = opts.live && opts.audio && hasAudio;
+
+  // Edits see the patch as edited so far, and swap through the scheduler.
+  let current = patch;
+  const swaps: RunSwap[] = [];
+  const liveRun = (context: AudioContextLike | null): LiveRun => ({
+    time: clock.audio,
+    context,
+    scheduler,
+    runtime,
+    get patch() {
+      return current;
+    },
+    edit(edits) {
+      const next = applyPatchEdits(current, edits);
+      const recompiled = compilePatch(next, registry);
+      if (!recompiled.ok) throw new PatchError(recompiled.errors);
+      current = next;
+      const report = scheduler.swap(recompiled.plan);
+      swaps.push({ at: clock.audio, report });
+      return report;
+    },
+  });
+
   // Wake times are computed by index, never by accumulation, so every run tiles time identically.
   let wakes = 0;
-  const queryUntil = (time: number) => {
-    while ((scheduler.horizon ?? -Infinity) < time) {
-      clock.set(wakes++ * opts.window);
-      scheduler.wake();
+  // A run without live audio applies its edits between wakes, on the simulated clock.
+  const pending = [...(hooks.edits ?? [])].sort((a, b) => a.time - b.time);
+  for (const edit of pending) if (!(edit.time >= 0 && edit.time < opts.seconds)) throw new RangeError(`runPatch: edit at ${edit.time} is outside the run [0, ${opts.seconds})`);
+  const wakeOnce = () => {
+    clock.set(wakes++ * opts.window);
+    scheduler.wake();
+    if (live) return;
+    // The edits from this wake up to the next one.
+    while (pending.length && pending[0]!.time < wakes * opts.window) {
+      const edit = pending.shift()!;
+      clock.set(edit.time);
+      edit.apply(liveRun(null));
     }
+  };
+  const queryUntil = (time: number) => {
+    while ((scheduler.horizon ?? -Infinity) < time) wakeOnce();
   };
   const frameCount = opts.fps > 0 ? Math.floor(opts.seconds * opts.fps + 1e-9) : 0;
   /** Steps every frame up to `limit` whose window has been queried, or queries it first when `query` is set. */
@@ -168,11 +258,12 @@ async function runOnce(patch: Patch, opts: Required<RunOptions>, hooks: RunHooks
   const run = () => {
     framesUntil(Infinity, true);
     queryUntil(opts.seconds);
+    // Edits after the last wake still re-run what was queried before the end.
+    while (!live && pending.length) wakeOnce();
   };
 
-  const hasAudio = compiled.plan.order.some((node) => node.definition.audio);
-  const live = opts.live && opts.audio && hasAudio;
-  if (hooks.edits?.length && !live) throw new Error('runPatch: edits need a live run with audio (live: true)');
+  // Rendering after every window is queried would let a swap dispose voices before they play.
+  if (hooks.edits?.length && opts.audio && hasAudio && !live) throw new Error('runPatch: edits with audio need a live run (live: true), or audio: false');
   let audio: RenderedAudio | null = null;
   if (live) {
     // The scheduler wakes as the render plays: at each wake the render is
@@ -194,7 +285,7 @@ async function runOnce(patch: Patch, opts: Required<RunOptions>, hooks: RunHooks
         time: edit.time,
         apply(context) {
           at(context);
-          edit.apply({ time: context.currentTime, context, scheduler, runtime });
+          edit.apply(liveRun(context));
         },
       });
     }
@@ -229,7 +320,7 @@ async function runOnce(patch: Patch, opts: Required<RunOptions>, hooks: RunHooks
   runtime.dispose();
   // The last wake looks ahead past the end; the run covers [0, seconds).
   const events = scheduler.events().filter((e) => e.time < opts.seconds);
-  return { patch, options: opts, attempts: attempt, events, scheduler: scheduler.stats, warnings, frames, audio, images };
+  return { patch, options: opts, attempts: attempt, events, swaps, scheduler: scheduler.stats, warnings, frames, audio, images };
 }
 
 /** One event per line, so event logs diff cleanly. */
@@ -257,6 +348,7 @@ export function writeRun(result: RunResult, outDir: string, name: string): strin
     eventsByPort: byNode,
     scheduler: result.scheduler,
     warnings: result.warnings,
+    swaps: result.swaps.map(({ at, report }) => ({ at, time: report.time, windows: report.windows, added: report.added, removed: report.removed, changed: report.changed, reset: report.reset })),
     frames: result.frames,
     audio: result.audio && { file: 'audio.wav', seconds: result.options.seconds, peak: Math.round(peak(result.audio) * 1e6) / 1e6 },
     images: result.images.map(({ node, image }) => ({ node, file: `frame-${node}.png`, width: image.width, height: image.height })),

@@ -4,11 +4,15 @@
 // --live wakes the scheduler during the audio render (suspending it at each
 // wake) instead of querying every window before rendering.
 //
+// Scripted input in <name>.inputs.json and scripted edits in <name>.edits.json
+// beside the patch are applied ([{ time, edits: [{ op, … }] }], ops from
+// PatchEdit in packages/engine/src/edit.ts). Edits imply --live unless --no-audio.
+//
 // Writes events.json, summary.json, audio.wav (when the patch has audio nodes)
 // and frame-<node>.png (one per visual node, last frame) to the out directory.
 import { parseArgs } from 'node:util';
 import { join } from 'node:path';
-import { loadInputs, loadPatch, patchName, PatchError, runPatch, writeRun } from './lib/run';
+import { loadEdits, loadInputs, loadPatch, patchName, PatchError, runPatch, scriptedEdits, writeRun } from './lib/run';
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -48,7 +52,10 @@ const seconds = number('seconds', values.seconds) ?? (windows ? windows * window
 
 try {
   const name = patchName(file);
-  const result = await runPatch(loadPatch(file), { seconds, window, fps, audio: !values['no-audio'], live: values.live }, { inputs: loadInputs(file) });
+  // Scripted edits (<name>.edits.json) swap plans mid-run, which needs a live run when there is audio.
+  const edits = scriptedEdits(loadEdits(file));
+  const live = values.live || (edits.length > 0 && !values['no-audio']);
+  const result = await runPatch(loadPatch(file), { seconds, window, fps, audio: !values['no-audio'], live }, { inputs: loadInputs(file), edits });
   const written = writeRun(result, values.out ?? join('out', name), name);
   console.log(`${name}: ${result.events.length} events, ${result.frames} frames, ${seconds}s`);
   for (const path of written) console.log(`  ${path}`);

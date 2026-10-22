@@ -177,7 +177,7 @@ describe('fan-in', () => {
       cable('w1', 'write', 'p', 'writers'), cable('w2', 'write', 'p', 'writers'), cable('src', 'out', 'p', 'field'),
     ]));
     rt.frame(0, 1 / 60, 1 / 60);
-    const states = (rt as unknown as { states: Map<string, Record<string, unknown>> }).states;
+    const states = { get: (id: string) => rt.stateOf(id) };
     expect(states.get('p')!.writers).toEqual([states.get('w1'), states.get('w2')]);
     expect((states.get('p')!.writers as unknown[])[0]).toBe(states.get('w1'));
     expect((states.get('p')!.fields as unknown[])[0]).toBe(states.get('src'));
@@ -187,7 +187,7 @@ describe('fan-in', () => {
     const rt = runtime(patch([node('a', 'lfo', { level: 1 }), node('r', 'reader')], [cable('a', 'out', 'r', 'knob', 0.5)]));
     rt.attachAudio({} as AudioContextLike);
     // Channel 1: 2 + 0.5 × 11.
-    expect((rt as unknown as { states: Map<string, Record<string, unknown>> }).states.get('r')!.knob).toBe(7.5);
+    expect(rt.stateOf('r')!.knob).toBe(7.5);
   });
 });
 

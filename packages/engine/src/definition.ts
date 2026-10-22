@@ -70,7 +70,8 @@ export type ParamValue = number | string | boolean;
 export type ParamValues = Readonly<Record<string, ParamValue>>;
 
 /**
- * Per-instance state. The engine keeps it while the node id survives an edit.
+ * Per-instance state. The engine keeps it while the node id survives an edit
+ * (hot patching), unless the type or version changes or `keepState` says no.
  *
  * Stateful nodes (ADR 0019). For every node with a `query()`, the engine
  * snapshots `ctx.state` at each scheduler window boundary, and when a live
@@ -179,6 +180,12 @@ export interface AudioInstance {
    *  (ADR 0019). They are the same objects, so match them by identity. None
    *  has started yet: each is at or after the live event that caused it. */
   cancel?(port: string, events: readonly EngineEvent[]): void;
+  /** Audio-clock time from which nothing this instance scheduled still sounds:
+   *  its last voice's release end. When an edit removes or rebuilds the node,
+   *  the runtime disposes the old instance only once currentTime reaches this,
+   *  so sounding notes finish their release (design.md, Hot patching). Without
+   *  it, the old instance is disposed as soon as the new plan takes effect. */
+  idleAt?(): number;
   dispose?(): void;
 }
 
@@ -239,6 +246,13 @@ export interface NodeDefinition {
    *  Cables into the node don't order the plan, so it can close a cycle. Its query sees the
    *  previous window's inputs, and the runtime keeps windows no wider than this. */
   delay?(params: ParamValues): number;
+  /** Hot patching: whether the node's state survives an edit that changes its
+   *  params from `before` to `after`. Default true, so a node must cope with
+   *  new params on old state (Clock re-anchors its transport). Return false
+   *  when the old state means nothing under the new params; the node then
+   *  starts from empty state where the new plan takes effect. A change of type
+   *  or version never keeps state. */
+  keepState?(before: ParamValues, after: ParamValues): boolean;
 }
 
 export function defaultParams(definition: NodeDefinition): Record<string, ParamValue> {

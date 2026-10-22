@@ -57,6 +57,12 @@ export const simpleSynth: NodeDefinition = {
           voices.delete(event);
         }
       },
+      idleAt() {
+        // When the last note's release ends; a removed or rebuilt synth is disposed after it.
+        let end = 0;
+        for (const voice of voices.values()) end = Math.max(end, voice.end);
+        return end;
+      },
       dispose() {
         voices.clear();
         out.disconnect();
