@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { compilePatch, CUSTOM_PRESET, parsePatch, serializePatch, type Patch } from '@flow-patcher/engine';
 import { nodeDefinitions, nodeRegistry } from '../src';
 import { ROOT } from '../../../test-support/golden';
+import { windowCheckable, windowLogs, WINDOW_SECONDS, WINDOW_STEPS } from '../../../test-support/window-independence';
 
 const CATEGORIES = ['canvas-sources', 'gesture-recognizers', 'time-rhythm', 'harmony-pitch', 'control-logic', 'instruments', 'effects-mix', 'visual'];
 const EXAMPLES = join(ROOT, 'examples');
@@ -55,6 +56,12 @@ describe('node catalog', () => {
       it('names no param like an input port, so a cable into a param is unambiguous', () => {
         const inputs = definition.ports.filter((p) => p.direction === 'in').map((p) => p.name);
         expect(definition.params.map((p) => p.name).filter((name) => inputs.includes(name))).toEqual([]);
+      });
+
+      // M1 gate: Window independence. Also proves the node's state can be snapshotted.
+      it.runIf(windowCheckable(definition))(`gives the same events over 0–${WINDOW_SECONDS} s in ${WINDOW_STEPS.map((s) => s * 1000).join(' ms, ')} ms windows and one call`, () => {
+        const [first, ...rest] = windowLogs(definition);
+        for (const log of rest) expect(log).toBe(first);
       });
 
       it('has a unit test', () => {

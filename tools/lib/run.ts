@@ -2,7 +2,18 @@
 // events, audio and frame images. Used by `pnpm run-patch` and by tests.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
-import { compilePatch, parsePatch, Runtime, type LoggedEvent, type NodeImage, type Patch } from '@flow-patcher/engine';
+import {
+  compilePatch,
+  LOOKAHEAD,
+  ManualClock,
+  parsePatch,
+  Runtime,
+  Scheduler,
+  type LoggedEvent,
+  type NodeImage,
+  type Patch,
+  type SchedulerStats,
+} from '@flow-patcher/engine';
 import { nodeRegistry } from '@flow-patcher/nodes';
 import { encodeWav, peak, renderOffline, type RenderedAudio } from './audio';
 import { encodePng } from './png';
@@ -10,7 +21,9 @@ import { encodePng } from './png';
 export interface RunOptions {
   /** Length of the run on the audio clock. */
   seconds?: number;
-  /** Window size for queries, in seconds. The live scheduler wakes every 25 ms. */
+  /** Seconds between scheduler wakes, which is the window size after the first
+   *  wake. The live scheduler wakes every 25 ms. The lookahead is the live
+   *  120 ms, or one window when that is longer, so a wide window never stalls. */
   window?: number;
   /** Visual frame rate. 0 skips frames. */
   fps?: number;
@@ -22,6 +35,8 @@ export interface RunResult {
   patch: Patch;
   options: Required<RunOptions>;
   events: LoggedEvent[];
+  /** The scheduler's counters at the end of the run. */
+  scheduler: SchedulerStats;
   frames: number;
   audio: RenderedAudio | null;
   images: { node: string; image: NodeImage }[];
@@ -44,19 +59,18 @@ export async function runPatch(patch: Patch, options: RunOptions = {}): Promise<
   const compiled = compilePatch(patch, nodeRegistry);
   if (!compiled.ok) throw new PatchError(compiled.errors);
   const runtime = new Runtime(compiled.plan);
-  const events: LoggedEvent[] = [];
+  // The real scheduler on a simulated clock: every wake is on time, so no window is caught up or skipped.
+  const clock = new ManualClock();
+  const scheduler = new Scheduler(runtime, { clock, wakeInterval: opts.window, lookahead: Math.max(LOOKAHEAD, opts.window), record: true });
   let frames = 0;
 
   const run = () => {
-    // Window boundaries are computed by index, never by accumulation, so every
-    // run tiles time identically.
-    const windows = Math.ceil(opts.seconds / opts.window - 1e-9);
-    let queried = 0;
+    // Wake times are computed by index, never by accumulation, so every run tiles time identically.
+    let wakes = 0;
     const queryUntil = (time: number) => {
-      while (queried < windows && queried * opts.window < time) {
-        const t0 = queried * opts.window, t1 = Math.min(opts.seconds, (queried + 1) * opts.window);
-        events.push(...runtime.query(t0, t1));
-        queried++;
+      while ((scheduler.horizon ?? -Infinity) < time) {
+        clock.set(wakes++ * opts.window);
+        scheduler.wake();
       }
     };
     const frameCount = opts.fps > 0 ? Math.floor(opts.seconds * opts.fps + 1e-9) : 0;
@@ -66,7 +80,7 @@ export async function runPatch(patch: Patch, options: RunOptions = {}): Promise<
       runtime.frame(t0, t1, 1 / opts.fps);
       frames++;
     }
-    queryUntil(Infinity);
+    queryUntil(opts.seconds);
   };
 
   const hasAudio = compiled.plan.order.some((node) => node.definition.audio);
@@ -81,7 +95,9 @@ export async function runPatch(patch: Patch, options: RunOptions = {}): Promise<
   }
   const images = runtime.images();
   runtime.dispose();
-  return { patch, options: opts, events, frames, audio, images };
+  // The last wake looks ahead past the end; the run covers [0, seconds).
+  const events = scheduler.events().filter((e) => e.time < opts.seconds);
+  return { patch, options: opts, events, scheduler: scheduler.stats, frames, audio, images };
 }
 
 /** One event per line, so event logs diff cleanly. */
@@ -106,6 +122,7 @@ export function writeRun(result: RunResult, outDir: string, name: string): strin
     options: result.options,
     events: result.events.length,
     eventsByPort: byNode,
+    scheduler: result.scheduler,
     frames: result.frames,
     audio: result.audio && { file: 'audio.wav', seconds: result.options.seconds, peak: Math.round(peak(result.audio) * 1e6) / 1e6 },
     images: result.images.map(({ node, image }) => ({ node, file: `frame-${node}.png`, width: image.width, height: image.height })),
