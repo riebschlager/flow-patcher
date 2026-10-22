@@ -4,6 +4,11 @@ import {
   chordError,
   chordFromValue,
   chordSymbols,
+  INSTRUMENT_GROUPS,
+  INSTRUMENT_KEYS,
+  INSTRUMENTS,
+  instrumentFile,
+  instrumentFor,
   normalizeOctaveRange,
   parseChord,
   parseProgression,
@@ -11,6 +16,7 @@ import {
   pitchForPosition,
   progressionError,
   PROGRESSIONS,
+  softEnvelope,
 } from '../src/music';
 
 const chord = (symbol: string) => {
@@ -145,5 +151,53 @@ describe('chordFromValue', () => {
     expect(chordFromValue('Dm')).toEqual([50, 53, 57]);
     expect(chordFromValue({ pitches: [60, NaN, 'x', 64] })).toEqual([60, 64]);
     for (const bad of [undefined, null, 3, 'nope', {}, { pitches: [] }, { pitches: 'C' }, [60, 64]]) expect(chordFromValue(bad), JSON.stringify(bad)).toBeNull();
+  });
+});
+
+// Flow's checks/soundscapes.test.mjs and checks/chaos-voices.test.mjs, the parts
+// that test the instrument table and softEnvelope. Soundscapes, chaos and color
+// voices weren't ported. The sample files themselves are checked in instruments.test.ts.
+describe('instruments', () => {
+  it('has Flow\'s 28 instruments in five groups, and only them', () => {
+    expect(INSTRUMENT_KEYS).toHaveLength(28);
+    expect(INSTRUMENT_GROUPS).toHaveLength(5);
+    for (const key of INSTRUMENT_KEYS) expect(INSTRUMENT_GROUPS).toContain(INSTRUMENTS[key]!.group);
+    expect(instrumentFor('chaos')).toBeUndefined();
+    expect(instrumentFor('toString')).toBeUndefined();
+    expect(instrumentFor('missing')).toBeUndefined();
+    expect(instrumentFor('vibes')?.name).toBe('Vibraphone');
+    expect(new Set(INSTRUMENT_KEYS.map((k) => INSTRUMENTS[k]!.file)).size).toBe(28);
+    expect(instrumentFile(INSTRUMENTS.piano!)).toBe('0000_FluidR3_GM_sf2_file.js');
+  });
+
+  it('has eight experimental textures with soft envelopes and valid sweeps', () => {
+    const experimental = INSTRUMENT_KEYS.filter((k) => INSTRUMENTS[k]!.group === 'Experimental textures');
+    expect(experimental).toHaveLength(8);
+    for (const key of experimental) {
+      const voice = INSTRUMENTS[key]!;
+      expect(voice.attack).toBeGreaterThanOrEqual(0.18);
+      expect(['lowpass', 'bandpass']).toContain(voice.tone!.type);
+      expect(voice.tone!.from).toBeGreaterThanOrEqual(80);
+      expect(voice.tone!.to).toBeGreaterThanOrEqual(80);
+      expect(voice.tone!.time).toBeGreaterThan(0);
+      expect(voice.tone!.q).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('gives every soft voice an envelope that fits its duration', () => {
+    const soft = INSTRUMENT_KEYS.map((k) => INSTRUMENTS[k]!).filter((v) => v.attack !== undefined);
+    expect(soft).toHaveLength(20);
+    for (const voice of soft) {
+      const envelope = softEnvelope({ attack: voice.attack!, duration: voice.duration!, release: voice.release! });
+      expect(envelope.every((s) => s.duration >= 0 && s.volume >= 0 && s.volume <= 1)).toBe(true);
+      expect(Math.abs(envelope.reduce((sum, s) => sum + s.duration, 0) - voice.duration!)).toBeLessThan(1e-8);
+      expect(envelope[0]!.volume).toBe(0);
+      expect(envelope.at(-1)!.volume).toBe(0);
+    }
+  });
+
+  it('never gives a negative hold for a voice shorter than its stages', () => {
+    const envelope = softEnvelope({ attack: 1, duration: 1, release: 1 });
+    expect(envelope[3]!.duration).toBe(0);
   });
 });
