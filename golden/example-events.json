@@ -780,5 +780,56 @@
    "velocity": 0.7,
    "duration": 0.15
   }
+ ],
+ "threshold-change.flowpatch": [
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0.625,
+   "channel": 0,
+   "index": 1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.25,
+   "channel": 0,
+   "index": 2
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.875,
+   "channel": 0,
+   "index": 3
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.5,
+   "channel": 0,
+   "index": 4
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.125,
+   "channel": 0,
+   "index": 5
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.75,
+   "channel": 0,
+   "index": 6
+  }
  ]
 }
