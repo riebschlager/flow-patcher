@@ -1,6 +1,6 @@
 # 0019 · Live events rewind and re-query
 
-Status: Accepted · 2026-10-21
+Status: Accepted · 2026-10-21 · Amended by [0024](0024-voice-pool-steals.md) (a withdrawn note doesn't undo the voice it stole)
 
 ## Context
 Immediate-path events are stamped `ctx.currentTime + 5 ms` ([ADR 0017](0017-immediate-offset-and-catch-up.md)), while the scheduler has already queried up to 120 ms ahead. A node fed by both a Clock and live input therefore sees time go backwards. Stateless nodes don't care; a stateful one, such as an Arpeggio's position or a Divide's count, has already advanced past the tap's time. [spike-notes.md](../spike-notes.md) (item 3) left the ordering open for M1.
