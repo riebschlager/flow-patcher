@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { OUTPUT_CEILING } from '@flow-patcher/engine';
 import { maxDifference, peak, RENDER_TOLERANCE } from './lib/audio';
-import { formatEvents, loadPatch, runPatch, writeRun } from './lib/run';
+import { formatEvents, loadInputs, loadPatch, runPatch, writeRun } from './lib/run';
 import { ROOT } from '../test-support/golden';
 
 const EXAMPLE = join(ROOT, 'examples/clock-blips.flowpatch');
@@ -14,12 +14,23 @@ describe('headless runner', () => {
   // or unseeded randomness would show up as a difference.
   for (const file of readdirSync(join(ROOT, 'examples')).filter((f) => f.endsWith('.flowpatch')).sort()) {
     it(`${file}: the same patch and seed give byte-identical event logs run to run`, async () => {
-      const run = async () => formatEvents((await runPatch(loadPatch(join(ROOT, 'examples', file)), { seconds: 4, fps: 0, audio: false })).events);
+      const path = join(ROOT, 'examples', file);
+      const run = async () => formatEvents((await runPatch(loadPatch(path), { seconds: 4, fps: 0, audio: false }, { inputs: loadInputs(path) })).events);
       const first = await run();
       expect(first).not.toBe('[]\n');
       expect(await run()).toBe(first);
     });
   }
+
+  it('pushes the scripted inputs beside an example onto its nodes', async () => {
+    const path = join(ROOT, 'examples/pointer-notes.flowpatch');
+    const inputs = loadInputs(path);
+    const result = await runPatch(loadPatch(path), { seconds: 4, fps: 0, audio: false }, { inputs });
+    const downs = inputs.filter((i) => i.port === 'down').map((i) => i.event.time);
+    expect(downs.length).toBeGreaterThan(1);
+    expect(result.events.filter((e) => e.node === 'note' && e.port === 'note').map((e) => e.time)).toEqual(downs);
+    expect(loadInputs(EXAMPLE)).toEqual([]);
+  });
 
   it('gives a seeded patch different events under a different seed', async () => {
     const run = async (seed: number) => formatEvents((await runPatch({ ...loadPatch(EXAMPLE), seed }, { seconds: 4, fps: 0, audio: false })).events);

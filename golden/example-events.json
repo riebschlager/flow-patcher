@@ -872,7 +872,200 @@
    "index": 27
   }
  ],
- "pointer-notes.flowpatch": [],
+ "pointer-notes.flowpatch": [
+  {
+   "node": "pointer",
+   "port": "down",
+   "time": 0.5,
+   "channel": 1,
+   "x": 0.2,
+   "y": 0.8,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 0.5,
+   "channel": 1,
+   "x": 0.2,
+   "y": 0.8,
+   "pressure": 0.6,
+   "pointerType": "touch",
+   "pitch": 64,
+   "velocity": 0.8,
+   "duration": 0.3
+  },
+  {
+   "node": "pointer",
+   "port": "move",
+   "time": 0.55,
+   "channel": 1,
+   "x": 0.3,
+   "y": 0.7,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
+   "node": "pointer",
+   "port": "move",
+   "time": 0.6,
+   "channel": 1,
+   "x": 0.4,
+   "y": 0.6,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
+   "node": "pointer",
+   "port": "up",
+   "time": 0.65,
+   "channel": 1,
+   "x": 0.4,
+   "y": 0.6,
+   "pressure": 0,
+   "pointerType": "touch"
+  },
+  {
+   "node": "pointer",
+   "port": "down",
+   "time": 1.25,
+   "channel": 2,
+   "x": 0.5,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 1.25,
+   "channel": 2,
+   "x": 0.5,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch",
+   "pitch": 64,
+   "velocity": 0.8,
+   "duration": 0.3
+  },
+  {
+   "node": "pointer",
+   "port": "move",
+   "time": 1.35,
+   "channel": 2,
+   "x": 0.6,
+   "y": 0.4,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
+   "node": "pointer",
+   "port": "down",
+   "time": 1.4,
+   "channel": 3,
+   "x": 0.9,
+   "y": 0.2,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 1.4,
+   "channel": 3,
+   "x": 0.9,
+   "y": 0.2,
+   "pressure": 0.6,
+   "pointerType": "touch",
+   "pitch": 64,
+   "velocity": 0.8,
+   "duration": 0.3
+  },
+  {
+   "node": "pointer",
+   "port": "up",
+   "time": 1.45,
+   "channel": 2,
+   "x": 0.6,
+   "y": 0.4,
+   "pressure": 0,
+   "pointerType": "touch"
+  },
+  {
+   "node": "pointer",
+   "port": "move",
+   "time": 1.48,
+   "channel": 3,
+   "x": 0.8,
+   "y": 0.3,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
+   "node": "pointer",
+   "port": "move",
+   "time": 1.56,
+   "channel": 3,
+   "x": 0.7,
+   "y": 0.4,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
+   "node": "pointer",
+   "port": "move",
+   "time": 1.64,
+   "channel": 3,
+   "x": 0.6,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
+   "node": "pointer",
+   "port": "up",
+   "time": 1.72,
+   "channel": 3,
+   "x": 0.6,
+   "y": 0.5,
+   "pressure": 0,
+   "pointerType": "touch"
+  },
+  {
+   "node": "pointer",
+   "port": "down",
+   "time": 2.75,
+   "channel": 4,
+   "x": 0.1,
+   "y": 0.1,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 2.75,
+   "channel": 4,
+   "x": 0.1,
+   "y": 0.1,
+   "pressure": 0.6,
+   "pointerType": "touch",
+   "pitch": 64,
+   "velocity": 0.8,
+   "duration": 0.3
+  },
+  {
+   "node": "pointer",
+   "port": "up",
+   "time": 2.8,
+   "channel": 4,
+   "x": 0.1,
+   "y": 0.1,
+   "pressure": 0,
+   "pointerType": "touch"
+  }
+ ],
  "sample-and-hold.flowpatch": [
   {
    "node": "clock",

@@ -1,7 +1,7 @@
 // Headless engine run: load a patch, run window queries and frames, and collect
 // events, audio and frame images. Used by `pnpm run-patch` and by tests.
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, extname, join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, dirname, extname, join } from 'node:path';
 import {
   compilePatch,
   LOOKAHEAD,
@@ -10,6 +10,7 @@ import {
   Runtime,
   Scheduler,
   type AudioContextLike,
+  type EngineEvent,
   type LoggedEvent,
   type NodeDefinition,
   type NodeImage,
@@ -54,7 +55,17 @@ export interface RunEdit {
   apply(run: LiveRun): void;
 }
 
+/** An event pushed onto a node's output before the run starts, the way a canvas source's host pushes it live. */
+export interface RunInput {
+  node: string;
+  port: string;
+  event: EngineEvent;
+}
+
 export interface RunHooks {
+  /** Scripted input, such as pointer gestures for a Pointer node. Pushed before
+   *  the first window is queried, so it never rewinds. */
+  inputs?: readonly RunInput[];
   /** Edits during a live run (`live: true` with audio). If a suspend() doesn't take,
    *  the run starts over (LIVE_ATTEMPTS) and the edits apply again to the new one. */
   edits?: readonly RunEdit[];
@@ -98,6 +109,21 @@ export function loadPatch(file: string): Patch {
  */
 export const LIVE_ATTEMPTS = 3;
 
+/** The scripted input beside a patch file (`<name>.inputs.json`), or none. */
+export function loadInputs(patchFile: string): RunInput[] {
+  const file = join(dirname(patchFile), `${patchName(patchFile)}.inputs.json`);
+  if (!existsSync(file)) return [];
+  const inputs: unknown = JSON.parse(readFileSync(file, 'utf8'));
+  const valid = (i: unknown): i is RunInput => {
+    if (typeof i !== 'object' || i === null) return false;
+    const { node, port, event } = i as Record<string, unknown>;
+    return typeof node === 'string' && typeof port === 'string' && typeof event === 'object' && event !== null
+      && Number.isFinite((event as EngineEvent).time) && Number.isInteger((event as EngineEvent).channel);
+  };
+  if (!Array.isArray(inputs) || !inputs.every(valid)) throw new Error(`${file}: expected [{ node, port, event: { time, channel, … } }]`);
+  return inputs;
+}
+
 export async function runPatch(patch: Patch, options: RunOptions = {}, hooks: RunHooks = {}): Promise<RunResult> {
   const opts: Required<RunOptions> = { seconds: 4, window: 0.025, fps: 60, audio: true, live: false, ...options };
   for (let attempt = 1; ; attempt++) {
@@ -115,6 +141,7 @@ async function runOnce(patch: Patch, opts: Required<RunOptions>, hooks: RunHooks
   if (!compiled.ok) throw new PatchError(compiled.errors);
   const runtime = new Runtime(compiled.plan);
   runtime.onWarning = (message) => console.warn(`[run-patch] ${message}`);
+  for (const { node, port, event } of hooks.inputs ?? []) runtime.push(node, port, event);
   // The real scheduler on a simulated clock: every wake is on time, so no window is caught up or skipped.
   const clock = new ManualClock();
   const scheduler = new Scheduler(runtime, { clock, wakeInterval: opts.window, lookahead: Math.max(LOOKAHEAD, opts.window), record: true });
