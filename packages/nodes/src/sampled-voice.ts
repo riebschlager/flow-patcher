@@ -14,8 +14,16 @@
 // - A note that arrives while its instrument loads (or failed to) is skipped
 //   and counted in `state.skippedNotes`, where Flow waited for the load and
 //   played it late.
-// - Glide comes from the previous note on the same channel, the latest one
-//   scheduled at or before it that wasn't withdrawn.
+// - Glide comes from the previous note on the same channel: the one with the
+//   latest time before the note's own (ties: the one scheduled last) that
+//   wasn't withdrawn. It depends on note times, not on the order notes were
+//   delivered in, so a rewind or swap that re-sends some notes glides the same
+//   (ADR 0019). Notes at the same time on one channel (a chord) don't glide
+//   from each other. A note's bend is fixed when it is scheduled: if the note
+//   it glided from is withdrawn later and the note itself is kept, its bend
+//   stays. Only notes scheduled afterwards see the change.
+// - Glide survives a rebuild (a param change, ADR 0023): each instance
+//   publishes its recent notes in `state.glide`, which the new instance reads.
 import {
   isNoteEvent,
   type AudioBufferSourceNodeLike,
@@ -37,6 +45,38 @@ export const skippedNotes = (state: Readonly<NodeState> | undefined): number => 
   const n = state?.skippedNotes;
   return typeof n === 'number' ? n : 0;
 };
+
+/** A note's time and pitch, for glide: plain data, so it can live in `state`. */
+type GlideNote = [time: number, pitch: number];
+
+/**
+ * `state.glide`: the notes each instance on this node could glide from, so a
+ * rebuilt instance glides its first notes from the old instance's last ones.
+ * `live[id][channel]` is an instance's recent notes (every note not yet over,
+ * and its latest), rewritten whenever it schedules or withdraws a note, so a
+ * withdrawn note leaves it straight away, whichever instance withdraws it.
+ * `base[channel]` is the latest note of instances already disposed: their notes
+ * are final, as the runtime disposes an instance only after its last note.
+ */
+interface GlideState {
+  next: number;
+  base: Record<string, GlideNote>;
+  live: Record<string, Record<string, GlideNote[]>>;
+}
+
+const isGlideNote = (v: unknown): v is GlideNote => Array.isArray(v) && v.length === 2 && v.every((n) => typeof n === 'number' && Number.isFinite(n));
+
+/** The node's glide state, repaired if it is missing or malformed. */
+function glideState(state: NodeState): GlideState {
+  const g = state.glide as Partial<GlideState> | undefined;
+  if (g && typeof g === 'object' && typeof g.next === 'number' && g.base && typeof g.base === 'object' && g.live && typeof g.live === 'object') return g as GlideState;
+  const fresh: GlideState = { next: 0, base: {}, live: {} };
+  state.glide = fresh as unknown as NodeState[string];
+  return fresh;
+}
+
+/** The later of two glide candidates; on equal times `b`, the one considered later. */
+const later = (a: GlideNote | null, b: GlideNote): GlideNote => (a && a[0] > b[0] ? a : b);
 
 interface Voice {
   source: AudioBufferSourceNodeLike;
@@ -80,20 +120,36 @@ export const sampledVoice: NodeDefinition = {
     instrumentCache.load(audio, key, services.samples).catch(() => {});
     // Voices by the event that scheduled them, so cancel() can find them (ADR 0019).
     const voices = new Map<EngineEvent, Voice>();
-    // Per channel, the notes scheduled recently, for glide.
+    // Per channel, this instance's recent notes in schedule order, for glide.
     const history = new Map<number, Voice[]>();
+    const glide = glideState(state), id = String(glide.next++);
     const skip = () => { state.skippedNotes = skippedNotes(state) + 1; };
 
+    /** The pitch of the latest note before `time` on the channel, from this instance and every other on the node. */
     const previous = (channel: number, time: number): number | null => {
-      const list = history.get(channel) ?? [];
-      for (let k = list.length - 1; k >= 0; k--) if (list[k]!.time <= time) return list[k]!.pitch;
-      return null;
+      let best: GlideNote | null = null;
+      const consider = (note: GlideNote | undefined) => { if (note && isGlideNote(note) && note[0] < time) best = later(best, note); };
+      consider(glide.base[channel]);
+      for (const [other, channels] of Object.entries(glide.live)) if (other !== id) for (const note of channels[channel] ?? []) consider(note);
+      for (const voice of history.get(channel) ?? []) consider([voice.time, voice.pitch]);
+      return best === null ? null : (best as GlideNote)[1];
+    };
+    /** Writes this instance's recent notes into state.glide. */
+    const publish = () => {
+      const channels: Record<string, GlideNote[]> = {};
+      for (const [channel, list] of history) if (list.length) channels[channel] = list.map((v) => [v.time, v.pitch]);
+      glide.live[id] = channels;
     };
     const prune = () => {
       const now = audio.currentTime;
       for (const [event, voice] of voices) if (voiceEnd(voice) < now) voices.delete(event);
-      // Keep each channel's latest note even once it has ended: the next note glides from it.
-      for (const [channel, list] of history) history.set(channel, list.filter((v, k) => k === list.length - 1 || voiceEnd(v) >= now));
+      // Notes still to come, or still sounding, can be the latest before a new note
+      // (every new note is at or after now). Of the rest, only the latest in time can.
+      for (const [channel, list] of history) {
+        let latest: Voice | null = null;
+        for (const v of list) if (v.time < now && (!latest || v.time >= latest.time)) latest = v;
+        history.set(channel, list.filter((v) => v === latest || v.time >= now || voiceEnd(v) >= now));
+      }
     };
 
     return {
@@ -192,6 +248,7 @@ export const sampledVoice: NodeDefinition = {
           list.push(voice);
           history.set(ch, list);
         }
+        publish();
       },
       cancel(_port, events) {
         // A withdrawn note hasn't started: disconnecting keeps it silent, and its slot frees.
@@ -204,6 +261,7 @@ export const sampledVoice: NodeDefinition = {
           const list = history.get(voice.channel);
           if (list) history.set(voice.channel, list.filter((v) => v !== voice));
         }
+        publish();
       },
       idleAt() {
         // The last voice's end, or its steal's fade: a removed or rebuilt node is disposed after it.
@@ -217,6 +275,9 @@ export const sampledVoice: NodeDefinition = {
           pool.release(voice.handle);
         }
         voices.clear();
+        // This instance's notes are final now: fold its latest per channel into the base.
+        for (const [channel, list] of history) for (const v of list) glide.base[channel] = later(glide.base[channel] ?? null, [v.time, v.pitch]);
+        delete glide.live[id];
         history.clear();
         out.disconnect();
       },

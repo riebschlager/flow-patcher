@@ -95,6 +95,93 @@ describe('sampled-voice', () => {
     expect(second).toEqual([['set', target, 0.4], ['set', expect.closeTo(target * 2 ** -0.5, 9), 0.4], ['ramp', target, expect.closeTo(0.5, 9)]]);
   });
 
+  /** Records each buffer source's playbackRate calls on `ctx`, in creation order. */
+  function recordRates(ctx: AudioContextLike): [string, number, number][][] {
+    const sources: [string, number, number][][] = [];
+    const create = ctx.createBufferSource.bind(ctx);
+    ctx.createBufferSource = () => {
+      const source = create(), rate = source.playbackRate, set = rate.setValueAtTime.bind(rate), ramp = rate.exponentialRampToValueAtTime.bind(rate);
+      const calls: [string, number, number][] = [];
+      sources.push(calls);
+      rate.setValueAtTime = (v, t) => (calls.push(['set', v, t]), set(v, t));
+      rate.exponentialRampToValueAtTime = (v, t) => (calls.push(['ramp', v, t]), ramp(v, t));
+      return source;
+    };
+    return sources;
+  }
+  /** Semitones a source's playbackRate starts away from its target: from − pitch with glide 1; 0 for no glide. */
+  const bend = (calls: [string, number, number][] | undefined) => (calls && calls.length > 1 ? 12 * Math.log2(calls[1]![1] / calls[0]![1]) : 0);
+
+  it('glides from the latest note before it, not the last one delivered', async () => {
+    let sources: [string, number, number][][] = [];
+    await render(1, (ctx) => {
+      sources = recordRates(ctx);
+      const instance = voice(ctx, { glide: 1, glideTime: 0.05 });
+      // A, B and C are scheduled; a rewind withdraws A and re-sends it as A' (another
+      // pitch) after B, which it kept. D comes after B in time, so it glides from B.
+      const a = note(0.1, 60), b = note(0.2, 64);
+      instance.schedule!('note', [a, b]);
+      instance.cancel!('note', [a]);
+      instance.schedule!('note', [note(0.1, 55)]);
+      instance.schedule!('note', [note(0.3, 52)]);
+      // A chord: notes at one time don't glide from each other, only from the note before.
+      instance.schedule!('note', [note(0.5, 40), note(0.5, 43)]);
+    });
+    const [, b, aPrime, d, c1, c2] = sources;
+    expect(bend(b)).toBeCloseTo(60 - 64, 9); // B glided from A before A was withdrawn; that bend stays
+    expect(bend(aPrime)).toBe(0); // nothing before 0.1
+    expect(bend(d)).toBeCloseTo(64 - 52, 9);
+    expect(bend(c1)).toBeCloseTo(52 - 40, 9);
+    expect(bend(c2)).toBeCloseTo(52 - 43, 9);
+  });
+
+  it('glides past a withdrawn note to the one before it', async () => {
+    let sources: [string, number, number][][] = [];
+    await render(1, (ctx) => {
+      sources = recordRates(ctx);
+      const instance = voice(ctx, { glide: 1, glideTime: 0.05 });
+      const a = note(0.1, 60), b = note(0.3, 72);
+      instance.schedule!('note', [a, b]);
+      instance.cancel!('note', [b]);
+      instance.schedule!('note', [note(0.5, 48)]);
+    });
+    expect(bend(sources[2])).toBeCloseTo(60 - 48, 9);
+  });
+
+  it('glides the first note of a rebuilt instance from the old instance, through the shared state', async () => {
+    let sources: [string, number, number][][] = [];
+    const state: Record<string, unknown> = {};
+    await render(1.5, (ctx) => {
+      sources = recordRates(ctx);
+      const pool = new VoicePool(() => ctx.currentTime);
+      const old = voice(ctx, { glide: 1, glideTime: 0.05 }, { state, voices: pool });
+      const kept = note(0.1, 60), withdrawn = note(0.3, 67);
+      old.schedule!('note', [kept, withdrawn]);
+      // A knob turn: the new instance shares the state while the old one still holds its notes.
+      const rebuilt = voice(ctx, { glide: 1, glideTime: 0.05, level: 0.9 }, { state, voices: pool });
+      rebuilt.schedule!('note', [note(0.5, 48)]);
+      // The swap withdraws the old instance's later note; the next note no longer sees it.
+      old.cancel!('note', [withdrawn]);
+      rebuilt.schedule!('note', [note(0.4, 50)]);
+      // Disposed, the old instance's last note stays in the state for every later instance.
+      old.dispose!();
+      const third = voice(ctx, { glide: 1, glideTime: 0.05 }, { state, voices: pool });
+      third.schedule!('note', [note(0.2, 62)]);
+    });
+    expect(bend(sources[2])).toBeCloseTo(67 - 48, 9);
+    expect(bend(sources[3])).toBeCloseTo(60 - 50, 9);
+    expect(bend(sources[4])).toBeCloseTo(60 - 62, 9);
+    expect(JSON.parse(JSON.stringify(state.glide))).toEqual(state.glide);
+  });
+
+  it('repairs a malformed glide state', async () => {
+    await render(0.5, (ctx) => {
+      const state: Record<string, unknown> = { glide: 'weird' };
+      voice(ctx, { glide: 1 }, { state }).schedule!('note', [note(0.1), note(0.2, 62)]);
+      expect((state.glide as { next: number }).next).toBe(1);
+    });
+  });
+
   it('sounds different with glide on, and only at the start of the gliding note', async () => {
     const play = (glide: number) => render(1, (ctx) => voice(ctx, { glide, glideTime: 0.2, release: 0 }).schedule!('note', [note(0.1, 48, 0.3), note(0.5, 60, 0.4)]));
     const [plain, bent] = [await play(0), await play(1)];
