@@ -30,8 +30,9 @@ export interface SchedulerClock {
   /** A wall clock in milliseconds: performance.now(). Measures push cost, and
    *  tells a blocked main thread (both clocks jump) from an audio clock jump. */
   wallTime(): number;
-  /** False while the audio clock is suspended: wakes do nothing, and the next
-   *  running wake starts fresh rather than counting a stall. Default true. */
+  /** False while the audio clock is suspended: wakes do nothing, pushes are held,
+   *  and the next running wake resumes from the horizon (or from now, if the
+   *  clock has passed it) without counting a stall. Default true. */
   running?(): boolean;
   /** True while the page is hidden, for the long lookahead. Default false. The
    *  host should also call `wake()` when visibility changes. */
@@ -100,6 +101,8 @@ export interface SchedulerStats extends RuntimeCounters {
   pushQueries: number;
   pushMsMax: number;
   pushMsTotal: number;
+  /** Pushes held while the audio clock was suspended, and stamped at the resume. */
+  deferredPushes: number;
 }
 
 /** The scheduler. One per running patch. */
@@ -114,9 +117,13 @@ export class Scheduler {
   private readonly immediateOffset: number;
   private next: number | null = null;
   private last: { wall: number; audio: number } | null = null;
+  /** The next running wake resumes rather than catching up or counting a stall. */
+  private fresh = true;
+  /** Pushes held while the audio clock is suspended. */
+  private readonly deferred: { nodeId: string; port: string; fields: Omit<EngineEvent, 'time'> }[] = [];
   private stop: (() => void) | null = null;
   private log: LoggedEvent[] | null;
-  private readonly own = { windows: 0, skipped: 0, stalls: 0, catchUps: 0, catchUpMaxMs: 0, pushes: 0, rewinds: 0, pushQueries: 0, pushMsMax: 0, pushMsTotal: 0 };
+  private readonly own = { windows: 0, skipped: 0, stalls: 0, catchUps: 0, catchUpMaxMs: 0, pushes: 0, rewinds: 0, pushQueries: 0, pushMsMax: 0, pushMsTotal: 0, deferredPushes: 0 };
 
   constructor(runtime: Runtime, options: SchedulerOptions) {
     this.runtime = runtime;
@@ -128,10 +135,10 @@ export class Scheduler {
     this.catchUpLimit = options.catchUpLimit ?? CATCH_UP_LIMIT;
     this.immediateOffset = options.immediateOffset ?? IMMEDIATE_OFFSET;
     this.log = options.record ? [] : null;
-    runtime.keepHistory();
+    runtime.keepHistory(() => this.clock.wallTime());
   }
 
-  /** The end of the last queried window, or null before the first wake (or while suspended). */
+  /** The end of the last queried window, or null before the first wake. Kept across a suspend or halt. */
   get horizon(): number | null {
     return this.next;
   }
@@ -149,66 +156,92 @@ export class Scheduler {
     this.wake();
   }
 
-  /** Stops the timer. The next wake starts fresh at currentTime. */
+  /** Stops the timer. The next wake resumes like after a suspend: from the horizon, or from now if that has passed. */
   halt(): void {
     this.stop?.();
     this.stop = null;
-    this.next = null;
+    this.fresh = true;
     this.last = null;
   }
 
   /**
    * One wake: query from the horizon to now + lookahead. A wake up to
    * catchUpLimit past the horizon still queries what it missed, moved later
-   * to start now; a later one skips the missed windows.
+   * to start now; a later one skips the missed windows. A window never starts
+   * before the runtime's horizon, so no stretch is queried twice.
    */
   wake(): void {
     if (this.clock.running && !this.clock.running()) {
-      this.next = null;
+      // Suspended: not a stall. The first running wake resumes without counting one.
+      this.fresh = true;
       this.last = null;
       return;
     }
     const now = this.clock.audioTime(), wall = this.clock.wallTime();
     const last = this.last;
     this.last = { wall, audio: now };
-    let t0 = this.next ?? now;
-    const late = now - t0;
+    let t0: number;
     let catchUp: { until: number; shift: number } | undefined;
-    if (late > this.catchUpLimit) {
-      // A stall: skip the missed windows rather than bursting them.
-      const skipped = Math.ceil(late / this.wakeInterval - 1e-9);
-      this.own.skipped += skipped;
-      this.own.stalls++;
-      this.options.onStall?.({
-        at: now,
-        late,
-        skipped,
-        wallMs: last ? wall - last.wall : null,
-        audioMs: last ? (now - last.audio) * 1000 : null,
-      });
-      t0 = now;
-    } else if (late > 0) {
-      catchUp = { until: now, shift: late };
-      this.own.catchUps++;
-      this.own.catchUpMaxMs = Math.max(this.own.catchUpMaxMs, late * 1000);
+    if (this.fresh || this.next === null) {
+      // First wake, or resuming: carry on from the horizon, or from now if the clock has moved past it.
+      t0 = Math.max(now, this.next ?? -Infinity);
+      this.fresh = false;
+    } else {
+      t0 = this.next;
+      const late = now - t0;
+      if (late > this.catchUpLimit) {
+        // A stall: skip the missed windows rather than bursting them.
+        const skipped = Math.ceil(late / this.wakeInterval - 1e-9);
+        this.own.skipped += skipped;
+        this.own.stalls++;
+        this.options.onStall?.({
+          at: now,
+          late,
+          skipped,
+          wallMs: last ? wall - last.wall : null,
+          audioMs: last ? (now - last.audio) * 1000 : null,
+        });
+        t0 = now;
+      } else if (late > 0) {
+        catchUp = { until: now, shift: late };
+        this.own.catchUps++;
+        this.own.catchUpMaxMs = Math.max(this.own.catchUpMaxMs, late * 1000);
+      }
     }
+    // Whoever queried the runtime last, never query a stretch twice.
+    t0 = Math.max(t0, this.runtime.horizon ?? -Infinity);
     const t1 = now + (this.clock.hidden?.() ? this.hiddenLookahead : this.lookahead);
-    // An extra wake (a visibility change, a push) may find the window already queried.
-    if (t1 <= t0) return;
-    const events = this.runtime.query(t0, t1, { now, catchUp, path: 'scheduled' });
-    this.log?.push(...events);
-    this.next = t1;
-    this.own.windows++;
-    // Live events are stamped after now, so nothing earlier can be rewound into.
-    this.runtime.retain(now);
+    // An extra wake (a visibility change, a push, a resume) may find the window already queried.
+    if (t1 > t0) {
+      const events = this.runtime.query(t0, t1, { now, catchUp, path: 'scheduled' });
+      this.log?.push(...events);
+      this.next = t1;
+      this.own.windows++;
+      // Live events are stamped after now, so nothing earlier can be rewound into.
+      this.runtime.retain(now);
+    }
+    // Pushes made while the clock was suspended are stamped now, relative to the resume.
+    for (const { nodeId, port, fields } of this.deferred.splice(0)) this.push(nodeId, port, fields);
   }
 
   /**
    * The immediate path: `nodeId` emits an event on its output `port`, stamped
    * currentTime + immediateOffset, and the nodes downstream of it run now,
    * without waiting for a wake. Returns the stamped event.
+   *
+   * While the audio clock is suspended there is no currentTime to stamp
+   * against, so the push is held and returns null: the first running wake
+   * stamps it at its own currentTime + immediateOffset and runs it then.
+   * The node and port are checked at once either way.
    */
-  push(nodeId: string, port: string, fields: Omit<EngineEvent, 'time'>): EngineEvent {
+  push(nodeId: string, port: string, fields: Omit<EngineEvent, 'time'>): EngineEvent | null {
+    if (this.clock.running && !this.clock.running()) {
+      const spec = this.runtime.plan.order.find((n) => n.id === nodeId)?.definition.ports.find((p) => p.name === port && p.direction === 'out');
+      if (!spec || (spec.type !== 'event' && spec.type !== 'note')) throw new Error(`push: node "${nodeId}" has no event output "${port}"`);
+      this.deferred.push({ nodeId, port, fields });
+      this.own.deferredPushes++;
+      return null;
+    }
     const started = this.clock.wallTime();
     const now = this.clock.audioTime();
     const event = { time: now + this.immediateOffset, ...fields } as EngineEvent;

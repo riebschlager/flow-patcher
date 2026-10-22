@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { compilePatch, CUSTOM_PRESET, parsePatch, serializePatch, type Patch } from '@flow-patcher/engine';
 import { nodeDefinitions, nodeRegistry } from '../src';
 import { ROOT } from '../../../test-support/golden';
-import { windowCheckable, windowLogs, WINDOW_SECONDS, WINDOW_STEPS } from '../../../test-support/window-independence';
+import { REWIND_SECONDS, rewindCheckable, rewindLogs, windowCheckable, windowLogs, WINDOW_SECONDS, WINDOW_STEPS } from '../../../test-support/window-independence';
 
 const CATEGORIES = ['canvas-sources', 'gesture-recognizers', 'time-rhythm', 'harmony-pitch', 'control-logic', 'instruments', 'effects-mix', 'visual'];
 const EXAMPLES = join(ROOT, 'examples');
@@ -62,6 +62,15 @@ describe('node catalog', () => {
       it.runIf(windowCheckable(definition))(`gives the same events over 0–${WINDOW_SECONDS} s in ${WINDOW_STEPS.map((s) => s * 1000).join(' ms, ')} ms windows and one call`, () => {
         const [first, ...rest] = windowLogs(definition);
         for (const log of rest) expect(log).toBe(first);
+      });
+
+      // Rewind and re-query (ADR 0019): live events into its Event inputs give the same log however the scheduler woke.
+      it.runIf(rewindCheckable(definition))(`gives the same events over 0–${REWIND_SECONDS} s with live input, whatever the wake timing`, () => {
+        const { reference, rewound } = rewindLogs(definition);
+        for (const { name, log, rewinds } of rewound) {
+          expect(rewinds, name).toBeGreaterThan(0);
+          expect(log, name).toBe(reference);
+        }
       });
 
       it('has a unit test', () => {

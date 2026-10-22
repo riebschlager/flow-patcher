@@ -348,6 +348,124 @@ describe('rewind and re-query', () => {
   });
 });
 
+describe('rewind with a stateful Signal source upstream', () => {
+  /** Stateful Signal source: counts its `set` events, and only knows the current window's
+   *  changes, so a read is right only if its state matches the window being run. */
+  const tally: NodeDefinition = {
+    type: 'tally', version: 1, label: 'Tally', category: 'control-logic', description: '',
+    ports: [{ name: 'set', type: 'event', direction: 'in' }, { name: 'out', type: 'signal', direction: 'out' }],
+    params: [],
+    query: ({ inputs, state }) => {
+      state.base = (state.base as number | undefined ?? 0) + ((state.times as number[] | undefined)?.length ?? 0);
+      state.times = (inputs.set ?? []).map((e) => e.time);
+      return {};
+    },
+    signal: (ctx, _port, t) => ((ctx.state.base as number | undefined) ?? 0) + ((ctx.state.times as number[] | undefined) ?? []).filter((x) => x <= t).length,
+  };
+  /** Reads the tally at every input. */
+  const reader: NodeDefinition = {
+    type: 'reader', version: 1, label: 'Reader', category: 'control-logic', description: '',
+    ports: [{ name: 'in', type: 'event', direction: 'in' }, { name: 'sig', type: 'signal', direction: 'in' }, { name: 'out', type: 'event', direction: 'out' }],
+    params: [],
+    query: ({ inputs, signal }) => ({ out: (inputs.in ?? []).map((e) => ({ time: e.time, channel: e.channel, tally: signal('sig', e.time, e.channel) })) }),
+  };
+  const p = patch(
+    [node('m1', 'metro', { period: 0.031 }), node('h', 'tally'), node('m2', 'metro', { period: 0.05 }), node('t', 'tap'), node('x', 'reader'), node('r', 'recorder')],
+    [{ from: { node: 'm1', port: 'out' }, to: { node: 'h', port: 'set' } }, { from: { node: 'h', port: 'out' }, to: { node: 'x', port: 'sig' } }, cable('m2', 'x'), cable('t', 'x'), cable('x', 'r')],
+  );
+  const pushes = [0.3123, 0.71, 1.0004, 1.5];
+  function perform(wakes: number[], options: Partial<SchedulerOptions> = {}, hidden = false) {
+    const clock = new ManualClock();
+    const deliveries: Delivery[] = [];
+    const compiled = compilePatch(p, new Map([metro, tap, tally, reader, recorderType(clock, deliveries)].map((d) => [d.type, d])));
+    if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+    const runtime = new Runtime(compiled.plan);
+    runtime.attachAudio({} as AudioContextLike);
+    const scheduler = new Scheduler(runtime, { clock, record: true, ...options });
+    clock.isHidden = hidden;
+    const timeline = [...pushes.map((at) => ({ at, push: true })), ...wakes.map((at) => ({ at, push: false }))].sort((a, b) => a.at - b.at || Number(b.push) - Number(a.push));
+    for (const { at, push } of timeline) {
+      clock.set(at);
+      if (push) scheduler.push('t', 'out', { channel: 0 });
+      else scheduler.wake();
+    }
+    return { scheduler, log: json(scheduler.events().filter((e) => e.time < 2.5)) };
+  }
+  const grid = (step: number) => Array.from({ length: Math.ceil(2.6 / step) }, (_, k) => k * step);
+
+  it('steps the source through the re-run, so reads match the advance-knowledge run', () => {
+    const costs: PushCost[] = [];
+    const reference = perform(grid(0.002), { lookahead: 0.004 });
+    const hidden = perform(grid(0.3), { onPush: (c) => costs.push(c) }, true);
+    const regular = perform(grid(0.025));
+    expect(reference.scheduler.stats.rewinds).toBe(0);
+    expect(hidden.scheduler.stats.rewinds).toBe(pushes.length);
+    expect([...costs[0]!.rewind!.followed]).toEqual(['h']);
+    expect(costs[0]!.rewind!.affected.has('h')).toBe(false);
+    expect(hidden.log).toBe(reference.log);
+    expect(regular.log).toBe(reference.log);
+    // The source's own outputs aren't replaced: it emits nothing, and stays unlogged.
+    expect(hidden.scheduler.events().some((e) => e.node === 'h')).toBe(false);
+  });
+});
+
+describe('push rules', () => {
+  /** Emits one event per tick whose fields the test can change between the first run and a re-run. */
+  const shape = { fields: (k: number): Record<string, number | string | boolean> => ({ k }) };
+  const shaper: NodeDefinition = {
+    type: 'shaper', version: 1, label: 'Shaper', category: 'control-logic', description: '',
+    ports: [{ name: 'in', type: 'event', direction: 'in' }, { name: 'out', type: 'event', direction: 'out' }],
+    params: [],
+    query: ({ inputs }) => ({ out: (inputs.in ?? []).map((e) => ({ time: e.time, channel: e.channel, ...shape.fields(e.index as number ?? -1) })) }),
+  };
+  function rerun(first: typeof shape.fields, second: typeof shape.fields, cancel = true) {
+    const clock = new ManualClock();
+    const deliveries: Delivery[] = [];
+    const recorder = recorderType(clock, deliveries);
+    const audio = cancel ? recorder.audio : (ctx: Parameters<NonNullable<NodeDefinition['audio']>>[0]) => ({ schedule: recorder.audio!(ctx).schedule });
+    const compiled = compilePatch(
+      patch([node('m', 'metro', { period: 0.02 }), node('t', 'tap'), node('s', 'shaper'), node('r', 'recorder')], [cable('m', 's'), cable('t', 's'), cable('s', 'r')]),
+      new Map([metro, tap, shaper, { ...recorder, audio }].map((d) => [d.type, d])),
+    );
+    if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+    const runtime = new Runtime(compiled.plan);
+    const warnings: string[] = [];
+    runtime.onWarning = (message) => warnings.push(message);
+    runtime.attachAudio({} as AudioContextLike);
+    const scheduler = new Scheduler(runtime, { clock });
+    shape.fields = first;
+    scheduler.wake();
+    shape.fields = second;
+    clock.set(0.01);
+    scheduler.push('t', 'out', { channel: 5 });
+    scheduler.push('t', 'out', { channel: 6 });
+    return { stats: scheduler.stats, warnings };
+  }
+
+  it('keeps deliveries whose fields only changed order', () => {
+    const { stats } = rerun((k) => ({ a: k, b: 'x' }), (k) => ({ b: 'x', a: k }));
+    expect(stats).toMatchObject({ cancelled: 0, uncancelled: 0 });
+  });
+
+  it('tells NaN from null, and replaces the delivery', () => {
+    const { stats } = rerun(() => ({ v: NaN }), () => ({ v: null as unknown as number }));
+    expect(stats.cancelled).toBeGreaterThan(0);
+    expect(rerun(() => ({ v: NaN }), () => ({ v: NaN })).stats.cancelled).toBe(0);
+  });
+
+  it('warns once about an audio node with no cancel()', () => {
+    const { stats, warnings } = rerun((k) => ({ v: k }), (k) => ({ v: -k }), false);
+    expect(stats.uncancelled).toBeGreaterThan(0);
+    expect(warnings).toEqual([expect.stringMatching(/audio node "r" has schedule\(\) but no cancel\(\)/)]);
+  });
+
+  it('refuses a live event before currentTime', () => {
+    const { runtime, wakeAt } = setup(metroPatch());
+    wakeAt(0, 0.025);
+    expect(() => runtime.push('m', 'out', { time: 0.03, channel: 0 }, { now: 0.04 })).toThrow(/before currentTime/);
+  });
+});
+
 describe('scheduler', () => {
   it('queries contiguous windows from now to the lookahead', () => {
     const { scheduler, runtime, wakeAt } = setup(metroPatch());
@@ -370,17 +488,85 @@ describe('scheduler', () => {
     expect(scheduler.horizon).toBeCloseTo(0.025 + HIDDEN_LOOKAHEAD, 12);
   });
 
-  it('waits while the audio clock is suspended, then starts fresh without a stall', () => {
-    const { scheduler, clock, deliveries, wakeAt } = setup(metroPatch());
+  /** Records every window the runtime is asked for. */
+  const recordWindows = (runtime: Runtime) => {
+    const windows: [number, number][] = [];
+    const query = runtime.query.bind(runtime);
+    runtime.query = (t0, t1, timing) => (windows.push([t0, t1]), query(t0, t1, timing));
+    return windows;
+  };
+  const expectNoOverlap = (windows: [number, number][]) => {
+    for (let i = 1; i < windows.length; i++) expect(windows[i]![0]).toBeGreaterThanOrEqual(windows[i - 1]![1]);
+  };
+  const expectNoDuplicates = (deliveries: Delivery[]) => {
+    const indices = deliveries.map((d) => d.event.index);
+    expect(new Set(indices).size).toBe(indices.length);
+  };
+
+  it('waits while the audio clock is suspended, then resumes past the gap without a stall', () => {
+    const { scheduler, clock, deliveries, runtime, wakeAt } = setup(metroPatch());
+    const windows = recordWindows(runtime);
     wakeAt(0, 0.025);
     clock.isRunning = false;
     wakeAt(0.05, 2);
-    expect(scheduler.horizon).toBeNull();
+    expect(scheduler.horizon).toBeCloseTo(0.025 + LOOKAHEAD, 12);
     clock.isRunning = true;
     wakeAt(5);
+    expectNoOverlap(windows);
     expect(scheduler.stats).toMatchObject({ stalls: 0, skipped: 0, catchUps: 0, windows: 3 });
     expect(deliveries.at(-1)!.event.time).toBeLessThan(5 + LOOKAHEAD);
     expect(deliveries.filter((d) => d.event.time >= 0.145 && d.event.time < 5)).toEqual([]);
+  });
+
+  it('resumes from the horizon when the audio clock did not move while suspended', () => {
+    const { scheduler, clock, deliveries, runtime, wakeAt } = setup(metroPatch());
+    const windows = recordWindows(runtime);
+    wakeAt(0, 0.025, 0.05);
+    clock.isRunning = false;
+    wakeAt(0.05, 0.05);
+    clock.isRunning = true;
+    wakeAt(0.05, 0.075, 0.1);
+    expectNoOverlap(windows);
+    expectNoDuplicates(deliveries);
+    expect(windows.at(-1)![1]).toBeCloseTo(0.1 + LOOKAHEAD, 12);
+    expect(scheduler.stats).toMatchObject({ stalls: 0, catchUps: 0 });
+    // And the same through halt() and start().
+    scheduler.halt();
+    const timer = { every: () => () => {} };
+    const again = setup(metroPatch(), { timer });
+    const againWindows = recordWindows(again.runtime);
+    again.wakeAt(0, 0.025);
+    again.scheduler.halt();
+    again.scheduler.start();
+    again.wakeAt(0.05);
+    expectNoOverlap(againWindows);
+    expectNoDuplicates(again.deliveries);
+  });
+
+  it('holds a push made while suspended and stamps it at the resume', () => {
+    const { scheduler, clock, deliveries, wakeAt } = setup(patch([node('t', 'tap'), node('r', 'recorder')], [cable('t', 'r')]));
+    wakeAt(0, 0.025);
+    clock.isRunning = false;
+    clock.set(0.03);
+    expect(scheduler.push('t', 'out', { channel: 1 })).toBeNull();
+    expect(() => scheduler.push('r', 'in', { channel: 0 })).toThrow(/no event output/);
+    expect(deliveries).toEqual([]);
+    clock.set(0.9);
+    clock.isRunning = true;
+    wakeAt(0.9);
+    expect(deliveries.map((d) => [d.at, d.event.time, d.event.channel])).toEqual([[0.9, 0.9 + IMMEDIATE_OFFSET, 1]]);
+    expect(scheduler.stats).toMatchObject({ deferredPushes: 1, pushes: 1 });
+  });
+
+  it('counts snapshots, and skips empty state', () => {
+    const empty = setup(metroPatch());
+    empty.wakeEvery(0, 0.5);
+    expect(empty.scheduler.stats.snapshots).toBe(0);
+    const stateful = setup(patch([node('m', 'metro'), node('c', 'counter'), node('r', 'recorder')], [cable('m', 'c'), cable('c', 'r')]));
+    stateful.wakeEvery(0, 0.5);
+    // The counter has state from its first window on: one copy per later window.
+    expect(stateful.scheduler.stats.snapshots).toBe(19);
+    expect(stateful.scheduler.stats.snapshotMs).toBe(0);
   });
 
   it('runs on the injected timer', () => {
@@ -402,7 +588,7 @@ describe('scheduler', () => {
     expect(scheduler.stats.windows).toBe(2);
     scheduler.halt();
     expect(timer.stopped).toBe(true);
-    expect(scheduler.horizon).toBeNull();
+    expect(scheduler.horizon).toBeCloseTo(1.025 + LOOKAHEAD, 12);
   });
 
   it('gives the same log whatever the wake interval, with no live input', () => {

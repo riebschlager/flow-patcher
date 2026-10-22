@@ -59,6 +59,7 @@ export async function runPatch(patch: Patch, options: RunOptions = {}): Promise<
   const compiled = compilePatch(patch, nodeRegistry);
   if (!compiled.ok) throw new PatchError(compiled.errors);
   const runtime = new Runtime(compiled.plan);
+  runtime.onWarning = (message) => console.warn(`[run-patch] ${message}`);
   // The real scheduler on a simulated clock: every wake is on time, so no window is caught up or skipped.
   const clock = new ManualClock();
   const scheduler = new Scheduler(runtime, { clock, wakeInterval: opts.window, lookahead: Math.max(LOOKAHEAD, opts.window), record: true });

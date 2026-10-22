@@ -75,8 +75,11 @@ export type ParamValues = Readonly<Record<string, ParamValue>>;
  * Stateful nodes (ADR 0019). For every node with a `query()`, the engine
  * snapshots `ctx.state` at each scheduler window boundary, and when a live
  * event lands at time t inside a window already queried it restores the
- * latest snapshot before t and queries the node again from there. A node
- * writes nothing special for this, but its state must follow three rules:
+ * latest snapshot at or before t and queries the node again from there. That
+ * happens to the pushing node and everything downstream of it, and to the
+ * Signal and Value sources those nodes read, so their state stays in step.
+ * A node writes nothing special for this, but its state must follow three
+ * rules:
  * - Plain data only: numbers, strings, booleans, null, arrays, plain objects
  *   and typed arrays. No functions, class instances, Maps or audio/GPU
  *   handles. Snapshots copy it with `clonePlain`, which throws on anything else.
@@ -85,8 +88,16 @@ export type ParamValues = Readonly<Record<string, ParamValue>>;
  * - It depends only on the events and times seen, never on how time was
  *   split into windows: after query(a, b) then query(b, c), the state equals
  *   the state after query(a, c). Process inputs in time order.
- * `signal()` and `value()` may read the state; they are only asked about
- * times inside the window being queried or earlier ones.
+ * `signal()` and `value()` may read the state. During queries they are only
+ * asked about times t0 <= t < t1 of the chunk being run, after this node's
+ * own query for that chunk, so knowing the current chunk is enough. (A delay
+ * node reading at its inputs' times would reach back one chunk, at most its
+ * delay.) Two readers ask about other times; answer them from the latest
+ * state and don't keep history for them:
+ * - an audio node sampling a param at a caught-up note's moved time, up to
+ *   100 ms (the catch-up limit) after the chunk;
+ * - `frame()`, which runs behind the horizon by up to the lookahead (1.25 s
+ *   while hidden), so it asks about earlier times.
  * State written by `frame()` or `audio()` alone (a fluid solver, voices) is
  * not snapshotted, but it shares the object, so a node with `query()` must
  * keep such handles out of it.

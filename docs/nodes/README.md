@@ -41,7 +41,7 @@ One file per node type in `packages/nodes`. The palette, inspector and (later) s
 ## Rules every node follows
 
 - **Pure window queries.** Events are computed from absolute time and inputs. No timers (`setInterval`, `setTimeout`, `requestAnimationFrame`) and no `Math.random`: use the seeded RNG ([ADR 0008](../decisions/0008-one-clock-window-queries.md)).
-- **Live input uses the same code.** Canvas events arrive through `query` on a zero-width window. Don't special-case them.
+- **Live input uses the same code.** A pushed canvas event is merged into its source node's output, and that node and everything downstream re-run through ordinary `query` calls from the event's time to the scheduler's horizon ([ADR 0019](../decisions/0019-live-events-rewind.md)). Don't special-case them.
 - **Channels.** Every Event, Note and Signal port carries channels, and per-channel state is keyed by `channel`. Test with more than one channel ([ADR 0009](../decisions/0009-channels-from-day-one.md)).
 - **Signals are sampled, not streamed.** Sample a Signal input at each event's timestamp. Audio-param targets get `setTargetAtTime` ramps.
 - **Fan-in.** Several cables into an Event input merge in time order. Several cables into a Signal input are summed. A cable into a parameter is added to the knob's base value, scaled by the cable's depth.

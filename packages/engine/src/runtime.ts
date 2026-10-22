@@ -318,6 +318,11 @@ export interface DeliveryTiming {
   path?: 'scheduled' | 'immediate';
 }
 
+/** A rewind's timing: only events at the live event's own time count as immediate (ADR 0020). */
+interface RewindTiming extends DeliveryTiming {
+  immediateAt?: number;
+}
+
 /** Running totals of what the runtime handed to audio nodes. */
 export interface RuntimeCounters {
   /** Events handed to audio nodes. */
@@ -336,6 +341,10 @@ export interface RuntimeCounters {
   outOfWindow: number;
   /** Node queries made, re-runs included. */
   queries: number;
+  /** Node states (and delay inputs) copied into window snapshots. Empty states aren't copied. */
+  snapshots: number;
+  /** Wall-clock milliseconds spent copying them (0 without a wall clock; see keepHistory). */
+  snapshotMs: number;
 }
 
 /** What one live event's rewind and re-query cost (ADR 0019). */
@@ -348,6 +357,9 @@ export interface RewindReport {
   to: number;
   /** The nodes re-run: the pushing node and every node downstream of it. */
   affected: ReadonlySet<string>;
+  /** Signal and Value sources upstream of the re-run nodes, outside them: queried again
+   *  so their state matches each re-run chunk, but nothing they emit is replaced. */
+  followed: ReadonlySet<string>;
   /** Node queries made, replay included. */
   queries: number;
   /** Logged events at or after `time` from affected nodes that the re-run replaced. */
@@ -367,7 +379,7 @@ type PortEvents = Record<string, EngineEvent[]>;
 interface WindowRecord {
   t0: number;
   t1: number;
-  /** Copies of every query node's state as the window began. */
+  /** Copies of every query node's state as the window began; a node with empty state has no entry. */
   states: Map<string, NodeState>;
   /** Copies of the inputs each delay node was holding as the window began. */
   delayInputs: Map<string, PortEvents>;
@@ -385,17 +397,25 @@ interface Injected {
   event: EngineEvent;
 }
 
+/** Which nodes a re-run chunk queries. */
+interface Scope {
+  /** Re-run: queried, and what they emit replaces what they emitted before. */
+  only: ReadonlySet<string>;
+  /** Queried only to keep their state in step; their outputs replay what they emitted the first time. */
+  follow: ReadonlySet<string>;
+}
+
 /** What a chunk does with its results. Without it the chunk only advances state (a replay). */
 interface Emit {
   log: LoggedEvent[];
-  timing?: DeliveryTiming;
+  timing?: RewindTiming;
   /** A rewind's re-run: diff audio deliveries against what was already sent. */
   rewind?: boolean;
 }
 
 export class Runtime {
   readonly plan: Plan;
-  readonly counters: RuntimeCounters = { delivered: 0, caughtUp: 0, lateScheduled: 0, lateImmediate: 0, cancelled: 0, uncancelled: 0, outOfWindow: 0, queries: 0 };
+  readonly counters: RuntimeCounters = { delivered: 0, caughtUp: 0, lateScheduled: 0, lateImmediate: 0, cancelled: 0, uncancelled: 0, outOfWindow: 0, queries: 0, snapshots: 0, snapshotMs: 0 };
   private readonly states = new Map<string, NodeState>();
   private readonly contexts = new Map<string, BoundContext>();
   private readonly audio = new Map<string, AudioInstance>();
@@ -421,6 +441,11 @@ export class Runtime {
   /** What each audio node was handed per input port since the oldest retained window. */
   private readonly sent = new Map<string, Map<string, Sent[]>>();
   private end: number | null = null;
+  private wallTime: (() => number) | null = null;
+  /** Called once per problem a node causes at run time, such as an audio node with no cancel(). The host logs it. */
+  onWarning: ((message: string) => void) | null = null;
+  /** Audio nodes already warned about having no cancel(). */
+  private readonly warned = new Set<string>();
 
   constructor(plan: Plan, options: RuntimeOptions = {}) {
     this.plan = plan;
@@ -443,9 +468,11 @@ export class Runtime {
     }
   }
 
-  /** Turns on window snapshots, so `push` can rewind into windows already queried. */
-  keepHistory(): void {
+  /** Turns on window snapshots, so `push` can rewind into windows already queried.
+   *  `wallTime` (milliseconds) times the snapshots for `counters.snapshotMs`. */
+  keepHistory(wallTime?: () => number): void {
     this.history ??= [];
+    if (wallTime) this.wallTime = wallTime;
   }
 
   /** The end of the latest window queried, or null before the first. */
@@ -461,7 +488,11 @@ export class Runtime {
    * no earlier than `timing.now`.
    */
   query(t0: number, t1: number, timing?: DeliveryTiming): LoggedEvent[] {
-    if (this.history && t1 > t0) this.history.push({ t0, t1, states: this.snapshotStates(), delayInputs: this.snapshotDelays() });
+    if (this.history && t1 > t0) {
+      const started = this.wallTime?.();
+      this.history.push({ t0, t1, states: this.snapshotStates(), delayInputs: this.snapshotDelays() });
+      if (started !== undefined) this.counters.snapshotMs += this.wallTime!() - started;
+    }
     const log: LoggedEvent[] = [];
     this.forChunks(t0, t1, (a, b) => this.runChunk(a, b, null, { log, timing }));
     if (this.end === null || t1 > this.end) this.end = t1;
@@ -476,7 +507,9 @@ export class Runtime {
    * and everything downstream of it, replays them up to the event without
    * emitting, re-runs them from the event to the horizon with the event
    * included, and replaces what they had emitted, logged and handed to audio
-   * nodes from that time on. Needs history (`keepHistory`).
+   * nodes from that time on. Needs history (`keepHistory`). With `timing`, the
+   * event may not be earlier than `timing.now`: that would cancel events that
+   * may already be sounding.
    */
   push(nodeId: string, port: string, event: EngineEvent, timing?: DeliveryTiming): RewindReport | null {
     const node = this.plan.order.find((n) => n.id === nodeId);
@@ -485,6 +518,7 @@ export class Runtime {
     if (!spec || (spec.type !== 'event' && spec.type !== 'note')) throw new Error(`push: node "${nodeId}" has no event output "${port}"`);
     const t = event.time;
     if (!Number.isFinite(t)) throw new RangeError(`push: event time must be finite, got ${t}`);
+    if (timing && t < timing.now) throw new RangeError(`push: event time ${t} is before currentTime ${timing.now}`);
     const rewinds = this.end !== null && t < this.end;
     if (rewinds && !this.history) throw new Error('push: rewinding into a queried window needs history (Runtime.keepHistory)');
     const oldest = this.history?.[0];
@@ -574,8 +608,10 @@ export class Runtime {
     while (first > 0 && history[first]!.t0 > t) first--;
     const start = history[first]!;
     const affected = this.downstreamOf(origin);
+    const followed = this.signalSourcesOf(affected);
+    const scope: Scope = { only: affected, follow: followed };
 
-    for (const id of affected) this.restore(id, start);
+    for (const id of [...affected, ...followed]) this.restore(id, start);
     // Forget what the affected nodes emitted and queued for frames from t on; the re-run replaces it.
     let removed = 0;
     for (const id of affected) {
@@ -587,7 +623,8 @@ export class Runtime {
       for (const [port, events] of this.pendingFrames.get(id) ?? []) this.pendingFrames.get(id)!.set(port, events.filter((e) => e.time < t));
     }
 
-    const emit: Emit = { log: [], timing: timing && { ...timing, catchUp: undefined }, rewind: true };
+    // Only events at the live event's own time take the immediate path; the rest are scheduled.
+    const emit: Emit = { log: [], timing: timing && { now: timing.now, path: 'scheduled', immediateAt: t }, rewind: true };
     let queries = 0;
     for (let j = first; j < history.length; j++) {
       const window = history[j]!;
@@ -595,10 +632,30 @@ export class Runtime {
       if (j > first) this.resnapshot(window, affected);
       const split = Math.min(Math.max(t, window.t0), window.t1);
       // Replay up to t to rebuild state; what it emits was already scheduled or played.
-      if (split > window.t0) queries += this.forChunks(window.t0, split, (a, b) => this.runChunk(a, b, affected, null));
-      if (window.t1 > split) queries += this.forChunks(split, window.t1, (a, b) => this.runChunk(a, b, affected, emit));
+      if (split > window.t0) queries += this.forChunks(window.t0, split, (a, b) => this.runChunk(a, b, scope, null));
+      if (window.t1 > split) queries += this.forChunks(split, window.t1, (a, b) => this.runChunk(a, b, scope, emit));
     }
-    return { time: t, from: start.t0, to: history.at(-1)!.t1, affected, queries, removed, added: this.sortLog(emit.log) };
+    return { time: t, from: start.t0, to: history.at(-1)!.t1, affected, followed, queries, removed, added: this.sortLog(emit.log) };
+  }
+
+  /**
+   * Nodes outside `nodes` that feed them over Signal, Value or param cables,
+   * directly or through each other. Their signal() and value() read their
+   * state, so a re-run must step them through each chunk too.
+   */
+  private signalSourcesOf(nodes: ReadonlySet<string>): Set<string> {
+    const found = new Set<string>();
+    const stack = [...nodes];
+    while (stack.length) {
+      const links = this.plan.incoming.get(stack.pop()!);
+      for (const link of [...(links?.signals ?? []), ...(links?.values ?? []), ...(links?.params ?? [])]) {
+        const source = link.from.node;
+        if (nodes.has(source) || found.has(source)) continue;
+        found.add(source);
+        stack.push(source);
+      }
+    }
+    return found;
   }
 
   /** The node and every node that reads it, directly or not. */
@@ -616,17 +673,24 @@ export class Runtime {
   }
 
   /**
-   * One chunk in plan order. Nodes outside `only` aren't queried: they replay
-   * what they emitted the first time. Without `emit` the chunk only advances
-   * state and delay inputs.
+   * One chunk in plan order. In a re-run (`scope`), nodes outside `scope.only`
+   * replay what they emitted the first time; those in `scope.follow` are also
+   * queried, for their state only. Without `emit` the chunk only advances state
+   * and delay inputs.
    */
-  private runChunk(c0: number, c1: number, only: ReadonlySet<string> | null, emit: Emit | null): number {
+  private runChunk(c0: number, c1: number, scope: Scope | null, emit: Emit | null): number {
     const outputs = new Map<string, PortEvents>();
     let queries = 0;
     for (const node of this.plan.order) {
       const { id, definition } = node;
-      if (only && !only.has(id)) {
+      if (scope && !scope.only.has(id)) {
         outputs.set(id, this.emittedIn(id, c0, c1));
+        if (scope.follow.has(id) && definition.query) {
+          queries++;
+          this.counters.queries++;
+          const inputs = definition.delay ? (this.delayInputs.get(id) ?? {}) : this.gatherInputs(id, outputs);
+          definition.query({ ...this.contexts.get(id)!, inputs, t0: c0, t1: c1 });
+        }
         continue;
       }
       const inputs = definition.delay ? (this.delayInputs.get(id) ?? {}) : this.gatherInputs(id, outputs);
@@ -656,7 +720,7 @@ export class Runtime {
     }
     // Delay nodes get this chunk's inputs in the next chunk (or the next query).
     for (const node of this.plan.order) {
-      if (node.definition.delay && (!only || only.has(node.id))) this.delayInputs.set(node.id, this.gatherInputs(node.id, outputs));
+      if (node.definition.delay && (!scope || scope.only.has(node.id) || scope.follow.has(node.id))) this.delayInputs.set(node.id, this.gatherInputs(node.id, outputs));
     }
     return queries;
   }
@@ -686,33 +750,34 @@ export class Runtime {
     const ports = new Set([...Object.keys(inputs), ...(this.sent.get(id)?.keys() ?? [])]);
     for (const port of ports) {
       const before = this.sent.get(id)?.get(port) ?? [];
-      const old = new Map<string, Sent[]>();
-      const outside: Sent[] = [];
-      for (const s of before) {
-        if (s.event.time >= c0 && s.event.time < c1) {
-          const key = JSON.stringify(s.event);
-          old.set(key, [...(old.get(key) ?? []), s]);
-        } else outside.push(s);
-      }
+      const old: Sent[] = [];
+      const kept: Sent[] = [];
+      for (const s of before) (s.event.time >= c0 && s.event.time < c1 ? old : kept).push(s);
       const added: EngineEvent[] = [];
       for (const event of inputs[port] ?? []) {
-        const match = old.get(JSON.stringify(event));
-        if (match?.length) outside.push(match.shift()!);
+        const match = old.findIndex((s) => sameEvent(s.event, event));
+        if (match >= 0) kept.push(...old.splice(match, 1));
         else added.push(event);
       }
-      this.sent.get(id)?.set(port, outside);
-      const withdrawn = [...old.values()].flat().map((s) => s.sent);
+      this.sent.get(id)?.set(port, kept);
+      const withdrawn = old.map((s) => s.sent);
       if (withdrawn.length) {
         if (instance.cancel) {
           instance.cancel(port, withdrawn);
           this.counters.cancelled += withdrawn.length;
-        } else this.counters.uncancelled += withdrawn.length;
+        } else {
+          this.counters.uncancelled += withdrawn.length;
+          if (!this.warned.has(id)) {
+            this.warned.add(id);
+            this.onWarning?.(`audio node "${id}" has schedule() but no cancel(): a live event replaced ${withdrawn.length} event(s) it can't withdraw, so they will still play`);
+          }
+        }
       }
       if (added.length) this.send(id, instance, port, added, emit.timing);
     }
   }
 
-  private send(id: string, instance: AudioInstance, port: string, events: readonly EngineEvent[], timing: DeliveryTiming | undefined): void {
+  private send(id: string, instance: AudioInstance, port: string, events: readonly EngineEvent[], timing: RewindTiming | undefined): void {
     const sent = events.map((event) => this.timed(event, timing));
     instance.schedule!(port, sent);
     this.counters.delivered += sent.length;
@@ -725,7 +790,7 @@ export class Runtime {
   }
 
   /** The time an audio node gets: moved by a catch-up, never before currentTime. */
-  private timed(event: EngineEvent, timing: DeliveryTiming | undefined): EngineEvent {
+  private timed(event: EngineEvent, timing: RewindTiming | undefined): EngineEvent {
     if (!timing) return event;
     let time = event.time;
     if (timing.catchUp && time < timing.catchUp.until) {
@@ -734,7 +799,7 @@ export class Runtime {
     }
     if (!(time >= timing.now)) {
       time = timing.now;
-      if (timing.path === 'immediate') this.counters.lateImmediate++;
+      if (timing.path === 'immediate' || event.time === timing.immediateAt) this.counters.lateImmediate++;
       else this.counters.lateScheduled++;
     }
     return time === event.time ? event : { ...event, time };
@@ -758,19 +823,36 @@ export class Runtime {
 
   private snapshotStates(): Map<string, NodeState> {
     const states = new Map<string, NodeState>();
-    for (const node of this.plan.order) if (node.definition.query) states.set(node.id, clonePlain(this.states.get(node.id)!, `node "${node.id}" state`));
+    for (const node of this.plan.order) {
+      const state = this.snapshotOf(node.id);
+      if (state) states.set(node.id, state);
+    }
     return states;
+  }
+
+  /** A copy of a query node's state, or null when it has none (or is empty: restoring then empties it). */
+  private snapshotOf(id: string): NodeState | null {
+    if (!this.plan.order[this.position.get(id)!]!.definition.query) return null;
+    const state = this.states.get(id)!;
+    for (const _ in state) {
+      this.counters.snapshots++;
+      return clonePlain(state, `node "${id}" state`);
+    }
+    return null;
   }
 
   private snapshotDelays(): Map<string, PortEvents> {
     const delays = new Map<string, PortEvents>();
-    for (const [id, inputs] of this.delayInputs) delays.set(id, clonePlain(inputs, `node "${id}" delay inputs`));
+    for (const [id, inputs] of this.delayInputs) {
+      if (!Object.values(inputs).some((events) => events.length)) continue;
+      this.counters.snapshots++;
+      delays.set(id, clonePlain(inputs, `node "${id}" delay inputs`));
+    }
     return delays;
   }
 
   private restore(id: string, window: WindowRecord): void {
-    const state = window.states.get(id);
-    if (state) restoreState(this.states.get(id)!, state);
+    if (this.plan.order[this.position.get(id)!]!.definition.query) restoreState(this.states.get(id)!, window.states.get(id) ?? {});
     const held = window.delayInputs.get(id);
     if (held) this.delayInputs.set(id, clonePlain(held));
     else this.delayInputs.delete(id);
@@ -778,9 +860,11 @@ export class Runtime {
 
   private resnapshot(window: WindowRecord, affected: ReadonlySet<string>): void {
     for (const id of affected) {
-      if (window.states.has(id)) window.states.set(id, clonePlain(this.states.get(id)!, `node "${id}" state`));
+      const state = this.snapshotOf(id);
+      if (state) window.states.set(id, state);
+      else window.states.delete(id);
       const held = this.delayInputs.get(id);
-      if (held) window.delayInputs.set(id, clonePlain(held));
+      if (held && Object.values(held).some((events) => events.length)) window.delayInputs.set(id, clonePlain(held));
       else window.delayInputs.delete(id);
     }
   }
@@ -828,4 +912,12 @@ export class Runtime {
     if (!pending) this.pendingFrames.set(id, (pending = new Map()));
     for (const [port, events] of Object.entries(inputs)) pending.set(port, [...(pending.get(port) ?? []), ...events]);
   }
+}
+
+/** Same time, channel and fields, whatever their order. NaN equals NaN; nothing else is coerced. */
+function sameEvent(a: EngineEvent, b: EngineEvent): boolean {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const key of keys) if (!Object.hasOwn(b, key) || !Object.is(a[key], b[key])) return false;
+  return true;
 }
