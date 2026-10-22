@@ -119,13 +119,10 @@ describe('octave ranges (from Flow checks/octaves.test.mjs)', () => {
             expect(notes.length).toBeGreaterThanOrEqual(3);
             expect(new Set(notes).size).toBe(notes.length);
             expect(notes.every((n, i) => Number.isInteger(n) && n >= 0 && n <= 127 && classes.has(n % 12) && (i === 0 || n > notes[i - 1]!)), `${symbol} ${shift} ${down}/${up}`).toBe(true);
-            let previous = -1;
-            for (let i = 0; i <= 100; i++) {
-              const n = pitchForPosition(base, i / 100, range)!;
-              expect(n).toBeGreaterThanOrEqual(previous);
-              expect(notes).toContain(n);
-              previous = n;
-            }
+            // One assertion per sweep: hundreds of thousands of expect() calls time out on CI.
+            const swept = Array.from({ length: 101 }, (_, i) => pitchForPosition(base, i / 100, range));
+            const bad = swept.filter((n, i) => n === null || !notes.includes(n) || (i > 0 && n < swept[i - 1]!));
+            expect(bad, `${symbol} ${shift} ${down}/${up} sweep`).toEqual([]);
             expect(pitchForPosition(base, 0, range)).toBe(notes[0]);
             expect(pitchForPosition(base, 1, range)).toBe(notes.at(-1));
             cases++;
