@@ -1,4 +1,5 @@
 import type { NodeDefinition } from '@flow-patcher/engine';
+import { chordTone } from './chord-tone';
 import { clock } from './clock';
 import { delayEdge } from './delay-edge';
 import { euclidean } from './euclidean';
@@ -7,13 +8,14 @@ import { makeNote } from './make-note';
 import { output } from './output';
 import { pointer } from './pointer';
 import { probability } from './probability';
+import { progression } from './progression';
 import { sampleAndHold } from './sample-and-hold';
 import { simpleSynth } from './simple-synth';
 import { thresholdChange } from './threshold-change';
 
-export { clock, delayEdge, euclidean, fluid, makeNote, output, pointer, probability, sampleAndHold, simpleSynth, thresholdChange };
+export { chordTone, clock, delayEdge, euclidean, fluid, makeNote, output, pointer, probability, progression, sampleAndHold, simpleSynth, thresholdChange };
 
 /** Every node type, in palette order. Add new node files here. */
-export const nodeDefinitions: readonly NodeDefinition[] = [pointer, clock, euclidean, probability, delayEdge, sampleAndHold, thresholdChange, makeNote, simpleSynth, output, fluid];
+export const nodeDefinitions: readonly NodeDefinition[] = [pointer, clock, euclidean, probability, delayEdge, sampleAndHold, thresholdChange, progression, chordTone, makeNote, simpleSynth, output, fluid];
 
 export const nodeRegistry: ReadonlyMap<string, NodeDefinition> = new Map(nodeDefinitions.map((d) => [d.type, d]));
