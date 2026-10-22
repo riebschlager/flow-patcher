@@ -9,7 +9,7 @@ import { context, query, type ContextOptions } from './helpers';
 function clockInstance(params: Record<string, unknown> = {}) {
   const ctx = context(clock, { params });
   return {
-    query: (t0: number, t1: number) => clock.query!({ ...ctx, inputs: {}, t0, t1 }).tick ?? [],
+    query: (t0: number, t1: number) => clock.query!({ ...ctx, inputs: {}, pushed: {}, t0, t1 }).tick ?? [],
     beat: (t: number) => clock.value!(ctx, 'transport', t) as number,
   };
 }

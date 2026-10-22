@@ -67,7 +67,7 @@ describe('chord-tone node', () => {
 
   it('is independent of windowing, fed by a real Clock and Progression', () => {
     const clockCtx = context(clock, { params: { bpm: 150, division: '1/16' } });
-    const tick = clock.query!({ ...clockCtx, inputs: {}, t0: 0, t1: 10 }).tick!;
+    const tick = clock.query!({ ...clockCtx, inputs: {}, pushed: {}, t0: 0, t1: 10 }).tick!;
     const transport = (t: number) => clock.value!(clockCtx, 'transport', t);
     const progCtx = context(progression, { params: { chords: 'Dm9, G9, Cmaj9, Am9', beats: 2 }, values: { transport } });
     const values = { chord: (t: number) => progression.value!(progCtx, 'chord', t) };
