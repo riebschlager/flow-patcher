@@ -5,6 +5,7 @@ export * from './definition';
 export * from './events';
 export * from './fluid/fluid';
 export * from './fluid/viewport';
+export * from './limits';
 export * from './patch';
 export * from './render/fluid-renderer';
 export * from './render/palettes';

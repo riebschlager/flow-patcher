@@ -8,8 +8,9 @@
 //
 // `Runtime` evaluates a plan: window queries, frames, audio setup, and the
 // rewind and re-query of live events (ADR 0019). It keeps no clock; the
-// Scheduler (scheduler.ts) decides which windows to query and when. Hot
-// patching and runtime limits are still to come.
+// Scheduler (scheduler.ts) decides which windows to query and when. It also
+// enforces the event caps (limits.ts, ADR 0011) and keeps the per-node
+// warnings they raise. Hot patching is still to come.
 import type { AudioContextLike } from './audio/types';
 import { createNodeContext, type BoundContext, type NodeWiring } from './context';
 import {
@@ -24,6 +25,7 @@ import {
   type PortSpec,
 } from './definition';
 import { compareEvents, type EngineEvent, type EventField } from './events';
+import { LIMIT_WINDOW, limitWindowOf, NODE_EVENT_LIMIT, PATCH_EVENT_LIMIT, WARNING_KINDS, type NodeWarning, type NodeWarningKind } from './limits';
 import type { Patch, PortRef } from './patch';
 import { clonePlain, restoreState } from './state';
 
@@ -334,6 +336,11 @@ export interface RuntimeCounters {
   uncancelled: number;
   /** Events a node returned outside its query window, dropped. */
   outOfWindow: number;
+  /** Events dropped because their node passed NODE_EVENT_LIMIT in a limit window.
+   *  Net of rewinds: a re-run takes back what it re-runs before counting again. */
+  droppedNodeLimit: number;
+  /** Events dropped because the patch passed PATCH_EVENT_LIMIT in a limit window. Net of rewinds too. */
+  droppedPatchLimit: number;
   /** Node queries made, re-runs included. */
   queries: number;
   /** Node states (and delay inputs) copied into window snapshots. Empty states aren't copied. */
@@ -378,6 +385,22 @@ interface WindowRecord {
   states: Map<string, NodeState>;
   /** Copies of the inputs each delay node was holding as the window began. */
   delayInputs: Map<string, PortEvents>;
+  /** Each node's cap counts in the limit window `t0` falls in, as the window began; zeros left out. */
+  counts: Map<string, LimitCount>;
+}
+
+/** One node's events in one limit window. */
+interface LimitCount {
+  /** Within NODE_EVENT_LIMIT: what the node cap let through. */
+  admitted: number;
+  /** Also within PATCH_EVENT_LIMIT: what the node emitted. */
+  kept: number;
+}
+
+/** An event a cap dropped, kept with history so a rewind can take it back. */
+interface Drop {
+  time: number;
+  kind: 'node-event-limit' | 'patch-event-limit';
 }
 
 /** An event handed to an audio node: as computed, and as sent (maybe moved later). */
@@ -410,7 +433,7 @@ interface Emit {
 
 export class Runtime {
   readonly plan: Plan;
-  readonly counters: RuntimeCounters = { delivered: 0, caughtUp: 0, lateScheduled: 0, lateImmediate: 0, cancelled: 0, uncancelled: 0, outOfWindow: 0, queries: 0, snapshots: 0, snapshotMs: 0 };
+  readonly counters: RuntimeCounters = { delivered: 0, caughtUp: 0, lateScheduled: 0, lateImmediate: 0, cancelled: 0, uncancelled: 0, outOfWindow: 0, droppedNodeLimit: 0, droppedPatchLimit: 0, queries: 0, snapshots: 0, snapshotMs: 0 };
   private readonly states = new Map<string, NodeState>();
   private readonly contexts = new Map<string, BoundContext>();
   private readonly audio = new Map<string, AudioInstance>();
@@ -437,10 +460,20 @@ export class Runtime {
   private readonly sent = new Map<string, Map<string, Sent[]>>();
   private end: number | null = null;
   private wallTime: (() => number) | null = null;
-  /** Called once per problem a node causes at run time, such as an audio node with no cancel(). The host logs it. */
-  onWarning: ((message: string) => void) | null = null;
-  /** Audio nodes already warned about having no cancel(). */
-  private readonly warned = new Set<string>();
+  /** Each node's cap counts per limit window (by `limitWindowOf`). Only windows
+   *  a query or rewind can still reach are held. */
+  private readonly counts = new Map<string, Map<number, LimitCount>>();
+  /** What the caps dropped per node since the oldest retained window; only with history. */
+  private readonly drops = new Map<string, Drop[]>();
+  /** Current warnings per node id and kind. */
+  private readonly nodeWarnings = new Map<string, Map<NodeWarningKind, NodeWarning>>();
+  private version = 0;
+  /**
+   * Called when a node first raises a kind of warning (again after
+   * `clearWarnings`), such as passing an event cap or an audio node with no
+   * cancel(). The host logs it; the editor reads `warnings()` instead.
+   */
+  onWarning: ((message: string, warning: NodeWarning) => void) | null = null;
 
   constructor(plan: Plan, options: RuntimeOptions = {}) {
     this.plan = plan;
@@ -450,6 +483,7 @@ export class Runtime {
       this.position.set(node.id, i);
       this.outPosition.set(node.id, new Map(portsOf(node.definition, 'out').map((p, j) => [p.name, j])));
       this.readers.set(node.id, new Set());
+      this.counts.set(node.id, new Map());
     }
     for (const [target, links] of plan.incoming) {
       for (const link of [...links.events, ...links.signals, ...links.values, ...links.params]) this.readers.get(link.from.node)?.add(target);
@@ -476,6 +510,38 @@ export class Runtime {
   }
 
   /**
+   * Current warnings, for the editor to show on each node: every node's, or
+   * one node's, in plan order and then kind order. Copies; poll
+   * `warningsVersion` to see when they change.
+   */
+  warnings(nodeId?: string): NodeWarning[] {
+    const ids = nodeId === undefined ? this.plan.order.map((n) => n.id) : [nodeId];
+    const out: NodeWarning[] = [];
+    for (const id of ids) {
+      const kinds = this.nodeWarnings.get(id);
+      if (!kinds) continue;
+      for (const kind of WARNING_KINDS) {
+        const warning = kinds.get(kind);
+        if (warning) out.push({ ...warning });
+      }
+    }
+    return out;
+  }
+
+  /** Goes up whenever a warning is raised, changes or is cleared. */
+  get warningsVersion(): number {
+    return this.version;
+  }
+
+  /** Forgets one node's warnings, or every node's (the editor's dismiss). One that happens again is raised again. */
+  clearWarnings(nodeId?: string): void {
+    const had = nodeId === undefined ? this.nodeWarnings.size > 0 : this.nodeWarnings.has(nodeId);
+    if (nodeId === undefined) this.nodeWarnings.clear();
+    else this.nodeWarnings.delete(nodeId);
+    if (had) this.version++;
+  }
+
+  /**
    * Runs every Event node over [t0, t1) and returns the events in log order.
    * A window wider than `plan.maxWindow` runs as consecutive chunks no wider
    * than it, so delay nodes see their inputs one chunk late but never late
@@ -485,9 +551,12 @@ export class Runtime {
   query(t0: number, t1: number, timing?: DeliveryTiming): LoggedEvent[] {
     if (this.history && t1 > t0) {
       const started = this.wallTime?.();
-      this.history.push({ t0, t1, states: this.snapshotStates(), delayInputs: this.snapshotDelays() });
+      this.history.push({ t0, t1, states: this.snapshotStates(), delayInputs: this.snapshotDelays(), counts: this.snapshotCounts(t0) });
       if (started !== undefined) this.counters.snapshotMs += this.wallTime!() - started;
     }
+    // Counts in limit windows nothing can query or rewind into any more.
+    const reach = limitWindowOf(this.history?.[0]?.t0 ?? t0);
+    for (const counts of this.counts.values()) for (const k of counts.keys()) if (k < reach) counts.delete(k);
     const log: LoggedEvent[] = [];
     this.forChunks(t0, t1, (a, b) => this.runChunk(a, b, null, { log, timing }));
     if (this.end === null || t1 > this.end) this.end = t1;
@@ -540,6 +609,7 @@ export class Runtime {
     const from = history[0]!.t0;
     for (const ports of this.emitted.values()) for (const [port, events] of ports) ports.set(port, events.filter((e) => e.time >= from));
     for (const ports of this.sent.values()) for (const [port, sent] of ports) ports.set(port, sent.filter((s) => s.event.time >= from));
+    for (const [id, drops] of this.drops) this.drops.set(id, drops.filter((d) => d.time >= from));
     let drop = 0;
     while (drop < this.injected.length && this.injected[drop]!.event.time < from) drop++;
     this.injected.splice(0, drop);
@@ -607,6 +677,8 @@ export class Runtime {
     const scope: Scope = { only: affected, follow: followed };
 
     for (const id of [...affected, ...followed]) this.restore(id, start);
+    // The re-run counts the affected nodes' events against the caps again, from the snapshot's count.
+    for (const id of affected) this.restoreCounts(id, start);
     // Forget what the affected nodes emitted and queued for frames from t on; the re-run replaces it.
     let removed = 0;
     for (const id of affected) {
@@ -616,6 +688,7 @@ export class Runtime {
         this.emitted.get(id)!.set(port, kept);
       }
       for (const [port, events] of this.pendingFrames.get(id) ?? []) this.pendingFrames.get(id)!.set(port, events.filter((e) => e.time < t));
+      this.undoDrops(id, t);
     }
 
     // Re-run deliveries are all at or after t >= timing.now (push refuses earlier), so none
@@ -630,6 +703,16 @@ export class Runtime {
       // Replay up to t to rebuild state; what it emits was already scheduled or played.
       if (split > window.t0) queries += this.forChunks(window.t0, split, (a, b) => this.runChunk(a, b, scope, null));
       if (window.t1 > split) queries += this.forChunks(split, window.t1, (a, b) => this.runChunk(a, b, scope, emit));
+    }
+    // A cap warning whose drops the re-run no longer makes goes away.
+    for (const id of affected) {
+      const kinds = this.nodeWarnings.get(id);
+      for (const kind of ['node-event-limit', 'patch-event-limit'] as const) {
+        if (kinds?.get(kind)?.count === 0) {
+          kinds.delete(kind);
+          this.version++;
+        }
+      }
     }
     return { time: t, from: start.t0, to: history.at(-1)!.t1, affected, followed, queries, removed, added: this.sortLog(emit.log) };
   }
@@ -707,6 +790,7 @@ export class Runtime {
         if (from === id && event.time >= c0 && event.time < c1) (result[port] ??= []).push(event);
       }
       for (const events of Object.values(result)) events.sort(compareEvents);
+      this.applyLimits(id, result, emit !== null);
       outputs.set(id, result);
       if (!emit) continue;
       for (const [port, events] of Object.entries(result)) for (const event of events) emit.log.push({ node: id, port, ...event });
@@ -763,10 +847,8 @@ export class Runtime {
           this.counters.cancelled += withdrawn.length;
         } else {
           this.counters.uncancelled += withdrawn.length;
-          if (!this.warned.has(id)) {
-            this.warned.add(id);
-            this.onWarning?.(`audio node "${id}" has schedule() but no cancel(): a live event replaced ${withdrawn.length} event(s) it can't withdraw, so they will still play`);
-          }
+          this.warn(id, 'no-cancel', withdrawn.length, Math.max(...withdrawn.map((e) => e.time)),
+            `audio node "${id}" has schedule() but no cancel(): events a live event replaced can't be withdrawn, so they still play`);
         }
       }
       if (added.length) this.send(id, instance, port, added, emit.timing);
@@ -837,6 +919,15 @@ export class Runtime {
     return null;
   }
 
+  private snapshotCounts(t0: number): Map<string, LimitCount> {
+    const k = limitWindowOf(t0), snapshot = new Map<string, LimitCount>();
+    for (const [id, counts] of this.counts) {
+      const count = counts.get(k);
+      if (count) snapshot.set(id, { ...count });
+    }
+    return snapshot;
+  }
+
   private snapshotDelays(): Map<string, PortEvents> {
     const delays = new Map<string, PortEvents>();
     for (const [id, inputs] of this.delayInputs) {
@@ -854,8 +945,137 @@ export class Runtime {
     else this.delayInputs.delete(id);
   }
 
+  /** Sets a node's cap counts back to a window's start. */
+  private restoreCounts(id: string, window: WindowRecord): void {
+    const counts = this.counts.get(id)!, from = limitWindowOf(window.t0);
+    for (const k of counts.keys()) if (k >= from) counts.delete(k);
+    const count = window.counts.get(id);
+    if (count) counts.set(from, { ...count });
+  }
+
+  /**
+   * The event caps (limits.ts): keeps the node's first events in each limit
+   * window, in log order across its output ports, up to NODE_EVENT_LIMIT for
+   * the node and PATCH_EVENT_LIMIT for the patch, and drops the rest from
+   * `result` in place. `counted`: record the drops (a replay only rebuilds the counts).
+   */
+  private applyLimits(id: string, result: PortEvents, counted: boolean): void {
+    const ports = Object.keys(result);
+    if (!ports.length) return;
+    const counts = this.counts.get(id)!;
+    // The usual case: one limit window, far from both caps. Just count.
+    let n = 0, first = Infinity, last = -Infinity;
+    for (const port of ports) {
+      const events = result[port]!;
+      n += events.length;
+      first = Math.min(first, events[0]!.time);
+      last = Math.max(last, events.at(-1)!.time);
+    }
+    const only = limitWindowOf(first);
+    if (only === limitWindowOf(last)) {
+      const count = counts.get(only) ?? { admitted: 0, kept: 0 };
+      let patch = 0;
+      for (const other of this.counts.values()) patch += other.get(only)?.kept ?? 0;
+      if (count.admitted + n <= NODE_EVENT_LIMIT && patch + n <= PATCH_EVENT_LIMIT) {
+        count.admitted += n;
+        count.kept += n;
+        counts.set(only, count);
+        return;
+      }
+    }
+    const outPosition = this.outPosition.get(id)!;
+    const all: { port: string; event: EngineEvent; keep: boolean }[] = [];
+    for (const port of ports) for (const event of result[port]!) all.push({ port, event, keep: true });
+    // Stable, so events a port gave in one order keep it.
+    all.sort((a, b) => compareEvents(a.event, b.event) || (outPosition.get(a.port) ?? Infinity) - (outPosition.get(b.port) ?? Infinity));
+    let window = NaN, count: LimitCount = { admitted: 0, kept: 0 }, patch = 0, dropped = false;
+    for (const item of all) {
+      const k = limitWindowOf(item.event.time);
+      if (k !== window) {
+        window = k;
+        count = counts.get(k) ?? { admitted: 0, kept: 0 };
+        counts.set(k, count);
+        patch = 0;
+        for (const other of this.counts.values()) patch += other.get(k)?.kept ?? 0;
+      }
+      // The node cap counts what it let through, whatever the patch cap then did,
+      // so it depends on the node's own events only.
+      let kind: Drop['kind'] | null = 'node-event-limit';
+      if (count.admitted < NODE_EVENT_LIMIT) {
+        count.admitted++;
+        kind = patch < PATCH_EVENT_LIMIT ? null : 'patch-event-limit';
+      }
+      if (!kind) {
+        count.kept++;
+        patch++;
+        continue;
+      }
+      item.keep = false;
+      dropped = true;
+      if (counted) this.recordDrop(id, item.event.time, kind);
+    }
+    if (!dropped) return;
+    for (const port of ports) delete result[port];
+    for (const { port, event, keep } of all) if (keep) (result[port] ??= []).push(event);
+  }
+
+  private recordDrop(id: string, time: number, kind: Drop['kind']): void {
+    if (kind === 'node-event-limit') this.counters.droppedNodeLimit++;
+    else this.counters.droppedPatchLimit++;
+    if (this.history) {
+      let drops = this.drops.get(id);
+      if (!drops) this.drops.set(id, (drops = []));
+      drops.push({ time, kind });
+    }
+    const ms = Math.round(LIMIT_WINDOW * 1000);
+    this.warn(id, kind, 1, time, kind === 'node-event-limit'
+      ? `node "${id}" emitted more than ${NODE_EVENT_LIMIT} events in a ${ms} ms window; the excess was dropped`
+      : `the patch emitted more than ${PATCH_EVENT_LIMIT} events in a ${ms} ms window; node "${id}" lost events past that`);
+  }
+
+  /** A rewind re-runs a node from `t`: take back the drops it made from then on, since the re-run makes its own. */
+  private undoDrops(id: string, t: number): void {
+    const drops = this.drops.get(id);
+    if (!drops?.length) return;
+    const kept: Drop[] = [];
+    for (const drop of drops) {
+      if (drop.time < t) {
+        kept.push(drop);
+        continue;
+      }
+      if (drop.kind === 'node-event-limit') this.counters.droppedNodeLimit--;
+      else this.counters.droppedPatchLimit--;
+      // Left at zero for the re-run to add to; the rewind clears what stays at zero.
+      const warning = this.nodeWarnings.get(id)?.get(drop.kind);
+      if (!warning) continue;
+      warning.count--;
+      this.version++;
+    }
+    this.drops.set(id, kept);
+  }
+
+  /** Raises or adds to a node's warning; the host hears about it the first time. */
+  private warn(id: string, kind: NodeWarningKind, count: number, time: number, message: string): void {
+    let kinds = this.nodeWarnings.get(id);
+    if (!kinds) this.nodeWarnings.set(id, (kinds = new Map()));
+    const warning = kinds.get(kind);
+    this.version++;
+    if (warning) {
+      warning.count += count;
+      warning.time = Math.max(warning.time, time);
+      return;
+    }
+    const raised: NodeWarning = { node: id, kind, message, count, time };
+    kinds.set(kind, raised);
+    this.onWarning?.(message, { ...raised });
+  }
+
   private resnapshot(window: WindowRecord, affected: ReadonlySet<string>): void {
+    const k = limitWindowOf(window.t0);
     for (const id of affected) {
+      const count = this.counts.get(id)!.get(k);
+      if (count) window.counts.set(id, { ...count });
+      else window.counts.delete(id);
       const state = this.snapshotOf(id);
       if (state) window.states.set(id, state);
       else window.states.delete(id);
