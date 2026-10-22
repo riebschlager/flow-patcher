@@ -1,0 +1,140 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261022,
+  "nodes": [
+    {
+      "id": "clock",
+      "type": "clock",
+      "typeVersion": 2,
+      "params": {
+        "bpm": 96,
+        "division": "1/4"
+      },
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "hold",
+      "type": "sample-and-hold",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 240,
+        "y": 100
+      }
+    },
+    {
+      "id": "change",
+      "type": "threshold-change",
+      "typeVersion": 1,
+      "params": {
+        "channels": 1,
+        "direction": "both",
+        "hysteresis": 0.05,
+        "interval": 0.02,
+        "level": 0.5,
+        "mode": "change"
+      },
+      "position": {
+        "x": 480,
+        "y": 100
+      }
+    },
+    {
+      "id": "note",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.2,
+        "pitch": 64,
+        "velocity": 0.7
+      },
+      "position": {
+        "x": 720,
+        "y": 100
+      }
+    },
+    {
+      "id": "synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.005,
+        "level": 0.3,
+        "release": 0.3,
+        "wave": "triangle"
+      },
+      "position": {
+        "x": 960,
+        "y": 100
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 1200,
+        "y": 100
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "clock",
+        "port": "tick"
+      },
+      "to": {
+        "node": "hold",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "hold",
+        "port": "out"
+      },
+      "to": {
+        "node": "change",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "change",
+        "port": "out"
+      },
+      "to": {
+        "node": "note",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "note",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    }
+  ]
+}
