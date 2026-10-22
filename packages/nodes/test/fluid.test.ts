@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { resolveParams } from '@flow-patcher/engine';
 import { FLUID_GRID, fluid } from '../src/fluid';
+import { context } from './helpers';
 
 const params = resolveParams(fluid, {});
 
@@ -11,7 +12,7 @@ describe('fluid node', () => {
 
   it('splats at event positions and renders a grid-sized image', () => {
     const state = {};
-    fluid.frame!({ nodeId: 'f', seed: 1, params, state, inputs: { splat: [{ time: 0, channel: 0, x: 0.25, y: 0.5 }] }, t0: 0, t1: 1 / 60, dt: 1 / 60 });
+    fluid.frame!({ ...context(fluid, { nodeId: 'f', seed: 1, state }), inputs: { splat: [{ time: 0, channel: 0, x: 0.25, y: 0.5 }] }, t0: 0, t1: 1 / 60, dt: 1 / 60 });
     const image = fluid.image!(state, params)!;
     expect([image.width, image.height]).toEqual([FLUID_GRID.w, FLUID_GRID.h]);
     const brightness = (x: number, y: number) => {
@@ -24,7 +25,7 @@ describe('fluid node', () => {
   it('places events without a position deterministically', () => {
     const render = () => {
       const state = {};
-      fluid.frame!({ nodeId: 'f', seed: 7, params, state, inputs: { splat: [{ time: 0.5, channel: 0 }] }, t0: 0, t1: 1 / 60, dt: 1 / 60 });
+      fluid.frame!({ ...context(fluid, { nodeId: 'f', seed: 7, state }), inputs: { splat: [{ time: 0.5, channel: 0 }] }, t0: 0, t1: 1 / 60, dt: 1 / 60 });
       return fluid.image!(state, params)!.pixels;
     };
     expect(render()).toEqual(render());
@@ -32,7 +33,7 @@ describe('fluid node', () => {
 
   it('survives hostile event fields', () => {
     const state = {};
-    fluid.frame!({ nodeId: 'f', seed: 1, params, state, inputs: { splat: [{ time: 0, channel: -3, x: NaN, y: 1e9, index: 2.5 }] }, t0: 0, t1: 1, dt: 1 });
+    fluid.frame!({ ...context(fluid, { nodeId: 'f', seed: 1, state }), inputs: { splat: [{ time: 0, channel: -3, x: NaN, y: 1e9, index: 2.5 }] }, t0: 0, t1: 1, dt: 1 });
     expect(fluid.image!(state, params)!.pixels.every(Number.isFinite)).toBe(true);
   });
 });

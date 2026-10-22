@@ -2,12 +2,13 @@ import { createOutputStage, DEFAULT_MASTER_LEVEL, type NodeDefinition } from '@f
 
 export const output: NodeDefinition = {
   type: 'output',
-  version: 1,
+  version: 2,
   label: 'Output',
   category: 'effects-mix',
   description: 'Makeup gain, limiter, peak guard and master level. Exactly one per patch.',
   ports: [{ name: 'audio', type: 'audio', direction: 'in', label: 'Audio' }],
-  params: [{ name: 'level', kind: 'number', min: 0, max: 1, default: DEFAULT_MASTER_LEVEL, label: 'Level' }],
+  // The master level is set once at setup; modulating it would need AudioParam ramps.
+  params: [{ name: 'level', kind: 'number', min: 0, max: 1, default: DEFAULT_MASTER_LEVEL, label: 'Level', modulatable: false }],
   audio({ audio, params }) {
     const stage = createOutputStage(audio, params.level as number);
     stage.output.connect(audio.destination);

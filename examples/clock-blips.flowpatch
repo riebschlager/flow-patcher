@@ -6,7 +6,7 @@
     {
       "id": "clock",
       "type": "clock",
-      "typeVersion": 1,
+      "typeVersion": 2,
       "params": {
         "bpm": 112,
         "division": "1/8"
@@ -19,7 +19,7 @@
     {
       "id": "maybe",
       "type": "probability",
-      "typeVersion": 1,
+      "typeVersion": 2,
       "params": {
         "chance": 0.6
       },
@@ -31,7 +31,7 @@
     {
       "id": "note",
       "type": "make-note",
-      "typeVersion": 1,
+      "typeVersion": 2,
       "params": {
         "length": 0.2,
         "pitch": 64,
@@ -45,7 +45,7 @@
     {
       "id": "synth",
       "type": "simple-synth",
-      "typeVersion": 1,
+      "typeVersion": 2,
       "params": {
         "attack": 0.005,
         "level": 0.3,
@@ -60,7 +60,7 @@
     {
       "id": "out",
       "type": "output",
-      "typeVersion": 1,
+      "typeVersion": 2,
       "params": {
         "level": 0.7
       },

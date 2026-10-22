@@ -18,7 +18,11 @@ export interface PortSpec {
   type: PortType;
   direction: 'in' | 'out';
   label?: string;
+  /** Field ports only: a Write output feeds only a Writers input. Default 'fluid'. */
+  fieldKind?: FieldKind;
 }
+
+export type FieldKind = 'fluid' | 'write';
 
 export interface NumberParamSpec {
   name: string;
@@ -30,6 +34,8 @@ export interface NumberParamSpec {
   label?: string;
   /** Integer-valued knob. */
   step?: number;
+  /** Cables into this param add depth × signal to the knob. Default true. */
+  modulatable?: boolean;
 }
 
 export interface EnumParamSpec {
@@ -47,34 +53,61 @@ export interface ToggleParamSpec {
   label?: string;
 }
 
-export type ParamSpec = NumberParamSpec | EnumParamSpec | ToggleParamSpec;
+/** Free text, such as a chord string. The preset menu is derived from the text (`presetFor`). */
+export interface TextParamSpec {
+  name: string;
+  kind: 'text';
+  default: string;
+  label?: string;
+  /** Menu label → text it fills in. */
+  presets?: Readonly<Record<string, string>>;
+  /** An error message for unusable text, or null. The text is stored either way. */
+  check?(text: string): string | null;
+}
+
+export type ParamSpec = NumberParamSpec | EnumParamSpec | ToggleParamSpec | TextParamSpec;
 export type ParamValue = number | string | boolean;
 export type ParamValues = Readonly<Record<string, ParamValue>>;
 
 /** Per-instance state. The engine keeps it while the node id survives an edit. */
 export type NodeState = Record<string, unknown>;
 
-interface BaseContext {
+/** What a node sees in every hook: its params, state and the cables into it. */
+export interface NodeContext {
   readonly nodeId: string;
   /** Patch seed. Use with `randomAt` from the engine; never Math.random. */
   readonly seed: number;
+  /** Base (knob) values; `param()` adds modulation. */
   readonly params: ParamValues;
   readonly state: NodeState;
+  /** Sum of the Signal cables into `port` at time t; 0 when unconnected. */
+  signal(port: string, t: number, channel?: number): number;
+  /** The Value on `port` at time t; undefined when unconnected. */
+  value(port: string, t: number): unknown;
+  /** A number param at time t: base + Σ depth × cable, clamped like the knob. NaN for non-number params. */
+  param(name: string, t: number, channel?: number): number;
+  /** True when a cable feeds this input port or param. */
+  connected(port: string): boolean;
+}
+
+interface EventContext extends NodeContext {
   /** Events that arrived on each input port, in time order. */
   readonly inputs: Readonly<Record<string, readonly EngineEvent[]>>;
 }
 
 /** A window query covers the half-open interval [t0, t1) on the audio clock. */
-export interface QueryContext extends BaseContext {
+export interface QueryContext extends EventContext {
   readonly t0: number;
   readonly t1: number;
 }
 
 /** A visual frame covers [t0, t1) on the audio clock; `dt` is the frame step in seconds. */
-export interface FrameContext extends BaseContext {
+export interface FrameContext extends EventContext {
   readonly t0: number;
   readonly t1: number;
   readonly dt: number;
+  /** The shared object behind each Field cable into `port`, in patch order. */
+  fields(port: string): readonly unknown[];
 }
 
 export type QueryResult = Partial<Record<string, EngineEvent[]>>;
@@ -92,6 +125,8 @@ export interface AudioSetupContext {
   readonly audio: AudioContextLike;
   readonly params: ParamValues;
   readonly state: NodeState;
+  /** See `NodeContext.param`; sample it at note time inside `schedule`. */
+  param(name: string, t: number, channel?: number): number;
 }
 
 export interface NodeImage {
@@ -113,6 +148,12 @@ export interface NodeDefinition {
   params: readonly ParamSpec[];
   /** Event and Note outputs. Pure: the same inputs and window give the same events. */
   query?(ctx: QueryContext): QueryResult;
+  /** Signal outputs: a pure function of time per channel, sampled at event times. */
+  signal?(ctx: NodeContext, port: string, t: number, channel: number): number;
+  /** Value outputs: valid for any t this node has been queried up to. */
+  value?(ctx: NodeContext, port: string, t: number): unknown;
+  /** Field outputs: the object shared by reference with every reader. */
+  field?(ctx: NodeContext, port: string): unknown;
   /** Visual nodes: runs once per animation frame. */
   frame?(ctx: FrameContext): void;
   /** Audio nodes: builds the Web Audio graph for one instance. */
@@ -137,8 +178,22 @@ export function resolveParam(spec: ParamSpec, value: unknown): ParamValue {
       return typeof value === 'string' && spec.options.includes(value) ? value : spec.default;
     case 'toggle':
       return typeof value === 'boolean' ? value : spec.default;
+    case 'text':
+      return typeof value === 'string' ? value : spec.default;
   }
 }
+
+export const CUSTOM_PRESET = 'Custom';
+
+/** The preset menu entry for a text: the preset whose text matches, else Custom. */
+export function presetFor(spec: TextParamSpec, text: string): string {
+  for (const [label, preset] of Object.entries(spec.presets ?? {})) if (preset === text) return label;
+  return CUSTOM_PRESET;
+}
+
+/** Cables into a param are allowed on number params unless they opt out. */
+export const isModulatable = (spec: ParamSpec | undefined): spec is NumberParamSpec =>
+  spec?.kind === 'number' && spec.modulatable !== false;
 
 export function resolveParams(definition: NodeDefinition, values: Readonly<Record<string, unknown>>): ParamValues {
   return Object.fromEntries(definition.params.map((spec) => [spec.name, resolveParam(spec, values[spec.name])]));
