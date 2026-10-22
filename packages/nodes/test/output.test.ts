@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { OUTPUT_CEILING, resolveParams } from '@flow-patcher/engine';
+import { OUTPUT_CEILING } from '@flow-patcher/engine';
 import { output } from '../src';
 import { blockLoudness, peak, renderOffline } from '../../../tools/lib/audio';
+import { audioSetup } from './helpers';
 
 function render(level: number, gain: number) {
   return renderOffline(0.5, (context) => {
-    const instance = output.audio!({ audio: context, params: resolveParams(output, { level }), state: {} });
+    const instance = output.audio!(audioSetup(output, context, { params: { level } }));
     const osc = context.createOscillator(), amp = context.createGain();
     amp.gain.value = gain;
     osc.connect(amp);

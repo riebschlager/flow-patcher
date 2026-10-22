@@ -2,7 +2,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { compilePatch, parsePatch, serializePatch, type Patch } from '@flow-patcher/engine';
+import { compilePatch, CUSTOM_PRESET, parsePatch, serializePatch, type Patch } from '@flow-patcher/engine';
 import { nodeDefinitions, nodeRegistry } from '../src';
 import { ROOT } from '../../../test-support/golden';
 
@@ -44,8 +44,17 @@ describe('node catalog', () => {
             expect(param.default).toBeLessThanOrEqual(param.max);
           } else if (param.kind === 'enum') {
             expect(param.options).toContain(param.default);
+          } else if (param.kind === 'text') {
+            expect(typeof param.default).toBe('string');
+            for (const text of [param.default, ...Object.values(param.presets ?? {})]) expect(param.check?.(text) ?? null, `${param.name}: "${text}"`).toBeNull();
+            expect(Object.keys(param.presets ?? {})).not.toContain(CUSTOM_PRESET);
           }
         }
+      });
+
+      it('names no param like an input port, so a cable into a param is unambiguous', () => {
+        const inputs = definition.ports.filter((p) => p.direction === 'in').map((p) => p.name);
+        expect(definition.params.map((p) => p.name).filter((name) => inputs.includes(name))).toEqual([]);
       });
 
       it('has a unit test', () => {

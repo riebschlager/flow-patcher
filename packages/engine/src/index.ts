@@ -1,5 +1,6 @@
 export * from './audio/output';
 export type * from './audio/types';
+export * from './context';
 export * from './definition';
 export * from './events';
 export * from './fluid/fluid';
@@ -9,3 +10,4 @@ export * from './render/fluid-renderer';
 export * from './render/palettes';
 export * from './rng';
 export * from './runtime';
+export * from './signal';

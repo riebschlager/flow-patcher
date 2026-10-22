@@ -8,13 +8,14 @@ export const CLOCK_DIVISIONS: Record<string, number> = {
 
 export const clock: NodeDefinition = {
   type: 'clock',
-  version: 1,
+  version: 2,
   label: 'Clock',
   category: 'time-rhythm',
   description: 'Emits ticks at a note division of a tempo, computed from absolute time.',
   ports: [{ name: 'tick', type: 'event', direction: 'out', label: 'Tick' }],
   params: [
-    { name: 'bpm', kind: 'number', min: 20, max: 300, default: 120, unit: 'bpm', label: 'Tempo' },
+    // Not modulatable until ticks re-anchor on a tempo change (#20).
+    { name: 'bpm', kind: 'number', min: 20, max: 300, default: 120, unit: 'bpm', label: 'Tempo', modulatable: false },
     { name: 'division', kind: 'enum', options: Object.keys(CLOCK_DIVISIONS), default: '1/4', label: 'Division' },
   ],
   query({ t0, t1, params }) {
