@@ -152,13 +152,13 @@ describe('splat', () => {
     rt.push('p', 'down', { time: 0.05, channel: 0, x: 0.25, y: 0.5 });
     rt.query(0, 0.5);
     for (let k = 0; k < 10; k++) rt.frame(k / 60, (k + 1) / 60, 1 / 60);
-    const image = rt.images().find((i) => i.node === 'f')!.image;
+    // What Fluid's Field readers (the Renderer) see; Fluid has no image of its own.
+    const image = fluid.latched()!;
     const brightness = (x: number, y: number) => {
       const i = (Math.round(x * image.width) + Math.round(y * image.height) * image.width) * 4;
       return image.pixels[i]! + image.pixels[i + 1]! + image.pixels[i + 2]!;
     };
     expect(brightness(0.25, 0.5)).toBeGreaterThan(brightness(0.75, 0.5) + 100);
-    expect(rt.images().map((i) => i.node)).toEqual(['f']);
   });
 
   it('gives defined, in-range splats for hostile events, and nothing for none', () => {

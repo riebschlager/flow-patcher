@@ -9,14 +9,16 @@ import { output } from './output';
 import { pointer } from './pointer';
 import { probability } from './probability';
 import { progression } from './progression';
+import { renderer } from './renderer';
 import { sampleAndHold } from './sample-and-hold';
 import { simpleSynth } from './simple-synth';
 import { splat } from './splat';
 import { thresholdChange } from './threshold-change';
 
-export { chordTone, clock, delayEdge, euclidean, fluid, makeNote, output, pointer, probability, progression, sampleAndHold, simpleSynth, splat, thresholdChange };
+export { rendererImage } from './renderer';
+export { chordTone, clock, delayEdge, euclidean, fluid, makeNote, output, pointer, probability, progression, renderer, sampleAndHold, simpleSynth, splat, thresholdChange };
 
 /** Every node type, in palette order. Add new node files here. */
-export const nodeDefinitions: readonly NodeDefinition[] = [pointer, clock, euclidean, probability, delayEdge, sampleAndHold, thresholdChange, progression, chordTone, makeNote, simpleSynth, output, fluid, splat];
+export const nodeDefinitions: readonly NodeDefinition[] = [pointer, clock, euclidean, probability, delayEdge, sampleAndHold, thresholdChange, progression, chordTone, makeNote, simpleSynth, output, fluid, splat, renderer];
 
 export const nodeRegistry: ReadonlyMap<string, NodeDefinition> = new Map(nodeDefinitions.map((d) => [d.type, d]));

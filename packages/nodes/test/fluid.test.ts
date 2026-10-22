@@ -6,7 +6,6 @@ import {
   Fluid,
   isFluidField,
   renderFluidPixels,
-  resolveParams,
   type FluidBackend,
   type FluidTarget,
   type FluidWork,
@@ -16,8 +15,13 @@ import {
 import { FLUID_GRID, fluid } from '../src/fluid';
 import { context, frame } from './helpers';
 
-const params = resolveParams(fluid, {});
 const DT = 1 / 60;
+
+/** What Field readers see over `state`: the step latched at the last frame's start. */
+function latched(state: NodeState) {
+  const field = fluid.field!(context(fluid, { state }), 'field');
+  return isFluidField(field) ? field.image() : null;
+}
 
 /** A writer that splats the given calls once. */
 const writer = (calls: Parameters<FluidTarget['splat']>[]): FluidWriter => ({
@@ -49,12 +53,16 @@ describe('fluid node', () => {
     expect(fluid.params.map((p) => p.name)).toEqual(['vorticity', 'dissipation', 'viscosity', 'palette']);
   });
 
-  it('has no image before its first finished step', () => {
-    expect(fluid.image!({}, params)).toBeNull();
+  it('has no image of its own: the Renderer shows its Field', () => {
+    expect(fluid.image).toBeUndefined();
+  });
+
+  it('has no latched step before its first finished step', () => {
+    expect(latched({})).toBeNull();
     const state = {};
     frame(fluid, 0, DT, { state });
     // One step has run, but readers see it only from the next frame's latch.
-    expect(fluid.image!(state, params)).toBeNull();
+    expect(latched(state)).toBeNull();
   });
 
   it('applies its writers\' splats at their positions and renders a grid-sized image a frame later', () => {
@@ -62,7 +70,7 @@ describe('fluid node', () => {
     const a = writer([[0.25, 0.5, canonicalDyes[0]!]]);
     frame(fluid, 0, DT, { nodeId: 'f', state, fields: { writers: [() => a] } });
     frame(fluid, DT, 2 * DT, { nodeId: 'f', state });
-    const image = fluid.image!(state, params)!;
+    const image = latched(state)!;
     expect([image.width, image.height]).toEqual([FLUID_GRID.w, FLUID_GRID.h]);
     expect(brightness(image, 0.25, 0.5)).toBeGreaterThan(brightness(image, 0.75, 0.5) + 100);
   });
@@ -105,7 +113,8 @@ describe('fluid node', () => {
     const a = writer([[0.5, 0.5, canonicalDyes[1]!]]);
     frame(fluid, 0, DT, { state, fields: { writers: [() => a] } });
     frame(fluid, DT, 2 * DT, { state });
-    expect(field.image()!.pixels).toEqual(fluid.image!(state, params)!.pixels);
+    expect(field.image()).not.toBeNull();
+    expect(field.image()).toBe(latched(state));
     // The same object every time, so readers can hold on to it.
     expect(fluid.field!(context(fluid, { state }), 'field')).toBe(field);
   });
@@ -120,7 +129,7 @@ describe('fluid node', () => {
     sim.splat(0.6, 0.5, canonicalDyes[1]!, 0.05, 0, 19);
     sim.step(DT);
     const pixels = renderFluidPixels(sim, new Uint8ClampedArray(sim.n * 4), DT, createFluidColorizer('aurora'));
-    expect(fluid.image!(state, params)!.pixels).toEqual(pixels);
+    expect(latched(state)!.pixels).toEqual(pixels);
   });
 
   it('survives hostile writers', () => {
@@ -128,7 +137,7 @@ describe('fluid node', () => {
     const bad = writer([[NaN, Infinity, [NaN, -1, 1e9], -5, NaN, Infinity], [0.5, 0.5, [] as unknown as [number, number, number]]]);
     frame(fluid, 0, 1, { state, fields: { writers: [() => bad] } });
     frame(fluid, 1, 2, { state });
-    expect(fluid.image!(state, params)!.pixels.every(Number.isFinite)).toBe(true);
+    expect(latched(state)!.pixels.every(Number.isFinite)).toBe(true);
   });
 
   it('uses the host fluid backend when there is one', () => {

@@ -60,11 +60,11 @@ describe('headless runner', () => {
     const dir = mkdtempSync(join(tmpdir(), 'flow-patcher-run-'));
     try {
       const written = writeRun(result, dir, 'clock-blips').map((p) => p.slice(dir.length + 1));
-      expect(written.sort()).toEqual(['audio.wav', 'events.json', 'frame-fluid.png', 'summary.json']);
+      expect(written.sort()).toEqual(['audio.wav', 'events.json', 'frame-renderer.png', 'summary.json']);
       const summary = JSON.parse(readFileSync(join(dir, 'summary.json'), 'utf8'));
       expect(summary.audio.peak).toBeGreaterThan(0.01);
       expect(summary.audio.peak).toBeLessThanOrEqual(OUTPUT_CEILING);
-      expect(readFileSync(join(dir, 'frame-fluid.png')).subarray(1, 4).toString()).toBe('PNG');
+      expect(readFileSync(join(dir, 'frame-renderer.png')).subarray(1, 4).toString()).toBe('PNG');
       expect(readFileSync(join(dir, 'audio.wav')).subarray(0, 4).toString()).toBe('RIFF');
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -88,8 +88,8 @@ describe('headless runner', () => {
     await expect(runPatch(patch)).rejects.toThrow(/unknown type "no-such-node"/);
   });
 
-  it('steps the Fluid in process: the same last frame run to run and whatever the window size', async () => {
-    const image = async (window: number) => (await runPatch(loadPatch(EXAMPLE), { seconds: 2, window, audio: false })).images.find((i) => i.node === 'fluid')!.image;
+  it('steps the Fluid in process: the Renderer shows the same last frame run to run and whatever the window size', async () => {
+    const image = async (window: number) => (await runPatch(loadPatch(EXAMPLE), { seconds: 2, window, audio: false })).images.find((i) => i.node === 'renderer')!.image;
     const reference = await image(0.025);
     expect(reference.pixels.some((v, i) => i % 4 !== 3 && v > 40)).toBe(true);
     expect((await image(0.025)).pixels).toEqual(reference.pixels);

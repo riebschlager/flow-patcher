@@ -54,6 +54,7 @@ export const fluid: NodeDefinition = {
     const s = ctx.state as FluidState;
     return (s.field ??= { kind: 'fluid', image: () => s.backend?.latched() ?? null });
   },
+  // No image(): the Renderer shows the Field, and headless runs write its frame.
   frame({ params, state, services, fields, t1, dt }) {
     const s = state as FluidState;
     if (!s.backend) {
@@ -80,10 +81,5 @@ export const fluid: NodeDefinition = {
       splats,
       time: t1,
     });
-  },
-  /** The latched step: one frame behind the last step, as readers see it. */
-  image(state) {
-    const image = (state as FluidState).backend?.latched();
-    return image ? { width: image.width, height: image.height, pixels: image.pixels.slice() } : null;
   },
 };

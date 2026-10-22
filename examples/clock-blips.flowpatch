@@ -92,6 +92,16 @@
         "x": 720,
         "y": 220
       }
+    },
+    {
+      "id": "renderer",
+      "type": "renderer",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 960,
+        "y": 220
+      }
     }
   ],
   "cables": [
@@ -153,6 +163,16 @@
       "to": {
         "node": "fluid",
         "port": "writers"
+      }
+    },
+    {
+      "from": {
+        "node": "fluid",
+        "port": "field"
+      },
+      "to": {
+        "node": "renderer",
+        "port": "field"
       }
     }
   ]
