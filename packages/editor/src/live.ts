@@ -42,6 +42,8 @@ export interface Tap {
    *  - `frames`, `ms`: frames after the push, and ms after the pointerdown, until the Renderer drew the
    *    Fluid step that carried it. */
   splash: { handed: number; frames: number; ms: number } | null;
+  /** The Fluid step carrying the splash was dropped (Worker failure, reset or splat cap), so it was never drawn. */
+  splashLost: boolean;
 }
 
 /** The frame loop's counters, for the Immediate path under load gate check. */
@@ -94,6 +96,7 @@ export class LivePatch {
   private readonly frameCounts = { frames: 0, drawn: 0 };
   private readonly splashes: PendingSplash[] = [];
   private raf = 0;
+  private workerStalled = false;
   private readonly listeners = new Set<() => void>();
   private readonly onVisibility = () => this.scheduler.wake();
 
@@ -191,7 +194,7 @@ export class LivePatch {
       const starts = this.starts;
       this.starts = null;
       if (port === 'down') {
-        const tap: Tap = { at, down: at - waited, stamped, note: starts.length ? Math.min(...starts) : null, cold, splash: null };
+        const tap: Tap = { at, down: at - waited, stamped, note: starts.length ? Math.min(...starts) : null, cold, splash: null, splashLost: false };
         if (cold && tap.note === null) this.coldTap = tap;
         if (this.renderer && this.fluid && stamped !== null) {
           this.splashes.push({ tap, time: stamped, downWall: wall - waited * 1000, frame: this.frameCounts.frames, carried: null });
@@ -221,6 +224,14 @@ export class LivePatch {
     if (image) this.frameCounts.drawn++;
     this.draw(image);
     this.trackSplashes();
+    this.watchWorker();
+  }
+
+  /** Warns once per stall when the fluid Worker hasn't answered a step for a couple of seconds (it may have hung). */
+  private watchWorker(): void {
+    const waiting = this.fluid?.host.stats.waitingFrames ?? 0;
+    if (waiting > WORKER_STALL && !this.workerStalled) console.warn(`[live] fluid worker: no reply for ${waiting} frames`);
+    this.workerStalled = waiting > WORKER_STALL;
   }
 
   /** Follows each tap's splash: the frame that handed the tap's event over, then the frame that drew it. */
@@ -237,9 +248,20 @@ export class LivePatch {
     // Shown once the Fluid has latched (at a frame's start) the step that carried it.
     for (let i = this.splashes.length - 1; i >= 0; i--) {
       const { tap, downWall, frame, carried } = this.splashes[i]!;
-      // A tap that reaches no visual node is never handed over; stop following it after a couple of seconds.
-      if (!carried && this.frameCounts.frames - frame > SPLASH_GIVE_UP) this.splashes.splice(i, 1);
-      if (!carried || host.latchedThrough < carried.step) continue;
+      // Never handed over (the tap reaches no visual node), or never latched (a hung Worker): stop following it.
+      if (this.frameCounts.frames - frame > SPLASH_GIVE_UP) {
+        this.splashes.splice(i, 1);
+        continue;
+      }
+      if (!carried) continue;
+      // The step that carried it failed, or its work was cleared or capped: it will never be drawn.
+      if (host.lostThrough >= carried.step) {
+        this.splashes.splice(i, 1);
+        tap.splashLost = true;
+        console.debug(`[live] splash lost: the fluid step that carried it was dropped`);
+        continue;
+      }
+      if (host.latchedThrough < carried.step) continue;
       this.splashes.splice(i, 1);
       tap.splash = { handed: carried.handed, frames: this.frameCounts.frames - frame, ms: performance.now() - downWall };
       console.debug(`[live] splash: handed over ${carried.handed} frame(s) after the tap, drawn after ${tap.splash.frames} (${tap.splash.ms.toFixed(1)} ms after pointerdown)`);
@@ -306,6 +328,8 @@ export class LivePatch {
 
 /** Frames to wait for a tap's event to reach a visual node before giving up on its splash. */
 const SPLASH_GIVE_UP = 120;
+/** Frames a fluid step may stay unanswered before the Worker counts as stalled. */
+const WORKER_STALL = 120;
 
 const ms = (time: number | null, from: number) => (time === null ? '—' : `${((time - from) * 1000).toFixed(2)} ms`);
 
