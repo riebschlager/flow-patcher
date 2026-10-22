@@ -3,7 +3,7 @@ import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { portsOf, type PortSpec } from '@flow-patcher/engine';
 import type { PatchNodeData } from './patch-graph';
 import type { LivePatch, NodeStatus } from './live';
-import { FAMILY_ICONS, PORT_SIZE } from './ports';
+import { nodeIcon, PORT_SIZE } from './ports';
 
 /** The running patch, for the inline statuses node cards show. */
 export const LivePatchContext = createContext<LivePatch | null>(null);
@@ -69,7 +69,7 @@ export function PatchNode({ id, data, selected }: NodeProps<Node<PatchNodeData>>
   }
   const inputs = portsOf(definition, 'in'), outputs = portsOf(definition, 'out');
   const rows = Math.max(inputs.length, outputs.length);
-  const icon = definition.type === 'output' ? 'speaker' : FAMILY_ICONS[definition.category];
+  const icon = nodeIcon(definition);
   return (
     <div className={`patch-node${selected ? ' patch-node--selected' : ''}${status?.kind === 'error' ? ' patch-node--error' : ''}`} data-testid="patch-node" data-node-type={definition.type}>
       <div className="patch-node__header">

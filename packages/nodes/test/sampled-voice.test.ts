@@ -4,7 +4,7 @@
 // against the runtime pool instead of WebAudioFont's envelope list.
 import { OfflineAudioContext } from 'node-web-audio-api';
 import { describe, expect, it } from 'vitest';
-import { VoicePool, type AudioContextLike, type AudioInstance, type NoteEvent } from '@flow-patcher/engine';
+import { resolveParams, VoicePool, type AudioContextLike, type AudioInstance, type HostServices, type NoteEvent, type StatusContext } from '@flow-patcher/engine';
 import { instrumentCache } from '../src/instruments';
 import { sampledVoice, skippedNotes, STEAL_FADE } from '../src/sampled-voice';
 import { blockLoudness, type RenderedAudio } from '../../../tools/lib/audio';
@@ -369,5 +369,56 @@ describe('sampled-voice', () => {
     // Odd but finite fields still play: pitch clamps to MIDI, a zero duration gets the shortest gate.
     const odd = await render(0.5, (ctx) => voice(ctx).schedule!('note', [{ ...note(0.1), pitch: 300, duration: 0, velocity: Number.NaN }]));
     expect(rms(odd, 0.1, 0.05)).toBeGreaterThan(0);
+  });
+});
+
+describe('sampled-voice status', () => {
+  const fresh = () => new OfflineAudioContext(1, 128, RATE) as unknown as AudioContextLike;
+  const statusContext = (audio: AudioContextLike, services: HostServices, instrument = 'synthstrings'): StatusContext =>
+    ({ nodeId: 'voice', params: resolveParams(sampledVoice, { instrument }), audio, services });
+
+  it('says nothing before a load and once the instrument is ready', async () => {
+    const ctx = statusContext(fresh(), { samples });
+    expect(sampledVoice.status!(ctx)).toBeNull();
+    await instrumentCache.load(ctx.audio, 'synthstrings', samples);
+    expect(sampledVoice.status!(ctx)).toBeNull();
+  });
+
+  it('shows loading, then an error with a Retry that loads again', async () => {
+    let fail = true;
+    const flaky = async (file: string) => {
+      if (fail) throw new Error('offline');
+      return samples(file);
+    };
+    const ctx = statusContext(fresh(), { samples: flaky }, 'piano');
+    const first = instrumentCache.load(ctx.audio, 'piano', flaky);
+    expect(sampledVoice.status!(ctx)).toEqual({ kind: 'loading', message: 'Loading grand piano' });
+    await first.catch(() => {});
+    expect(sampledVoice.status!(ctx)).toEqual({ kind: 'error', message: "Couldn't load grand piano. Check your connection, then retry.", action: 'Retry' });
+    fail = false;
+    sampledVoice.retry!(ctx);
+    expect(sampledVoice.status!(ctx)?.kind).toBe('loading');
+    await instrumentCache.load(ctx.audio, 'piano', flaky);
+    expect(sampledVoice.status!(ctx)).toBeNull();
+  });
+
+  it('shows an error without a samples service, and retry keeps it an error', async () => {
+    const ctx = statusContext(fresh(), {});
+    sampledVoice.retry!(ctx);
+    await instrumentCache.load(ctx.audio, 'synthstrings', undefined).catch(() => {});
+    expect(sampledVoice.status!(ctx)?.kind).toBe('error');
+  });
+
+  it('watches status changes on its own audio context only, until unsubscribed', async () => {
+    const mine = statusContext(fresh(), { samples }), other = fresh();
+    let calls = 0;
+    const unwatch = sampledVoice.watchStatus!(mine, () => calls++);
+    await instrumentCache.load(other, 'synthstrings', samples);
+    expect(calls).toBe(0);
+    await instrumentCache.load(mine.audio, 'synthstrings', samples);
+    expect(calls).toBe(2); // loading, ready
+    unwatch();
+    await instrumentCache.load(mine.audio, 'vibes', samples);
+    expect(calls).toBe(2);
   });
 });

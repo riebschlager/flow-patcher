@@ -232,6 +232,28 @@ export interface AudioSetupContext {
   readonly services: HostServices;
 }
 
+/** An inline status on a node's card (design system: Node `status`), such as an instrument loading or failing to load. */
+export interface NodeStatus {
+  kind: 'loading' | 'error';
+  message: string;
+  /** Label of the action that `NodeDefinition.retry` performs, such as "Retry". */
+  action?: string;
+}
+
+/**
+ * What the status hooks see: one node of a running patch, as the host knows
+ * it. Read-only, and outside any window: the hooks answer for "now".
+ */
+export interface StatusContext {
+  readonly nodeId: string;
+  /** The node's resolved params (`resolveParams`). */
+  readonly params: ParamValues;
+  /** The context the node's audio runs on, as the runtime was given it (`attachAudio`). */
+  readonly audio: AudioContextLike;
+  /** The host's platform resources, the same object the node's other hooks see. */
+  readonly services: HostServices;
+}
+
 export interface NodeImage {
   width: number;
   height: number;
@@ -293,6 +315,18 @@ export interface NodeDefinition {
    *  starts from empty state where the new plan takes effect. A change of type
    *  or version never keeps state. */
   keepState?(before: ParamValues, after: ParamValues): boolean;
+  /** Editor: what the node's card shows inline right now, or null when there's
+   *  nothing to say (Sampled Voice: its instrument loading or failed). Cheap and
+   *  side-effect free; the host calls it whenever `watchStatus` fires. */
+  status?(ctx: StatusContext): NodeStatus | null;
+  /** Editor: performs the current status's `action` (Sampled Voice: loads the
+   *  instrument again). A no-op when there's nothing to do. */
+  retry?(ctx: StatusContext): void;
+  /** Editor: calls `listener` whenever `status(ctx)` may have changed, and
+   *  returns the unsubscribe function. It may fire for changes that leave the
+   *  status as it was. Without it the host reads `status` only on its own
+   *  re-renders. */
+  watchStatus?(ctx: StatusContext, listener: () => void): () => void;
 }
 
 export function defaultParams(definition: NodeDefinition): Record<string, ParamValue> {

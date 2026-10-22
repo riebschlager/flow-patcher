@@ -394,6 +394,20 @@ describe('scripted edits beside a patch', () => {
       rejects([{ time: 1, edits: [{ op: 'add-node', node: { id: 'x', type: 'clock', typeVersion: 3, params: {} } }] }], /add-node needs node\.position/);
       rejects([{ time: 1, edits: [{ op: 'add-node', node: { id: 'x', type: 'clock', typeVersion: 3, params: {}, position: { x: 0, y: 0 }, pinned: [1] } }] }], /add-node needs node\.pinned/);
       rejects([{ time: 1, edits: [{ op: 'remove-cable', from: { node: 'a' }, to: { node: 'b', port: 'in' } }] }], /remove-cable needs from and to/);
+      rejects([{ time: 1, edits: [{ op: 'unset-param', node: 'clock' }] }], /unset-param needs node and param/);
+      rejects([{ time: 1, edits: [{ op: 'move-node', node: 'clock', position: { x: 1 } }] }], /move-node needs position/);
+      rejects([{ time: 1, edits: [{ op: 'add-cable', cable: { from: { node: 'a', port: 'out' }, to: { node: 'b', port: 'in' } }, index: 1.5 }] }], /add-cable needs an integer index/);
+      rejects([{ time: 1, edits: [{ op: 'add-node', node: { id: 'x', type: 'clock', typeVersion: 3, params: {}, position: { x: 0, y: 0 } }, index: -1 }] }], /add-node needs an integer index/);
+      rejects([{ time: 1, edits: [{ op: 'remove-cable', from: { node: 'a', port: 'out' }, to: { node: 'b', port: 'in' }, index: 'first' }] }], /remove-cable needs an integer index/);
+      const accepted = [{ time: 1, edits: [
+        { op: 'move-node', node: 'clock', position: { x: 10, y: 20 } },
+        { op: 'unset-param', node: 'clock', param: 'bpm' },
+        { op: 'add-node', node: { id: 'x', type: 'clock', typeVersion: 3, params: {}, position: { x: 0, y: 0 } }, index: 0 },
+        { op: 'add-cable', cable: { from: { node: 'a', port: 'out' }, to: { node: 'b', port: 'in' } }, index: 0 },
+        { op: 'remove-cable', from: { node: 'a', port: 'out' }, to: { node: 'b', port: 'in' }, index: 0 },
+      ] }];
+      writeFileSync(join(dir, 'blips.edits.json'), JSON.stringify(accepted));
+      expect(loadEdits(file)).toEqual(accepted);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

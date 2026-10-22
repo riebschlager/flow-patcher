@@ -14,7 +14,8 @@
     "@flow-patcher/nodes": "workspace:*",
     "@xyflow/react": "12.12.0",
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "zustand": "5.0.15"
   },
   "devDependencies": {
     "@types/react": "19.3.0",

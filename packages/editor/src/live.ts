@@ -5,6 +5,8 @@
 // Platform rules; ADR 0016, 0020).
 import {
   compilePatch,
+  PATCH_FORMAT,
+  PATCH_VERSION,
   FLUID_BACKGROUND,
   FluidHost,
   FrameLoop,
@@ -13,10 +15,14 @@ import {
   Scheduler,
   type AudioContextLike,
   type FluidHostStats,
+  type HostServices,
+  type NodeStatus,
   type Patch,
+  type Plan,
   type SchedulerStats,
+  type StatusContext,
 } from '@flow-patcher/engine';
-import { INSTRUMENTS, instrumentCache, nodeRegistry, rendererImage } from '@flow-patcher/nodes';
+import { nodeRegistry, rendererImage } from '@flow-patcher/nodes';
 
 /** Pointer events the canvas forwards, as Pointer node output ports. */
 export type PointerPort = 'down' | 'move' | 'up' | 'cancel';
@@ -78,13 +84,10 @@ async function fetchSample(file: string): Promise<string> {
   return response.text();
 }
 
-/** An inline status on a node's card (design system: Node `status`). */
-export interface NodeStatus {
-  kind: 'loading' | 'error';
-  message: string;
-  /** Label of the action that `retry()` performs. */
-  action?: string;
-}
+export type { NodeStatus };
+
+/** What `update` did with a document: swapped it in, or kept the last plan because it doesn't compile. */
+export type UpdateResult = { ok: true } | { ok: false; errors: string[] };
 
 export interface LiveStatus {
   audio: AudioContextState;
@@ -97,20 +100,26 @@ export class LivePatch {
   private readonly context: AudioContext;
   /** The context as the runtime sees it: the instrument cache is keyed by this object. */
   private readonly audio: AudioContextLike;
-  /** Each Sampled Voice's instrument, by node id. */
-  private readonly instruments: Map<string, string>;
-  private readonly unsubscribeInstruments: () => void;
+  private readonly services: HostServices;
   private readonly runtime: Runtime;
+  /** The plan running now: the last document `update` compiled. */
+  private plan: Plan;
+  /** The running document, less what doesn't reach the plan (positions), to skip swaps that change nothing. */
+  private planKey = '';
+  /** Unsubscribes the running plan's nodes' status watchers. */
+  private unwatch: (() => void)[] = [];
   /** Pointer nodes the canvas feeds. Canvas sources are host-fed, so the runner finds them by type. */
-  private readonly pointers: string[];
+  private pointers: string[] = [];
   /** Oscillator starts scheduled while a push runs, collected for its Tap. */
   private starts: number[] | null = null;
   /** A cold tap still waiting for its held push to run. */
   private coldTap: Tap | null = null;
   private readonly frames: FrameLoop;
-  private readonly fluid: { host: FluidHost; worker: Worker } | null;
+  /** The fluid's host. Its Worker starts when a Fluid first sends it work, so one can be added mid-session. */
+  private readonly fluid: { host: FluidHost; worker: () => Worker | null };
+  private hasFluid = false;
   /** The Renderer the canvas shows: the first in plan order (one per patch). */
-  private readonly renderer: string | null;
+  private renderer: string | null = null;
   private canvas: HTMLCanvasElement | null = null;
   /** The fluid's pixels at grid size, scaled onto the canvas. */
   private readonly ink = document.createElement('canvas');
@@ -121,15 +130,15 @@ export class LivePatch {
   private readonly listeners = new Set<() => void>();
   private readonly onVisibility = () => this.scheduler.wake();
 
-  constructor(patch: Patch) {
-    const compiled = compilePatch(patch, nodeRegistry);
+  /** Starts with an empty patch; `update` brings the document in. */
+  constructor() {
+    const compiled = compilePatch({ format: PATCH_FORMAT, version: PATCH_VERSION, seed: 0, nodes: [], cables: [] }, nodeRegistry);
     if (!compiled.ok) throw new Error(compiled.errors.join('; '));
-    this.fluid = compiled.plan.order.some((node) => node.definition.type === 'fluid') ? createFluidWorker() : null;
-    this.runtime = new Runtime(compiled.plan, { services: { ...(this.fluid && { fluid: this.fluid.host }), samples: fetchSample } });
-    this.renderer = compiled.plan.order.find((node) => node.definition.type === 'renderer')?.id ?? null;
+    this.plan = compiled.plan;
+    this.fluid = createFluidWorker();
+    this.services = { fluid: this.fluid.host, samples: fetchSample };
+    this.runtime = new Runtime(compiled.plan, { services: this.services });
     this.runtime.onWarning = (message) => console.warn(`[live] ${message}`);
-    this.pointers = compiled.plan.order.filter((node) => node.definition.type === 'pointer').map((node) => node.id);
-    this.instruments = new Map(compiled.plan.order.filter((node) => node.definition.type === 'sampled-voice').map((node) => [node.id, node.params.instrument as string]));
     this.context = new AudioContext({ latencyHint: 'interactive' });
     this.audio = this.observeStarts(this.context);
     this.runtime.attachAudio(this.audio);
@@ -154,10 +163,6 @@ export class LivePatch {
       this.scheduler.wake();
       this.emit();
     });
-    // Subscribed once everything that can throw is built, so a failed constructor leaves no listener behind.
-    this.unsubscribeInstruments = instrumentCache.subscribe((audio) => {
-      if (audio === this.audio) this.emit();
-    });
     document.addEventListener('visibilitychange', this.onVisibility);
     this.scheduler.start();
     this.frames = new FrameLoop(this.runtime, {
@@ -179,22 +184,32 @@ export class LivePatch {
     return { audio: this.context.state, pointers: this.pointers.length };
   }
 
-  /** What a node's card shows inline: a Sampled Voice's instrument loading or failed to load. Null when there's nothing to say. */
-  nodeStatus(nodeId: string): NodeStatus | null {
-    const key = this.instruments.get(nodeId);
-    if (key === undefined) return null;
-    const name = (INSTRUMENTS[key]?.name ?? key).toLowerCase();
-    switch (instrumentCache.status(this.audio, key)) {
-      case 'loading': return { kind: 'loading', message: `Loading ${name}` };
-      case 'error': return { kind: 'error', message: `Couldn't load ${name}. Check your connection, then retry.`, action: 'Retry' };
-      default: return null;
-    }
+  /**
+   * Brings an edited document in: compiles it and swaps the plan at the next
+   * window boundary (hot patching, ADR 0023), keeping the state of nodes whose
+   * id survives. A document that doesn't compile leaves the last plan playing.
+   */
+  update(patch: Patch): UpdateResult {
+    const key = JSON.stringify([patch.seed, patch.nodes.map(({ id, type, typeVersion, params }) => [id, type, typeVersion, params]), patch.cables]);
+    if (key === this.planKey) return { ok: true };
+    const compiled = compilePatch(patch, nodeRegistry);
+    if (!compiled.ok) return { ok: false, errors: compiled.errors };
+    this.scheduler.swap(compiled.plan);
+    this.planKey = key;
+    this.adopt(compiled.plan);
+    return { ok: true };
   }
 
-  /** The action on an error status: loads a Sampled Voice's instrument again. Its notes play once it's ready. */
+  /** What a node's card shows inline, from its definition's status hook (an instrument loading, say). Null when there's nothing to say. */
+  nodeStatus(nodeId: string): NodeStatus | null {
+    const node = this.plan.order.find((n) => n.id === nodeId);
+    return node?.definition.status?.(this.statusContext(node.id, node.params)) ?? null;
+  }
+
+  /** The action on an error status, such as loading an instrument again. */
   retry(nodeId: string): void {
-    const key = this.instruments.get(nodeId);
-    if (key !== undefined) instrumentCache.load(this.audio, key, fetchSample).catch(() => {});
+    const node = this.plan.order.find((n) => n.id === nodeId);
+    node?.definition.retry?.(this.statusContext(node.id, node.params));
   }
 
   get stats(): SchedulerStats {
@@ -207,7 +222,7 @@ export class LivePatch {
   }
 
   get frameStats(): FrameStats {
-    return { ...this.frameCounts, fluid: this.fluid ? { ...this.fluid.host.stats } : null };
+    return { ...this.frameCounts, fluid: this.hasFluid ? { ...this.fluid.host.stats } : null };
   }
 
   /** The canvas the Renderer draws into, or null to stop drawing. */
@@ -246,7 +261,7 @@ export class LivePatch {
       if (port === 'down') {
         const tap: Tap = { at, down: at - waited, stamped, note: starts.length ? Math.min(...starts) : null, cold, splash: null, splashLost: false };
         if (cold && tap.note === null) this.coldTap = tap;
-        if (this.renderer && this.fluid && stamped !== null) {
+        if (this.renderer && this.hasFluid && stamped !== null) {
           this.splashes.push({ tap, time: stamped, downWall: wall - waited * 1000, frame: this.frameCounts.frames, carried: null });
         }
         this.taps.push(tap);
@@ -258,11 +273,11 @@ export class LivePatch {
 
   dispose(): void {
     cancelAnimationFrame(this.raf);
-    this.fluid?.worker.terminate();
+    this.fluid.worker()?.terminate();
     this.scheduler.halt();
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.runtime.dispose();
-    this.unsubscribeInstruments();
+    for (const unwatch of this.unwatch) unwatch();
     void this.context.close();
     this.listeners.clear();
   }
@@ -278,17 +293,33 @@ export class LivePatch {
     this.watchWorker();
   }
 
+  /** The running plan's host-facing parts: Pointer nodes, the Renderer, and status watchers. */
+  private adopt(plan: Plan): void {
+    this.plan = plan;
+    this.pointers = plan.order.filter((node) => node.definition.type === 'pointer').map((node) => node.id);
+    this.renderer = plan.order.find((node) => node.definition.type === 'renderer')?.id ?? null;
+    this.hasFluid = plan.order.some((node) => node.definition.type === 'fluid');
+    if (!this.renderer || !this.hasFluid) this.splashes.length = 0;
+    for (const unwatch of this.unwatch) unwatch();
+    this.unwatch = plan.order.flatMap((node) => node.definition.watchStatus?.(this.statusContext(node.id, node.params), () => this.emit()) ?? []);
+    this.emit();
+  }
+
+  private statusContext(nodeId: string, params: StatusContext['params']): StatusContext {
+    return { nodeId, params, audio: this.audio, services: this.services };
+  }
+
   /** Warns once per stall when the fluid Worker hasn't answered a step for a couple of seconds (it may have hung). */
   private watchWorker(): void {
-    const waiting = this.fluid?.host.stats.waitingFrames ?? 0;
+    const waiting = this.hasFluid ? this.fluid.host.stats.waitingFrames : 0;
     if (waiting > WORKER_STALL && !this.workerStalled) console.warn(`[live] fluid worker: no reply for ${waiting} frames`);
     this.workerStalled = waiting > WORKER_STALL;
   }
 
   /** Follows each tap's splash: the frame that handed the tap's event over, then the frame that drew it. */
   private trackSplashes(): void {
-    const host = this.fluid?.host;
-    if (!host || !this.splashes.length) return;
+    const host = this.fluid.host;
+    if (!this.splashes.length) return;
     const report = this.runtime.lastFrame;
     for (const pending of this.splashes) {
       if (!pending.carried && report?.taps.some((tap) => tap.time === pending.time)) {
@@ -395,15 +426,19 @@ const WORKER_STALL = 120;
 
 const ms = (time: number | null, from: number) => (time === null ? '—' : `${((time - from) * 1000).toFixed(2)} ms`);
 
-/** The fluid's Worker and the host that talks to it (fluid/backend.ts). */
-function createFluidWorker(): { host: FluidHost; worker: Worker } {
-  const worker = new Worker(new URL('./fluid-worker.ts', import.meta.url), { type: 'module' });
-  const host = new FluidHost((request, transfer) => worker.postMessage(request, transfer));
-  worker.onmessage = (event) => host.receive(event.data);
-  worker.onerror = (event) => {
-    console.warn(`[live] fluid worker: ${event.message}`);
-    host.fail(event.message);
+/** The host that talks to the fluid's Worker (fluid/backend.ts), and the Worker once the first request started it. */
+function createFluidWorker(): { host: FluidHost; worker: () => Worker | null } {
+  let worker: Worker | null = null;
+  const start = () => {
+    const started = new Worker(new URL('./fluid-worker.ts', import.meta.url), { type: 'module' });
+    started.onmessage = (event) => host.receive(event.data);
+    started.onerror = (event) => {
+      console.warn(`[live] fluid worker: ${event.message}`);
+      host.fail(event.message);
+    };
+    started.onmessageerror = () => host.fail('reply could not be read');
+    return started;
   };
-  worker.onmessageerror = () => host.fail('reply could not be read');
-  return { host, worker };
+  const host: FluidHost = new FluidHost((request, transfer) => (worker ??= start()).postMessage(request, transfer));
+  return { host, worker: () => worker };
 }
