@@ -19,6 +19,7 @@ import {
   portsOf,
   resolveParams,
   type AudioInstance,
+  type HostServices,
   type NodeDefinition,
   type NodeImage,
   type NodeState,
@@ -26,7 +27,8 @@ import {
   type PortSpec,
   type QueryContext,
 } from './definition';
-import { compareEvents, type EngineEvent, type EventField } from './events';
+import { compareEvents, type EngineEvent, type EventField, type EventPath } from './events';
+import { FRAME_BACKLOG, FRAME_QUEUE_LIMIT } from './frame-loop';
 import { LIMIT_WINDOW, limitWindowOf, NODE_EVENT_LIMIT, PATCH_EVENT_LIMIT, WARNING_KINDS, type NodeWarning, type NodeWarningKind } from './limits';
 import type { Patch, PortRef } from './patch';
 import { clonePlain, restoreState } from './state';
@@ -105,6 +107,10 @@ export function compilePatch(patch: Patch, definitions: DefinitionLookup): Compi
     if (!definition) {
       errors.push(`node "${node.id}": unknown type "${node.type}"`);
       continue;
+    }
+    if (definition.unique) {
+      const first = [...nodes.values()].find((n) => n.definition.type === definition.type);
+      if (first) errors.push(`node "${node.id}": only one ${definition.label} per patch ("${first.id}" is one already)`);
     }
     nodes.set(node.id, { id: node.id, definition, params: resolveParams(definition, node.params) });
   }
@@ -318,8 +324,9 @@ export interface DeliveryTiming {
   /** A late wake's missed stretch (ADR 0017): events before `until` move `shift`
    *  seconds later, so they keep their spacing and play late instead of stacking. */
   catchUp?: { until: number; shift: number };
-  /** The path the events took, for the late counters. Default 'scheduled'. */
-  path?: 'scheduled' | 'immediate';
+  /** The path the events took, for the late counters. Default 'scheduled'.
+   *  A push marks its event with it, for the visual nodes (ADR 0020). */
+  path?: EventPath;
 }
 
 /** Running totals of what the runtime handed to audio nodes. */
@@ -372,9 +379,25 @@ export interface RewindReport {
   added: LoggedEvent[];
 }
 
+/** What the latest `Runtime.frame` handed to visual nodes. */
+export interface FrameReport {
+  t0: number;
+  t1: number;
+  dt: number;
+  /** Immediate-path events handed over (ADR 0020), over every visual node. */
+  immediate: number;
+  /** Each of them: the visual node and input port it reached, its time (the tap's
+   *  stamp, as `Scheduler.push` returned it) and channel, in plan order. */
+  taps: { node: string; port: string; time: number; channel: number }[];
+  /** Scheduled events dropped as too far behind the frame (FRAME_BACKLOG), such as a hidden tab's. */
+  dropped: number;
+}
+
 export interface RuntimeOptions {
   /** Keep window snapshots so live events can rewind (ADR 0019). The scheduler turns it on. */
   history?: boolean;
+  /** Platform resources nodes reach through `ctx.services`, such as the fluid backend. */
+  services?: HostServices;
 }
 
 type PortEvents = Record<string, EngineEvent[]>;
@@ -426,6 +449,19 @@ interface Sent {
 
 interface Injected {
   node: string;
+  port: string;
+  event: EngineEvent;
+  path: EventPath;
+}
+
+/** An event waiting for a visual node's frame, and the path it came by. */
+interface Pending {
+  event: EngineEvent;
+  path: EventPath;
+}
+
+/** An immediate event a visual node was handed before its time, kept so a re-run doesn't hand it over again. */
+interface Shown {
   port: string;
   event: EngineEvent;
 }
@@ -517,8 +553,15 @@ export class Runtime {
   private stage: Stage;
   /** The plan the chunk being run belongs to: `stage`, except while a rewind replays older windows. */
   private active: Stage;
-  /** Events waiting for visual nodes, per node id and input port. */
-  private readonly pendingFrames = new Map<string, Map<string, EngineEvent[]>>();
+  /** Events waiting for visual nodes, per node id and input port, in time order (then channel, then arrival). */
+  private readonly pendingFrames = new Map<string, Map<string, Pending[]>>();
+  /** The end of the latest frame: scheduled events before it have been handed to visual nodes, or are past showing. */
+  private framedTo = -Infinity;
+  /** Immediate events handed to visual nodes, per node id, that a rewind could re-run (only with history). */
+  private readonly shown = new Map<string, Shown[]>();
+  private readonly services: HostServices;
+  /** What the latest frame handed over; null before the first. */
+  private report: FrameReport | null = null;
   /**
    * Inputs each delay node received in the last chunk, per node id and input
    * port; its next query sees them. Runtime state like node state, so window
@@ -569,6 +612,7 @@ export class Runtime {
 
   constructor(plan: Plan, options: RuntimeOptions = {}) {
     if (options.history) this.history = [];
+    this.services = options.services ?? {};
     this.stage = this.active = this.makeStage(plan, -Infinity, null, new Set());
     this.ranks.push({ from: -Infinity, position: this.stage.position, outPosition: this.stage.outPosition });
   }
@@ -588,6 +632,16 @@ export class Runtime {
   keepHistory(wallTime?: () => number): void {
     this.history ??= [];
     if (wallTime) this.wallTime = wallTime;
+  }
+
+  /**
+   * What the latest `frame()` handed to visual nodes, or null before the
+   * first. A host times a tap's splash from it: the frame whose report lists
+   * the tap's stamp is the one that handed it to Splat, and Fluid's step in
+   * that frame carries it (`FluidHost.stepCount` / `latchedThrough`).
+   */
+  get lastFrame(): FrameReport | null {
+    return this.report;
   }
 
   /** The end of the latest window queried, or null before the first. */
@@ -662,6 +716,11 @@ export class Runtime {
    * event may not be earlier than `timing.now`: that would cancel events that
    * may already be sounding. Each window replays under the plan it first ran
    * under (ADR 0023); an event before a swap on a node the swap added is lost.
+   *
+   * `timing.path` marks the event: an 'immediate' one (the scheduler's
+   * immediate path) reaches the visual nodes downstream on the next frame,
+   * by arrival rather than by time, and so do the events at its time that it
+   * causes downstream; what a re-run emits after it stays scheduled (ADR 0020).
    */
   push(nodeId: string, port: string, event: EngineEvent, timing?: DeliveryTiming): RewindReport | null {
     const node = this.stage.byId.get(nodeId);
@@ -678,7 +737,7 @@ export class Runtime {
     // Time order, after any earlier event at the same time.
     let at = this.injected.length;
     while (at > 0 && this.injected[at - 1]!.event.time > t) at--;
-    this.injected.splice(at, 0, { node: nodeId, port, event });
+    this.injected.splice(at, 0, { node: nodeId, port, event, path: timing?.path ?? 'scheduled' });
     return rewinds ? this.rewind(nodeId, t, timing) : null;
   }
 
@@ -762,6 +821,7 @@ export class Runtime {
     for (const id of removed) {
       if (this.nodeWarnings.delete(id)) this.version++;
       this.pendingFrames.delete(id);
+      this.shown.delete(id);
       // Snapshots keep copies for rewinds into windows before the swap.
       this.delayInputs.delete(id);
     }
@@ -824,6 +884,8 @@ export class Runtime {
     for (const ports of this.emitted.values()) for (const [port, events] of ports) ports.set(port, events.filter((e) => e.time >= from));
     for (const ports of this.sent.values()) for (const [port, sent] of ports) ports.set(port, sent.filter((s) => s.event.time >= from));
     for (const [id, drops] of this.drops) this.drops.set(id, drops.filter((d) => d.time >= from));
+    // No re-run reaches before `from` any more.
+    for (const [id, shown] of this.shown) this.shown.set(id, shown.filter((s) => s.event.time >= from));
     let drop = 0;
     while (drop < this.injected.length && this.injected[drop]!.event.time < from) drop++;
     this.injected.splice(0, drop);
@@ -856,19 +918,49 @@ export class Runtime {
     });
   }
 
-  /** Steps every visual node with the events whose time is before t1. */
+  /**
+   * Steps every visual node, in plan order, over [t0, t1) on the frame clock
+   * (FrameLoop: the audio clock minus the output latency). Each gets the
+   * scheduled events before t1 and the immediate events that arrived since the
+   * last frame, whatever their time (ADR 0020), once each. Scheduled events
+   * more than FRAME_BACKLOG before t0 are dropped instead: a frame after a
+   * hidden tab doesn't get the whole backlog. `lastFrame` reports what it did.
+   */
   frame(t0: number, t1: number, dt: number): void {
     const stage = this.stage;
+    if (t1 > this.framedTo) this.framedTo = t1;
+    const report: FrameReport = { t0, t1, dt, immediate: 0, taps: [], dropped: 0 };
+    const stale = t0 - FRAME_BACKLOG;
     for (const node of stage.plan.order) {
       if (!node.definition.frame) continue;
-      const pending = this.pendingFrames.get(node.id) ?? new Map<string, EngineEvent[]>();
+      const pending = this.pendingFrames.get(node.id);
       const inputs: Record<string, EngineEvent[]> = {};
-      for (const [port, events] of pending) {
-        inputs[port] = events.filter((e) => e.time < t1);
-        pending.set(port, events.filter((e) => e.time >= t1));
+      let immediate: Set<EngineEvent> | null = null;
+      for (const [port, queued] of pending ?? []) {
+        const due: EngineEvent[] = [], waiting: Pending[] = [];
+        for (const item of queued) {
+          if (item.path === 'immediate') {
+            due.push(item.event);
+            (immediate ??= new Set()).add(item.event);
+            report.taps.push({ node: node.id, port, time: item.event.time, channel: item.event.channel });
+            if (this.history) {
+              let shown = this.shown.get(node.id);
+              if (!shown) this.shown.set(node.id, (shown = []));
+              shown.push({ port, event: item.event });
+            }
+          } else if (item.event.time < stale) report.dropped++;
+          else if (item.event.time < t1) due.push(item.event);
+          else waiting.push(item);
+        }
+        if (due.length) inputs[port] = due;
+        pending!.set(port, waiting);
       }
-      node.definition.frame({ ...stage.contexts.get(node.id)!, inputs, t0, t1, dt });
+      const marked = immediate;
+      const pathOf = (event: EngineEvent): EventPath => (marked?.has(event) ? 'immediate' : 'scheduled');
+      node.definition.frame({ ...stage.contexts.get(node.id)!, inputs, t0, t1, dt, pathOf });
     }
+    report.immediate = report.taps.length;
+    this.report = report;
   }
 
   /** Builds every audio node's Web Audio graph and connects the audio cables. Swaps build their own from then on. */
@@ -917,7 +1009,7 @@ export class Runtime {
     }
     for (const node of plan.order) {
       stage.contexts.set(node.id, createNodeContext(
-        { nodeId: node.id, seed: plan.seed, definition: node.definition, params: node.params, state: stage.states.get(node.id)! },
+        { nodeId: node.id, seed: plan.seed, definition: node.definition, params: node.params, state: stage.states.get(node.id)!, services: this.services },
         this.wiring(plan.incoming.get(node.id) ?? emptyLinks()),
       ));
     }
@@ -1007,7 +1099,8 @@ export class Runtime {
       removed += events.length - kept.length;
       this.emitted.get(id)!.set(port, kept);
     }
-    for (const [port, events] of this.pendingFrames.get(id) ?? []) this.pendingFrames.get(id)!.set(port, events.filter((e) => e.time < t));
+    // The re-run queues them again; what a frame already took isn't here, and isn't queued again.
+    for (const [port, queued] of this.pendingFrames.get(id) ?? []) this.pendingFrames.get(id)!.set(port, queued.filter((p) => p.event.time < t));
     this.undoDrops(id, t);
     return removed;
   }
@@ -1140,6 +1233,8 @@ export class Runtime {
     const stage = this.active;
     const outputs = new Map<string, PortEvents>();
     let queries = 0;
+    /** The chunk's immediate pushes, found once a visual node needs them. */
+    let taps: Tap[] | undefined;
     for (const node of stage.plan.order) {
       const { id, definition } = node;
       if (scope && !scope.only.has(id)) {
@@ -1177,7 +1272,7 @@ export class Runtime {
       for (const [port, events] of Object.entries(result)) for (const event of events) emit.log.push({ node: id, port, ...event });
       if (this.history) this.record(id, result);
       this.deliver(id, inputs, c0, c1, emit);
-      if (definition.frame) this.queueForFrame(id, inputs);
+      if (definition.frame) this.queueForFrame(id, outputs, taps ??= this.tapsIn(c0, c1), emit.rewind === true);
     }
     // Delay nodes get this chunk's inputs in the next chunk (or the next query).
     for (const node of stage.plan.order) {
@@ -1581,11 +1676,90 @@ export class Runtime {
     };
   }
 
-  private queueForFrame(id: string, inputs: PortEvents): void {
-    let pending = this.pendingFrames.get(id);
-    if (!pending) this.pendingFrames.set(id, (pending = new Map()));
-    for (const [port, events] of Object.entries(inputs)) pending.set(port, [...(pending.get(port) ?? []), ...events]);
+  /** The immediate pushes in [c0, c1), each with the nodes its events reach in the active plan. */
+  private tapsIn(c0: number, c1: number): Tap[] {
+    const taps: Tap[] = [];
+    for (const { node, event, path } of this.injected) {
+      if (path !== 'immediate' || event.time < c0 || event.time >= c1) continue;
+      taps.push({ time: event.time, reach: this.downstreamOf(node, this.active) });
+    }
+    return taps;
   }
+
+  /**
+   * Queues a visual node's inputs for its frames, cable by cable, keeping each
+   * port in time order. At most FRAME_QUEUE_LIMIT wait per port (no frames run
+   * while the tab is hidden); past that the oldest scheduled ones go.
+   *
+   * Which events are immediate (ADR 0020). Event objects don't carry their
+   * origin through nodes (most nodes build new ones), so an event counts as a
+   * tap's own when its time equals an immediate push's time in this chunk,
+   * exactly, and its source node is the pushing node or downstream of it in
+   * the active plan. So:
+   * - a re-run's events after the tap, and anything a node moves off the tap's
+   *   time (a delay, a quantizer), are scheduled, as the ADR asks;
+   * - an event that merely shares the stamp, from a node downstream of the tap
+   *   (a Clock tick at exactly currentTime + 5 ms merged into the tap's chain),
+   *   is shown on the next frame too: early by up to the output latency.
+   *   Stamps are currentTime + IMMEDIATE_OFFSET, so that needs a generated
+   *   event on the same float, which is rare and harmless.
+   *
+   * A re-run (`rerun`: a rewind or swap) never hands a frame anything twice:
+   * it skips scheduled events before the latest frame's end, which frames
+   * already took (or, if the re-run made them new, which are past showing;
+   * live, a re-run starts at or after currentTime, so this only happens when
+   * frames run ahead of the audio clock, as headless), and immediate events a
+   * frame was already handed, each record matching one re-run event, so two
+   * identical taps where a frame showed only the first still show the second.
+   * A first query queues everything: a catch-up's late events still reach the
+   * next frame (design.md, Lifetimes).
+   */
+  private queueForFrame(id: string, outputs: Map<string, PortEvents>, taps: readonly Tap[], rerun: boolean): void {
+    let pending = this.pendingFrames.get(id);
+    const shown = rerun ? this.shown.get(id) : undefined;
+    /** Records of `shown` a re-run event has already matched in this chunk. */
+    const matched = new Set<number>();
+    const wasShown = (port: string, event: EngineEvent) => {
+      const i = shown?.findIndex((s, j) => !matched.has(j) && s.port === port && sameEvent(s.event, event)) ?? -1;
+      if (i >= 0) matched.add(i);
+      return i >= 0;
+    };
+    for (const link of this.active.plan.incoming.get(id)?.events ?? []) {
+      const events = outputs.get(link.from.node)?.[link.from.port];
+      if (!events?.length) continue;
+      if (!pending) this.pendingFrames.set(id, (pending = new Map()));
+      let queued = pending.get(link.toPort);
+      if (!queued) pending.set(link.toPort, (queued = []));
+      for (const event of events) {
+        const immediate = taps.some((tap) => tap.time === event.time && tap.reach.has(link.from.node));
+        if (rerun && (immediate ? wasShown(link.toPort, event) : event.time < this.framedTo)) continue;
+        insertInOrder(queued, { event, path: immediate ? 'immediate' : 'scheduled' });
+      }
+      let excess = queued.length - FRAME_QUEUE_LIMIT;
+      if (excess > 0) {
+        // One pass: the oldest scheduled events go; immediate ones stay.
+        let w = 0;
+        for (const item of queued) {
+          if (excess > 0 && item.path === 'scheduled') excess--;
+          else queued[w++] = item;
+        }
+        queued.length = w;
+      }
+    }
+  }
+}
+
+/** An immediate push in a chunk: its time, and the nodes its events reach. */
+interface Tap {
+  time: number;
+  reach: ReadonlySet<string>;
+}
+
+/** Inserts after every item that sorts at or before it, so ties keep arrival order. */
+function insertInOrder(queue: Pending[], item: Pending): void {
+  let at = queue.length;
+  while (at > 0 && compareEvents(queue[at - 1]!.event, item.event) > 0) at--;
+  queue.splice(at, 0, item);
 }
 
 /** A copy of a held warning without its internal `seq`. */

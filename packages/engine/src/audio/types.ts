@@ -43,6 +43,10 @@ export interface AudioContextLike {
   readonly currentTime: number;
   readonly sampleRate: number;
   readonly destination: AudioNodeLike;
+  /** Seconds from the audio clock to the speakers, where the browser reports it (not OfflineAudioContext). */
+  readonly outputLatency?: number;
+  /** Seconds of processing latency, a lower bound when `outputLatency` is missing. */
+  readonly baseLatency?: number;
   createGain(): GainNodeLike;
   createOscillator(): OscillatorNodeLike;
   createDynamicsCompressor(): DynamicsCompressorNodeLike;

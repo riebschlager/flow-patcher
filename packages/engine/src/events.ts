@@ -26,3 +26,11 @@ export const isNoteEvent = (event: EngineEvent): event is NoteEvent =>
 
 /** Orders events by time, then channel, so merges are deterministic. */
 export const compareEvents = (a: EngineEvent, b: EngineEvent): number => a.time - b.time || a.channel - b.channel;
+
+/**
+ * How an event reached the graph. 'immediate': pushed live (a tap), stamped
+ * currentTime + 5 ms; 'scheduled': everything a window query produced. Visual
+ * nodes get a tap's own events on the next frame, without the output-latency
+ * shift (ADR 0020).
+ */
+export type EventPath = 'scheduled' | 'immediate';

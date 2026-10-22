@@ -20,6 +20,8 @@ export class Fluid {
   swirl = 0.6;
   /** Dye persistence, 0–1: higher keeps color longer. */
   persistence = 0.7;
+  /** Velocity kept per 1/60 s: Flow's fixed 0.994. Fluid's Viscosity knob lowers it. */
+  drag = 0.994;
   u!: Float32Array;
   v!: Float32Array;
   u0!: Float32Array;
@@ -218,7 +220,7 @@ export class Fluid {
     }
     u0.set(u);
     v0.set(v);
-    const drag = Math.pow(0.994, dt * 60);
+    const drag = Math.pow(this.drag, dt * 60);
     this.advectVelocity(dt, drag);
     this.project();
     const fade = Math.pow(0.981 + this.persistence * 0.017, dt * 60);

@@ -1,7 +1,7 @@
 // Builds the accessors a node reads its cables through (design.md, Core
 // concepts: fan-in). The runtime and the node tests share this one
 // implementation, so a rule proven in a test is the rule the runtime applies.
-import { resolveParam, type FrameContext, type NodeContext, type NodeDefinition, type NodeState, type ParamValues } from './definition';
+import { resolveParam, type FrameContext, type HostServices, type NodeContext, type NodeDefinition, type NodeState, type ParamValues } from './definition';
 
 export type SignalSource = (t: number, channel: number) => number;
 export type ValueSource = (t: number) => unknown;
@@ -25,12 +25,16 @@ export interface NodeContextInit {
   definition: NodeDefinition;
   params: ParamValues;
   state: NodeState;
+  /** The host's platform resources; none by default. */
+  services?: HostServices;
 }
+
+const NO_SERVICES: HostServices = Object.freeze({});
 
 /** A node's long-lived context; the runtime adds `inputs` and the window per call. */
 export type BoundContext = NodeContext & Pick<FrameContext, 'fields'>;
 
-export function createNodeContext({ nodeId, seed, definition, params, state }: NodeContextInit, wiring: NodeWiring = {}): BoundContext {
+export function createNodeContext({ nodeId, seed, definition, params, state, services = NO_SERVICES }: NodeContextInit, wiring: NodeWiring = {}): BoundContext {
   const specs = new Map(definition.params.map((spec) => [spec.name, spec]));
   const connected = new Set([
     ...(wiring.events ?? []),
@@ -43,6 +47,7 @@ export function createNodeContext({ nodeId, seed, definition, params, state }: N
     seed,
     params,
     state,
+    services,
     signal(port, t, channel = 0) {
       let sum = 0;
       // A non-finite cable counts as 0.

@@ -70,15 +70,36 @@
       }
     },
     {
-      "id": "fluid",
-      "type": "fluid",
+      "id": "splat",
+      "type": "splat",
       "typeVersion": 1,
       "params": {
-        "palette": "aurora",
         "size": 0.06
       },
       "position": {
         "x": 480,
+        "y": 220
+      }
+    },
+    {
+      "id": "fluid",
+      "type": "fluid",
+      "typeVersion": 3,
+      "params": {
+        "palette": "aurora"
+      },
+      "position": {
+        "x": 720,
+        "y": 220
+      }
+    },
+    {
+      "id": "renderer",
+      "type": "renderer",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 960,
         "y": 220
       }
     }
@@ -130,8 +151,28 @@
         "port": "out"
       },
       "to": {
+        "node": "splat",
+        "port": "at"
+      }
+    },
+    {
+      "from": {
+        "node": "splat",
+        "port": "write"
+      },
+      "to": {
         "node": "fluid",
-        "port": "splat"
+        "port": "writers"
+      }
+    },
+    {
+      "from": {
+        "node": "fluid",
+        "port": "field"
+      },
+      "to": {
+        "node": "renderer",
+        "port": "field"
       }
     }
   ]

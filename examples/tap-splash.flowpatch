@@ -1,0 +1,161 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261023,
+  "nodes": [
+    {
+      "id": "pointer",
+      "type": "pointer",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "note",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.3,
+        "pitch": 76,
+        "velocity": 0.8
+      },
+      "position": {
+        "x": 240,
+        "y": 40
+      }
+    },
+    {
+      "id": "synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.005,
+        "level": 0.3,
+        "release": 0.3,
+        "wave": "triangle"
+      },
+      "position": {
+        "x": 480,
+        "y": 40
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 720,
+        "y": 40
+      }
+    },
+    {
+      "id": "splat",
+      "type": "splat",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 240,
+        "y": 220
+      }
+    },
+    {
+      "id": "fluid",
+      "type": "fluid",
+      "typeVersion": 3,
+      "params": {},
+      "position": {
+        "x": 480,
+        "y": 220
+      }
+    },
+    {
+      "id": "renderer",
+      "type": "renderer",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 720,
+        "y": 220
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "pointer",
+        "port": "down"
+      },
+      "to": {
+        "node": "note",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "y"
+      },
+      "to": {
+        "node": "note",
+        "port": "pitch"
+      },
+      "depth": -24
+    },
+    {
+      "from": {
+        "node": "note",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "down"
+      },
+      "to": {
+        "node": "splat",
+        "port": "at"
+      }
+    },
+    {
+      "from": {
+        "node": "splat",
+        "port": "write"
+      },
+      "to": {
+        "node": "fluid",
+        "port": "writers"
+      }
+    },
+    {
+      "from": {
+        "node": "fluid",
+        "port": "field"
+      },
+      "to": {
+        "node": "renderer",
+        "port": "field"
+      }
+    }
+  ]
+}
