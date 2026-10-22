@@ -9,6 +9,7 @@ import {
   type NodeDefinition,
   type NodeWiring,
   type QueryResult,
+  VoicePool,
 } from '@flow-patcher/engine';
 
 export interface ContextOptions {
@@ -77,10 +78,14 @@ export function query(
   return definition.query({ ...context(definition, { ...options, events: Object.keys(inputs) }), inputs, pushed: pushedIn(pushed, t0, t1), t0, t1 });
 }
 
-/** The setup context an audio node gets from the runtime. */
-export function audioSetup(definition: NodeDefinition, audio: AudioContextLike, options: ContextOptions = {}): AudioSetupContext {
+/** The setup context an audio node gets from the runtime. Pass `voices` to share one pool between instances, as on one context. */
+export function audioSetup(
+  definition: NodeDefinition,
+  audio: AudioContextLike,
+  { voices = new VoicePool(() => audio.currentTime), ...options }: ContextOptions & { voices?: VoicePool } = {},
+): AudioSetupContext {
   const ctx = context(definition, options);
-  return { audio, params: ctx.params, state: ctx.state, param: ctx.param };
+  return { audio, params: ctx.params, state: ctx.state, param: ctx.param, voices, services: ctx.services };
 }
 
 /** Queries [0, end) in windows of `step` and concatenates one output port. Each window sees only

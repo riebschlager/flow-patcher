@@ -1,5 +1,6 @@
 export * from './audio/output';
 export type * from './audio/types';
+export * from './audio/voices';
 export * from './context';
 export * from './edit';
 export * from './definition';

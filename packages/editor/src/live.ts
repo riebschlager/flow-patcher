@@ -305,6 +305,8 @@ export class LivePatch {
       createGain: () => context.createGain(),
       createDynamicsCompressor: () => context.createDynamicsCompressor(),
       createWaveShaper: () => context.createWaveShaper(),
+      createBiquadFilter: () => context.createBiquadFilter(),
+      decodeAudioData: (data) => context.decodeAudioData(data),
       createOscillator: () => {
         const osc = context.createOscillator();
         const start = osc.start.bind(osc);
@@ -313,6 +315,15 @@ export class LivePatch {
           start(when);
         };
         return osc;
+      },
+      createBufferSource: () => {
+        const source = context.createBufferSource();
+        const start = source.start.bind(source);
+        source.start = (when = 0, offset?: number, duration?: number) => {
+          this.noteStart(Math.max(when, context.currentTime));
+          start(when, offset, duration);
+        };
+        return source;
       },
     };
   }

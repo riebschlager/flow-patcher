@@ -35,6 +35,8 @@
 export const NODE_EVENT_LIMIT = 256;
 /** Events the whole patch may emit per limit window. */
 export const PATCH_EVENT_LIMIT = 2048;
+/** Voices sounding at once across the patch: the runtime's voice pool (audio/voices.ts), oldest stolen first. */
+export const VOICE_LIMIT = 64;
 /** Seconds per limit window: the scheduler's lookahead, which is the design's
  *  "window", on a fixed grid so the count doesn't depend on wake timing. */
 export const LIMIT_WINDOW = 0.12;

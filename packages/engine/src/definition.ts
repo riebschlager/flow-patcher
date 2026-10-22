@@ -1,6 +1,7 @@
 // The shape of a node type. One file per node type in packages/nodes exports one
 // of these; the palette, inspector and (later) server validation read it.
 import type { AudioContextLike, AudioNodeLike } from './audio/types';
+import type { VoicePool } from './audio/voices';
 import type { EngineEvent, EventPath, PortType } from './events';
 import type { FluidBackend } from './fluid/backend';
 
@@ -120,6 +121,10 @@ export interface HostServices {
   /** Where Fluid steps: a FluidHost around a Worker in the browser (ADR 0016),
    *  `createInProcessFluid()` headless. One per running patch. */
   fluid?: FluidBackend;
+  /** The text of a vendored sample file by name, such as "0000_FluidR3_GM_sf2_file.js":
+   *  the browser fetches /vendor/<file>, headless reads vendor/ from disk. Rejects
+   *  when the file is missing. */
+  samples?: (file: string) => Promise<string>;
 }
 
 /** What a node sees in every hook: its params, state and the cables into it. */
@@ -220,6 +225,11 @@ export interface AudioSetupContext {
   readonly state: NodeState;
   /** See `NodeContext.param`; sample it at note time inside `schedule`. */
   param(name: string, t: number, channel?: number): number;
+  /** The runtime's voice pool, shared by every audio node on this context. Claim a
+   *  voice per note in `schedule` and release it in `cancel`. */
+  readonly voices: VoicePool;
+  /** The host's platform resources, the same object as `NodeContext.services`. */
+  readonly services: HostServices;
 }
 
 export interface NodeImage {
