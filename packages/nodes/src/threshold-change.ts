@@ -3,6 +3,13 @@ import type { EngineEvent, NodeDefinition, NodeState } from '@flow-patcher/engin
 /** Samples per second. In is read on the grid k / SAMPLE_RATE (2 ms), anchored to time 0, not to the window. */
 export const SAMPLE_RATE = 500;
 
+/**
+ * Most grid points one query samples. A wider window (a long stall, or a bad
+ * caller) is treated as a gap: the node re-baselines at its last grid point and
+ * emits nothing, so the work per query stays bounded.
+ */
+export const MAX_GRID_POINTS = 1_000_000;
+
 /** Highest channel count the node watches (channels 0 … N−1). */
 const MAX_CHANNELS = 8;
 
@@ -14,6 +21,8 @@ interface Watch {
   high: boolean;
   /** Change mode: the value last reported, or the baseline. */
   ref: number;
+  /** Change mode: the first grid index that may fire again (Interval after the last event). */
+  next: number;
 }
 type WatchState = Record<number, Watch>;
 
@@ -27,7 +36,10 @@ const watchOf = (state: NodeState): WatchState => (state.watch ??= {}) as WatchS
  *   Level − Hysteresis; falling means In < Level − Hysteresis after being at or
  *   above Level. So Hysteresis is a dead band under Level.
  * - **change**: In has moved more than Hysteresis away from the last value
- *   reported (with 0, any change). Direction picks increases, decreases or both;
+ *   reported (with 0, any change), and at least Interval has passed since the
+ *   channel's last event; a move during that time fires when it ends. Interval
+ *   keeps a moving signal within the event budget (8 channels × 120 ms at the
+ *   20 ms default is 48 events). Direction picks increases, decreases or both;
  *   the reference follows every move past Hysteresis, reported or not.
  *
  * Each event carries `value` (In at that sample) and `rising`. Channels 0 …
@@ -54,6 +66,7 @@ export const thresholdChange: NodeDefinition = {
     { name: 'direction', kind: 'enum', options: ['rising', 'falling', 'both'], default: 'rising', label: 'Direction' },
     { name: 'level', kind: 'number', min: -10, max: 10, default: 0.5, label: 'Level' },
     { name: 'hysteresis', kind: 'number', min: 0, max: 10, default: 0, label: 'Hysteresis' },
+    { name: 'interval', kind: 'number', min: 0.002, max: 2, default: 0.02, unit: 's', label: 'Interval', modulatable: false },
     { name: 'channels', kind: 'number', min: 1, max: MAX_CHANNELS, default: 1, step: 1, label: 'Channels', modulatable: false },
   ],
   adapter: { from: 'signal', to: 'event', input: 'in', output: 'out' },
@@ -63,37 +76,65 @@ export const thresholdChange: NodeDefinition = {
     const rising = params.direction !== 'falling';
     const falling = params.direction !== 'rising';
     const channels = params.channels as number;
+    const gap = Math.max(1, Math.round((params.interval as number) * SAMPLE_RATE));
     const watch = watchOf(state);
 
-    // First grid point at or after t0, tested on the computed times as Clock does.
+    // First and last grid points in [t0, t1), tested on the computed times as Clock does.
     let first = Math.ceil(t0 * SAMPLE_RATE);
+    let last = Math.ceil(t1 * SAMPLE_RATE);
+    // Near 2^53 grid indices k + 1 === k, so the loops below would never end.
+    if (!(Math.abs(first) < 2 ** 52 && Math.abs(last) < 2 ** 52)) return { out: [] };
     while (first / SAMPLE_RATE >= t0) first--;
     while (first / SAMPLE_RATE < t0) first++;
+    while (last / SAMPLE_RATE >= t1) last--;
+    while ((last + 1) / SAMPLE_RATE < t1) last++;
+
+    const baseline = (k: number, channel: number) => {
+      const time = k / SAMPLE_RATE;
+      const v = signal('in', time, channel);
+      watch[channel] = { k, high: v >= param('level', time, channel), ref: v, next: k };
+    };
+    if (last - first + 1 > MAX_GRID_POINTS) {
+      for (let channel = 0; channel < channels; channel++) baseline(last, channel);
+      return { out: [] };
+    }
 
     const out: EngineEvent[] = [];
-    for (let k = first; k / SAMPLE_RATE < t1; k++) {
+    for (let k = first; k <= last; k++) {
       const time = k / SAMPLE_RATE;
       for (let channel = 0; channel < channels; channel++) {
+        const w = watch[channel];
+        if (!w || w.k !== k - 1) {
+          baseline(k, channel);
+          continue;
+        }
         // A non-finite cable counts as 0, and an unconnected In is 0.
         const v = signal('in', time, channel);
         const level = param('level', time, channel);
         const band = param('hysteresis', time, channel);
-        const w = watch[channel];
-        if (!w || w.k !== k - 1) {
-          watch[channel] = { k, high: v >= level, ref: v };
-          continue;
-        }
         w.k = k;
         // Both modes' memories advance on every sample, so switching Mode live needs no re-baseline.
         const wasHigh = w.high;
         if (!wasHigh && v >= level) w.high = true;
         else if (wasHigh && v < level - band) w.high = false;
-        const d = v - w.ref;
-        const moved = Math.abs(d) > band;
-        if (moved) w.ref = v;
-        const up = change ? moved && d > 0 : !wasHigh && w.high;
-        const down = change ? moved && d < 0 : wasHigh && !w.high;
-        if ((up && rising) || (down && falling)) out.push({ time, channel, value: v, rising: up });
+        let up: boolean, down: boolean;
+        if (change) {
+          // Until Interval has passed, the reference stays the last reported value.
+          const d = v - w.ref;
+          const moved = k >= w.next && Math.abs(d) > band;
+          if (moved) w.ref = v;
+          up = moved && d > 0;
+          down = moved && d < 0;
+        } else {
+          // Change mode's reference follows along, so switching to it live fires on the next real move only.
+          w.ref = v;
+          up = !wasHigh && w.high;
+          down = wasHigh && !w.high;
+        }
+        if ((up && rising) || (down && falling)) {
+          out.push({ time, channel, value: v, rising: up });
+          w.next = k + gap;
+        }
       }
     }
     return { out };

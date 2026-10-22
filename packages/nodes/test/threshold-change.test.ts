@@ -73,8 +73,32 @@ describe('threshold-change', () => {
       expect(run(1, 1, steps, { mode: 'change', direction: 'both', hysteresis: 0.5 })).toEqual([[0.1, 0, 1, true], [0.3, 0, 3, true], [0.5, 0, 2.4, false]]);
     });
 
-    it('emits on every sample of a ramp', () => {
-      expect(run(0.1, 0.1, (t) => t, { mode: 'change' }).length).toBe(0.1 * SAMPLE_RATE - 1);
+    it('fires on a moving signal at most once per Interval', () => {
+      expect(times(run(0.1, 0.1, (t) => t, { mode: 'change' }))).toEqual([0.002, 0.022, 0.042, 0.062, 0.082]);
+      // At the shortest Interval, every sample of a ramp fires.
+      expect(run(0.1, 0.1, (t) => t, { mode: 'change', interval: 0.002 }).length).toBe(0.1 * SAMPLE_RATE - 1);
+      // Interval is whole grid steps, at least one.
+      expect(times(run(0.1, 0.1, (t) => t, { mode: 'change', interval: 0.0301 }))).toEqual([0.002, 0.032, 0.062, 0.092]);
+    });
+
+    it('reports a move made during Interval when it ends, against the last reported value', () => {
+      const quick = stepped([[0.1, 1], [0.11, 2]]);
+      expect(run(1, 1, quick, { mode: 'change' })).toEqual([[0.1, 0, 1, true], [0.12, 0, 2, true]]);
+      // A move that comes back within Interval is no change at all.
+      const blip = stepped([[0.1, 1], [0.106, 5], [0.11, 1]]);
+      expect(run(1, 1, blip, { mode: 'change' })).toEqual([[0.1, 0, 1, true]]);
+    });
+
+    it('keeps a moving signal on 8 channels under the event budget in 120 ms windows', () => {
+      const state = {};
+      const sine: SignalSource = (t, c) => Math.sin(2 * Math.PI * (3 + c) * t);
+      let most = 0;
+      for (let i = 0; i < 50; i++) {
+        const out = query(thresholdChange, i * 0.12, (i + 1) * 0.12, { state, params: { mode: 'change', channels: 8 }, signals: { in: [sine] } }).out!;
+        most = Math.max(most, out.length);
+      }
+      expect(most).toBeGreaterThan(0);
+      expect(most).toBeLessThanOrEqual(8 * 6);
     });
   });
 
@@ -104,6 +128,20 @@ describe('threshold-change', () => {
     expect(query(thresholdChange, 0, 0.1, { state, signals }).out).toEqual([]);
     // Windows skipped from 0.1 to 1: the rise at 0.5 was never seen, so no late event.
     expect(query(thresholdChange, 1, 1.1, { state, signals }).out).toEqual([]);
+  });
+
+  it('bounds the work of a huge window, treating it as a gap', () => {
+    const state: { watch?: Record<number, { k: number }> } = {};
+    const signals = { in: [(t: number) => (t >= 1e7 + 0.05 ? 1 : 0)] };
+    const started = performance.now();
+    expect(query(thresholdChange, 0, 1e7, { state, signals })).toEqual({ out: [] });
+    expect(performance.now() - started).toBeLessThan(100);
+    // Re-baselined at the last grid point, so the next window carries on from it.
+    expect(state.watch![0]!.k).toBe(1e7 * SAMPLE_RATE - 1);
+    expect(query(thresholdChange, 1e7, 1e7 + 0.1, { state, signals }).out!.map((e) => e.time)).toEqual([1e7 + 0.05]);
+    // Times too large for a grid index give nothing, without hanging.
+    expect(query(thresholdChange, 1e300, 2e300, { signals })).toEqual({ out: [] });
+    expect(query(thresholdChange, 1e16, 1e16 + 1, { signals })).toEqual({ out: [] });
   });
 
   it('keeps plain-data state', () => {

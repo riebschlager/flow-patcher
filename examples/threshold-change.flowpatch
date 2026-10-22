@@ -34,6 +34,7 @@
         "channels": 1,
         "direction": "both",
         "hysteresis": 0.05,
+        "interval": 0.02,
         "level": 0.5,
         "mode": "change"
       },

@@ -7,6 +7,17 @@ interface Held {
 }
 type HeldState = Record<number, Held>;
 
+/**
+ * Seconds of held history kept behind each window start, so Out still reads true
+ * values behind the query horizon: ADR 0019 rewind re-runs readers from a
+ * boundary before this node's last t0, and frame-time reads trail the 120 ms
+ * lookahead (1.25 s when the tab is hidden). 2 s covers both with margin.
+ */
+export const RETAIN = 2;
+
+/** Channels are pointer ids (ADR 0009): non-negative integers. Others are ignored, so they can't grow `held`. */
+const validChannel = (channel: number) => Number.isInteger(channel) && channel >= 0;
+
 const heldOf = (state: NodeState): HeldState => (state.held ??= {}) as HeldState;
 
 /** Index of the first time greater than t. */
@@ -45,16 +56,17 @@ export const sampleAndHold: NodeDefinition = {
   adapter: { from: 'event', to: 'signal', input: 'trigger', output: 'out' },
   query({ inputs, state, signal, t0 }) {
     const held = heldOf(state);
-    // Forget steps before t0, keeping the one in force at t0, so reads in this window and later are unchanged.
+    // Forget steps before t0 − RETAIN, keeping the one in force then, so reads from there on are unchanged.
+    // A channel's last step is never dropped: it stays in force, so dropping it would change Out.
     for (const { times, values } of Object.values(held)) {
-      const drop = upperBound(times, t0) - 1;
+      const drop = upperBound(times, t0 - RETAIN) - 1;
       if (drop > 0) {
         times.splice(0, drop);
         values.splice(0, drop);
       }
     }
     for (const e of inputs.trigger ?? []) {
-      if (!Number.isFinite(e.time) || !Number.isFinite(e.channel)) continue;
+      if (!Number.isFinite(e.time) || !validChannel(e.channel)) continue;
       // ctx.signal counts a non-finite cable as 0 and an unconnected In as 0.
       const value = signal('in', e.time, e.channel);
       const { times, values } = (held[e.channel] ??= { times: [], values: [] });
