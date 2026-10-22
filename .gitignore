@@ -5,3 +5,5 @@ test-results/
 playwright-report/
 *.tsbuildinfo
 .DS_Store
+# vendor/ is committed (some global gitignores exclude it).
+!/vendor/

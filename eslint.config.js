@@ -48,7 +48,7 @@ const nodeRules = {
 };
 
 export default defineConfig(
-  { ignores: ['**/node_modules/', '**/dist/', 'out/', 'test-results/', 'playwright-report/', 'spike/', '.claude/'] },
+  { ignores: ['**/node_modules/', '**/dist/', 'out/', 'test-results/', 'playwright-report/', 'spike/', '.claude/', 'vendor/'] },
   js.configs.recommended,
   tseslint.configs.recommended,
   {
