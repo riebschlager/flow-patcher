@@ -140,6 +140,21 @@ interface EventContext extends NodeContext {
 export interface QueryContext extends EventContext {
   readonly t0: number;
   readonly t1: number;
+  /**
+   * Live events pushed onto this node's own output ports (`Runtime.push`)
+   * with time in [t0, t1), per port, in time order (then channel, then push
+   * order): the order they reach the outputs in. Only this node's pushes; for
+   * most nodes, and most windows, it is an empty object. Read-only: the
+   * arrays and the events are shared with the outputs.
+   *
+   * The runtime already merges these events into the node's outputs after
+   * `query()` returns, so `query()` must not return them itself, or they are
+   * emitted twice. Use them to update state, such as a pointer's position or
+   * the set of pointers down, so `signal()` and `value()` can answer from it.
+   * A rewind (ADR 0019) re-queries the window with the same pushes, including
+   * when the node is only stepped for its state as a Signal or Value source.
+   */
+  readonly pushed: Readonly<Record<string, readonly EngineEvent[]>>;
 }
 
 /** A visual frame covers [t0, t1) on the audio clock; `dt` is the frame step in seconds. */
