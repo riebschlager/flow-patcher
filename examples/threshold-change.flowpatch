@@ -4,6 +4,16 @@
   "seed": 20261022,
   "nodes": [
     {
+      "id": "pointer",
+      "type": "pointer",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 0,
+        "y": 260
+      }
+    },
+    {
       "id": "clock",
       "type": "clock",
       "typeVersion": 3,
@@ -44,6 +54,23 @@
       }
     },
     {
+      "id": "cross",
+      "type": "threshold-change",
+      "typeVersion": 1,
+      "params": {
+        "channels": 1,
+        "direction": "both",
+        "hysteresis": 0.05,
+        "interval": 0.02,
+        "level": 0.5,
+        "mode": "threshold"
+      },
+      "position": {
+        "x": 480,
+        "y": 260
+      }
+    },
+    {
       "id": "note",
       "type": "make-note",
       "typeVersion": 2,
@@ -55,6 +82,20 @@
       "position": {
         "x": 720,
         "y": 100
+      }
+    },
+    {
+      "id": "accent",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.4,
+        "pitch": 76,
+        "velocity": 0.9
+      },
+      "position": {
+        "x": 720,
+        "y": 260
       }
     },
     {
@@ -88,6 +129,16 @@
   "cables": [
     {
       "from": {
+        "node": "pointer",
+        "port": "x"
+      },
+      "to": {
+        "node": "hold",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
         "node": "clock",
         "port": "tick"
       },
@@ -114,6 +165,36 @@
       "to": {
         "node": "note",
         "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "hold",
+        "port": "out"
+      },
+      "to": {
+        "node": "cross",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "cross",
+        "port": "out"
+      },
+      "to": {
+        "node": "accent",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "accent",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
       }
     },
     {
