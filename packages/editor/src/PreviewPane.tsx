@@ -14,6 +14,8 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
     () => live?.status.audio ?? 'closed',
   );
   const running = status === 'running';
+  // Pointer nodes come and go as the patch is edited.
+  const pointers = useSyncExternalStore(subscribe, () => live?.status.pointers ?? 0);
 
   // The Renderer draws into the canvas each frame.
   useEffect(() => {
@@ -85,7 +87,7 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
           onPointerUp={send('up')}
           onPointerCancel={send('cancel')}
         />
-        {live && !live.status.pointers && <span className="preview__hint">No Pointer in this patch</span>}
+        {live && !pointers && <span className="preview__hint">No Pointer in this patch</span>}
       </div>
       <div className="preview__grip" onPointerDown={resize} aria-label="Resize preview" role="separator" />
     </section>

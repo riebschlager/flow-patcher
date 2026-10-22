@@ -41,3 +41,15 @@ export const FAMILY_ICONS: Record<NodeCategory, string> = {
   'effects-mix': 'audio-waveform',
   visual: 'droplets',
 };
+
+/** Short family names, as the palette lists them (design system FamilyChip). */
+export const FAMILY_LABELS: Record<NodeCategory, string> = {
+  'canvas-sources': 'Sources',
+  'gesture-recognizers': 'Gestures',
+  'time-rhythm': 'Time',
+  'harmony-pitch': 'Harmony',
+  'control-logic': 'Control',
+  instruments: 'Instruments',
+  'effects-mix': 'Effects',
+  visual: 'Visual',
+};
