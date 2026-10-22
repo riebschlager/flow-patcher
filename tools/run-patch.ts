@@ -1,5 +1,8 @@
 // pnpm run-patch <file.flowpatch> [--seconds 4] [--windows N] [--frames N]
-//                 [--window 0.025] [--fps 60] [--no-audio] [--out out/<name>]
+//                 [--window 0.025] [--fps 60] [--no-audio] [--live] [--out out/<name>]
+//
+// --live wakes the scheduler during the audio render (suspending it at each
+// wake) instead of querying every window before rendering.
 //
 // Writes events.json, summary.json, audio.wav (when the patch has audio nodes)
 // and frame-<node>.png (one per visual node, last frame) to the out directory.
@@ -16,6 +19,7 @@ const { values, positionals } = parseArgs({
     window: { type: 'string', default: '0.025' },
     fps: { type: 'string', default: '60' },
     'no-audio': { type: 'boolean', default: false },
+    live: { type: 'boolean', default: false },
     out: { type: 'string' },
     help: { type: 'boolean', short: 'h', default: false },
   },
@@ -23,7 +27,7 @@ const { values, positionals } = parseArgs({
 
 const file = positionals[0];
 if (values.help || !file) {
-  console.log('Usage: pnpm run-patch <file.flowpatch> [--seconds S | --windows N | --frames N] [--window 0.025] [--fps 60] [--no-audio] [--out DIR]');
+  console.log('Usage: pnpm run-patch <file.flowpatch> [--seconds S | --windows N | --frames N] [--window 0.025] [--fps 60] [--no-audio] [--live] [--out DIR]');
   process.exit(file ? 0 : 1);
 }
 
@@ -44,7 +48,7 @@ const seconds = number('seconds', values.seconds) ?? (windows ? windows * window
 
 try {
   const name = patchName(file);
-  const result = await runPatch(loadPatch(file), { seconds, window, fps, audio: !values['no-audio'] });
+  const result = await runPatch(loadPatch(file), { seconds, window, fps, audio: !values['no-audio'], live: values.live });
   const written = writeRun(result, values.out ?? join('out', name), name);
   console.log(`${name}: ${result.events.length} events, ${result.frames} frames, ${seconds}s`);
   for (const path of written) console.log(`  ${path}`);

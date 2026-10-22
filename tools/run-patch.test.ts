@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { OUTPUT_CEILING } from '@flow-patcher/engine';
+import { maxDifference, peak, RENDER_TOLERANCE } from './lib/audio';
 import { formatEvents, loadPatch, runPatch, writeRun } from './lib/run';
 import { ROOT } from '../test-support/golden';
 
@@ -38,6 +39,17 @@ describe('headless runner', () => {
       expect(readFileSync(join(dir, 'audio.wav')).subarray(0, 4).toString()).toBe('RIFF');
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('gives the same events and audio samples in a live run as in the default one', async () => {
+    for (const file of ['clock-blips.flowpatch', 'delay-echo.flowpatch']) {
+      const patch = () => loadPatch(join(ROOT, 'examples', file));
+      const [batch, live] = await Promise.all([runPatch(patch(), { seconds: 2, fps: 0 }), runPatch(patch(), { seconds: 2, fps: 0, live: true })]);
+      expect(formatEvents(live.events)).toBe(formatEvents(batch.events));
+      expect(batch.audio).not.toBeNull();
+      expect(peak(live.audio!)).toBeGreaterThan(0.01);
+      expect(maxDifference(live.audio!, batch.audio!)).toBeLessThanOrEqual(RENDER_TOLERANCE);
     }
   });
 
