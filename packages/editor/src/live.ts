@@ -90,12 +90,14 @@ export class LivePatch {
     const cold = this.context.state !== 'running';
     // The first pointerdown starts audio. Its push is held until then, so the first touch still sounds (Platform rules).
     if (cold && port === 'down') void this.context.resume();
-    if (!this.pointers.length) return;
+    // Pushes are held while audio is stopped, so hover moves before the first tap would pile up and
+    // replay as a burst that the event cap can cut the Down out of. Down carries the position anyway.
+    if (!this.pointers.length || (cold && port === 'move')) return;
     const at = this.context.currentTime;
     this.starts = [];
     let stamped: number | null = null;
     try {
-      for (const id of this.pointers) stamped = this.scheduler.push(id, port, fields)?.time ?? null;
+      for (const id of this.pointers) stamped ??= this.scheduler.push(id, port, fields)?.time ?? null;
     } finally {
       const starts = this.starts;
       this.starts = null;

@@ -19,6 +19,10 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
   const canvas = page.getByTestId('performance-canvas');
   await expect(page.getByTestId('audio-state')).toHaveText('tap to start');
 
+  // Hovering before the first tap: those moves must not pile up behind the stopped AudioContext.
+  const box = (await canvas.boundingBox())!;
+  for (let i = 0; i < 400; i++) await page.mouse.move(box.x + 10 + (i % 200), box.y + 10 + (i % 7) * 10);
+
   // The first tap starts audio, and still sounds once it has.
   await canvas.click({ position: { x: 40, y: 40 } });
   await expect(page.getByTestId('audio-state')).toHaveText('live');

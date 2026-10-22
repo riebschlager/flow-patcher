@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from 'react';
 import type { LivePatch, PointerPort } from './live';
 
 const MIN = { width: 200, height: 120 };
@@ -8,8 +8,9 @@ const DEFAULT = { width: 248, height: 156 };
 export function PreviewPane({ live }: { live: LivePatch | null }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState(DEFAULT);
+  const subscribe = useCallback((listener: () => void) => live?.subscribe(listener) ?? (() => {}), [live]);
   const status = useSyncExternalStore(
-    (listener) => live?.subscribe(listener) ?? (() => {}),
+    subscribe,
     () => live?.status.audio ?? 'closed',
   );
   const running = status === 'running';
