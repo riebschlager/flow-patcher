@@ -525,8 +525,9 @@ export class Runtime {
    * snapshots include it.
    */
   private readonly delayInputs = new Map<string, PortEvents>();
-  /** The stage each logged event was emitted under, for the log's tie-breaks. */
-  private readonly loggedStage = new WeakMap<LoggedEvent, Stage>();
+  /** The log's tie-breaks over time: each plan's node and output port positions from the
+   *  time it took effect, ascending. Only the positions, so old plans don't stay alive. */
+  private readonly ranks: { from: number; position: Map<string, number>; outPosition: Map<string, Map<string, number>> }[] = [];
   /** Live events, in time order, merged into their node's output in the chunk their time falls in. */
   private injected: Injected[] = [];
   /** Retained windows, oldest first; null when rewind is off. */
@@ -567,6 +568,7 @@ export class Runtime {
   constructor(plan: Plan, options: RuntimeOptions = {}) {
     if (options.history) this.history = [];
     this.stage = this.active = this.makeStage(plan, -Infinity, null, new Set());
+    this.ranks.push({ from: -Infinity, position: this.stage.position, outPosition: this.stage.outPosition });
   }
 
   /** The latest plan: the one the next window runs. */
@@ -745,6 +747,9 @@ export class Runtime {
       }
     }
     this.stage = this.active = next;
+    // A swap to the same time as the last one replaces its ranks; that plan never ran.
+    if (this.ranks.at(-1)!.from === time) this.ranks.pop();
+    this.ranks.push({ from: time, position: next.position, outPosition: next.outPosition });
     if (this.audioContext) this.rewire();
     for (const id of removed) {
       if (this.nodeWarnings.delete(id)) this.version++;
@@ -761,10 +766,10 @@ export class Runtime {
     const replaced = new Set([...affected, ...removed]);
     const report: SwapReport = { time, windows: 0, added, removed, changed, reset, affected, followed, replaced, queries: 0, withdrawn: 0, events: [], cancelled };
     if (first >= 0) for (let j = first; j < history!.length; j++) history![j]!.stage = next;
-    // A swap to the same boundary as the last one, or a second one at the horizon, leaves
-    // the stage before with no window: a replay crossing from the window before goes
-    // straight into `next`, so `next` takes over that stage's own state changes too.
-    if (!history?.some((w) => w.stage === prev)) {
+    // A swap to the same boundary as the last one, or a second one at the horizon before a
+    // query, leaves the stage before with no window: a replay crossing from the window
+    // before goes straight into `next`, so `next` takes over that stage's own state changes too.
+    if (prev.from === time) {
       for (const id of prev.fresh) if (next.byId.has(id)) next.fresh.add(id);
       for (const id of prev.gone) if (!next.byId.has(id)) next.gone.add(id);
     }
@@ -818,13 +823,29 @@ export class Runtime {
 
   /**
    * Log order: time, channel, then plan order and output port order (stable for
-   * the rest). Each event ranks by the plan it was emitted under, so a swap that
-   * reorders the plan doesn't reorder events logged before it.
+   * the rest). Ties rank by the plan in force at their time, so a swap that
+   * reorders the plan reorders only what comes after it, and the order doesn't
+   * depend on which nodes a rewind re-ran.
    */
   sortLog(log: LoggedEvent[]): LoggedEvent[] {
-    const position = (e: LoggedEvent) => (this.loggedStage.get(e) ?? this.stage).position.get(e.node) ?? 0;
-    const port = (e: LoggedEvent) => (this.loggedStage.get(e) ?? this.stage).outPosition.get(e.node)?.get(e.port) ?? Infinity;
-    return log.sort((a, b) => a.time - b.time || a.channel - b.channel || position(a) - position(b) || port(a) - port(b));
+    const ranks = this.ranks;
+    // The last plan that took effect at or before t (both events of a tie share t).
+    const at = (t: number) => {
+      let lo = 0, hi = ranks.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (ranks[mid]!.from <= t) lo = mid;
+        else hi = mid - 1;
+      }
+      return ranks[lo]!;
+    };
+    return log.sort((a, b) => {
+      const d = a.time - b.time || a.channel - b.channel;
+      if (d) return d;
+      const rank = at(a.time);
+      return (rank.position.get(a.node) ?? 0) - (rank.position.get(b.node) ?? 0)
+        || (rank.outPosition.get(a.node)?.get(a.port) ?? Infinity) - (rank.outPosition.get(b.node)?.get(b.port) ?? Infinity);
+    });
   }
 
   /** Steps every visual node with the events whose time is before t1. */
@@ -1145,13 +1166,7 @@ export class Runtime {
       this.applyLimits(id, result, emit !== null);
       outputs.set(id, result);
       if (!emit) continue;
-      for (const [port, events] of Object.entries(result)) {
-        for (const event of events) {
-          const logged: LoggedEvent = { node: id, port, ...event };
-          this.loggedStage.set(logged, stage);
-          emit.log.push(logged);
-        }
-      }
+      for (const [port, events] of Object.entries(result)) for (const event of events) emit.log.push({ node: id, port, ...event });
       if (this.history) this.record(id, result);
       this.deliver(id, inputs, c0, c1, emit);
       if (definition.frame) this.queueForFrame(id, inputs);

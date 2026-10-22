@@ -383,15 +383,79 @@ describe('hot swap', () => {
     expect([0, 1, 2, 3, 4, 5, 6, 7].map((k) => perSlice.get(k))).toEqual(Array(8).fill(NODE_EVENT_LIMIT));
   });
 
-  it('orders the log by the plan each event was emitted under', () => {
-    const run = setup(patch([node('m', 'metro', { period: 0.05 }), node('a', 'counter'), node('b', 'counter')], [cable('m', 'a'), cable('m', 'b')]));
+  it('orders ties by the plan in force at their time, before and after a rewind', () => {
+    // Plan 1 runs m, r, d, u; plan 2 drops r and adds u → d, so it runs m, u, d.
+    const run = setup(patch([node('m', 'metro', { period: 0.05 }), node('r', 'counter'), node('d', 'counter'), node('u', 'counter')], [cable('m', 'r'), cable('m', 'd'), cable('m', 'u')]));
     run.wakeEvery(0, 0.5);
-    // b → a puts b before a in the new plan; a now counts b's events too.
-    const report = run.edit(0.49, { op: 'add-cable', cable: cable('b', 'a') });
-    run.wakeEvery(0.5, 1);
-    const order = (before: boolean) => [...new Set(run.scheduler.events().filter((e) => e.node !== 'm' && (e.time < report.time) === before).map((e) => e.node))];
-    expect(order(true)).toEqual(['a', 'b']);
-    expect(order(false)).toEqual(['b', 'a']);
+    const report = run.edit(0.49, { op: 'remove-node', node: 'r' }, { op: 'add-cable', cable: cable('u', 'd') });
+    const T = report.time;
+    run.wakeEvery(0.5, 0.6);
+    const at = (t: number) => run.scheduler.events().filter((e) => Math.abs(e.time - t) < 1e-9 && e.node !== 'm').map((e) => e.node);
+    const before = 0.45, after = Math.ceil(T / 0.05) * 0.05;
+    expect(at(before)).toEqual(['r', 'd', 'u']);
+    // Out-of-scope u and re-run d both rank by plan 2 at that time.
+    expect(at(after)).toEqual(['u', 'd', 'd']);
+    expect(at(0.65)).toEqual(['u', 'd', 'd']);
+    // A live event on u at 0.605 re-runs u and d from there, m not: the order at 0.65 stays.
+    const rewind = run.push(0.6, 'u');
+    expect(rewind.time).toBeLessThan(0.65);
+    expect(at(0.65)).toEqual(['u', 'd', 'd']);
+    run.wakeEvery(0.625, 1);
+    expect(at(before)).toEqual(['r', 'd', 'u']);
+    expect(at(after)).toEqual(['u', 'd', 'd']);
+    expect(at(0.65)).toEqual(['u', 'd', 'd']);
+  });
+
+  it('keeps a node an earlier swap added when a later swap at a later horizon has nothing to do with it (no history)', () => {
+    const definitions = new Map([metro, counter].map((d) => [d.type, d]));
+    const compile = (p: Patch) => {
+      const compiled = compilePatch(p, definitions);
+      if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+      return compiled.plan;
+    };
+    const runtime = new Runtime(compile(patch([node('m', 'metro', { period: 0.05 })], [])));
+    const log: LoggedEvent[] = [...runtime.query(0, 0.5)];
+    runtime.swap(compile(patch([node('m', 'metro', { period: 0.05 }), node('n', 'counter')], [cable('m', 'n')])));
+    log.push(...runtime.query(0.5, 1));
+    // Unrelated: a second node, nothing to do with n.
+    runtime.swap(compile(patch([node('m', 'metro', { period: 0.05 }), node('n', 'counter'), node('x', 'counter')], [cable('m', 'n'), cable('m', 'x')])));
+    log.push(...runtime.query(1, 1.5));
+    const counts = log.filter((e) => e.node === 'n').map((e) => e.count);
+    expect(counts).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+  });
+
+  it('does not take a swap at the oldest retained boundary for a second swap to the same boundary', () => {
+    const definitions = new Map([metro, counter].map((d) => [d.type, d]));
+    const compile = (p: Patch) => {
+      const compiled = compilePatch(p, definitions);
+      if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+      return compiled.plan;
+    };
+    const runtime = new Runtime(compile(patch([node('m', 'metro', { period: 0.05 })], [])), { history: true });
+    for (let k = 0; k < 5; k++) runtime.query(k / 10, (k + 1) / 10);
+    // n is added at the horizon, 0.5, and runs from there.
+    runtime.swap(compile(patch([node('m', 'metro', { period: 0.05 }), node('n', 'counter')], [cable('m', 'n')])));
+    for (let k = 5; k < 8; k++) runtime.query(k / 10, (k + 1) / 10);
+    // Now 0.6 is both currentTime and the oldest retained boundary.
+    runtime.retain(0.6);
+    const report = runtime.swap(compile(patch([node('m', 'metro', { period: 0.05 }), node('n', 'counter', { step: 10 })], [cable('m', 'n')])), { now: 0.6 });
+    expect(report.time).toBe(0.6);
+    expect(report.reset).toEqual([]);
+    // n counted 0.5 and 0.55 before the swap, then goes on in tens.
+    expect(report.events.filter((e) => e.node === 'n').map((e) => e.count)).toEqual([12, 22, 32, 42]);
+  });
+
+  it('drops a removed delay node\'s held inputs when a rewind crosses two swaps on its boundary', () => {
+    const run = setup(patch([node('m', 'metro', { period: 0.05 }), node('t', 'tap'), node('d', 'delay', { time: 0.03 }), node('c', 'counter')], [cable('t', 'd'), cable('d', 'c'), cable('m', 'c')]));
+    run.wakeEvery(0, 0.47);
+    const first = run.edit(0.471, { op: 'remove-node', node: 'd' });
+    expect(run.edit(0.4712, { op: 'set-param', node: 'c', param: 'step', value: 10 }).time).toBe(first.time);
+    // The tap reaches d in the window before the boundary; the replay then crosses into the plan without d.
+    run.push(0.472, 't');
+    run.wakeEvery(0.475, 0.7);
+    const held = (run.runtime as unknown as { delayInputs: Map<string, unknown> }).delayInputs;
+    expect(held.has('d')).toBe(false);
+    expect(run.of('d')).toEqual([]);
   });
 
   it('swaps at the horizon without a clock, and at once before the first query', () => {

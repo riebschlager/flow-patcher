@@ -188,12 +188,15 @@ describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → S
     disposedAt: number | null;
     idleAtDispose: number;
   }
-  function recordingSynth(voices: Map<AudioContextLike, Voice[]>, failures: string[]): NodeDefinition {
+  /** `voices` and `failures` are per audio context: a live run that starts over gets a new one. */
+  function recordingSynth(voices: Map<AudioContextLike, Voice[]>, failuresBy: Map<AudioContextLike, string[]>): NodeDefinition {
     return {
       ...simpleSynth,
       audio(ctx) {
         const inner = simpleSynth.audio!(ctx);
         const voice: Voice = { live: new Set(), disposedAt: null, idleAtDispose: 0 };
+        if (!failuresBy.has(ctx.audio)) failuresBy.set(ctx.audio, []);
+        const failures = failuresBy.get(ctx.audio)!;
         voices.set(ctx.audio, [...(voices.get(ctx.audio) ?? []), voice]);
         return {
           ...inner,
@@ -250,11 +253,11 @@ describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → S
 
   it('shows no duplicated, missing or stray events, and keeps state for surviving ids', async () => {
     const plan = script();
-    const failures: string[] = [];
     const voices = new Map<AudioContextLike, Voice[]>();
-    const registry = new Map(nodeRegistry).set('simple-synth', recordingSynth(voices, failures));
+    const synthFailures = new Map<AudioContextLike, string[]>();
+    const registry = new Map(nodeRegistry).set('simple-synth', recordingSynth(voices, synthFailures));
     // Per attempt (a live run may start over): the plans in force, the audio context, the taps.
-    const fresh = (run: { runtime: Runtime; context: AudioContextLike | null; patch: Patch }) => ({ runtime: run.runtime, context: run.context, stages: [{ time: 0, patch: run.patch }], taps: [] as { time: number; crossed: boolean }[] });
+    const fresh = (run: { runtime: Runtime; context: AudioContextLike | null; patch: Patch }) => ({ runtime: run.runtime, context: run.context, stages: [{ time: 0, patch: run.patch }], taps: [] as { time: number; crossed: boolean }[], failures: [] as string[] });
     let attempt: ReturnType<typeof fresh> | null = null;
     const anchorsOf = (runtime: Runtime) => JSON.parse(JSON.stringify((runtime.stateOf('clock') as { transport: Transport }).transport.anchors)) as Transport['anchors'];
     const edits: RunEdit[] = plan.map(({ time, edits }) => ({
@@ -269,14 +272,14 @@ describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → S
         // Bookkeeping, true by construction of the stages: an id the swap didn't reset shares its state object.
         for (const id of ids) {
           if (report.removed.includes(id) || report.reset.includes(id)) continue;
-          if (run.runtime.stateOf(id) !== before.get(id)) failures.push(`${id} lost its state object at the swap at ${report.time}`);
+          if (run.runtime.stateOf(id) !== before.get(id)) attempt.failures.push(`${id} lost its state object at the swap at ${report.time}`);
         }
         // The content: Clock's transport gains an anchor at the swap time when its knobs changed, and nothing else.
         const after = anchorsOf(run.runtime);
         const T = report.time;
         const expected = report.affected.has('clock') ? anchors.filter((a) => a.time < T) : anchors;
         if (JSON.stringify(report.affected.has('clock') ? after.slice(0, -1) : after) !== JSON.stringify(expected)
-          || (report.affected.has('clock') && after.at(-1)!.time !== T)) failures.push(`clock anchors changed beyond one at ${T}`);
+          || (report.affected.has('clock') && after.at(-1)!.time !== T)) attempt.failures.push(`clock anchors changed beyond one at ${T}`);
       },
     }));
     // Live taps on Clock's tick output, after every pair and every ninth edit, so rewinds replay
@@ -293,6 +296,9 @@ describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → S
     // The edits' closures set it; TypeScript can't see that.
     const run = attempt as ReturnType<typeof fresh> | null;
     if (!run) throw new Error('no edit ran');
+    // Only the attempt that finished counts: one a lost suspend aborted may have left half-made checks.
+    if (result.attempts > 1) console.warn(`[hot-swap gate] the live run took ${result.attempts} attempts; checking the last`);
+    const failures = [...run.failures, ...(synthFailures.get(run.context!) ?? [])];
     const { events } = result;
     expect(result.audio).not.toBeNull();
     const stages = run.stages;
@@ -323,6 +329,8 @@ describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → S
     });
     const ticks = (log: LoggedEvent[]) => formatEvents(log.filter((e) => e.node === 'clock'));
     if (ticks(events) !== ticks(clockOnly.events)) failures.push('clock ticks differ from a run with only the clock edits');
+    // Clock is the only stateful node here; state carry-over for others (resets, added
+    // nodes, delay inputs, rewinds across same-boundary swaps) is in packages/engine/test/hot-swap.test.ts.
     // The transport carried its state through every swap: each step fires exactly once.
     const indices = events.filter((e) => e.node === 'clock' && !e.live).map((e) => e.index);
     if (indices.some((index, i) => index !== i)) failures.push('clock step indices skip or repeat');
@@ -380,6 +388,7 @@ describe('scripted edits beside a patch', () => {
       rejects([{ time: 1, edits: [{ op: 'rename' }] }], /\[0\]\.edits\[0\]: op must be one of/);
       rejects([{ time: 1, edits: [{ op: 'set-param', node: 'clock', value: 60 }] }], /\[0\]\.edits\[0\]: set-param needs node and param/);
       rejects([{ time: 1, edits: [{ op: 'add-node', node: { id: 'x', type: 'clock', typeVersion: 3, params: {} } }] }], /add-node needs node\.position/);
+      rejects([{ time: 1, edits: [{ op: 'add-node', node: { id: 'x', type: 'clock', typeVersion: 3, params: {}, position: { x: 0, y: 0 }, pinned: [1] } }] }], /add-node needs node\.pinned/);
       rejects([{ time: 1, edits: [{ op: 'remove-cable', from: { node: 'a' }, to: { node: 'b', port: 'in' } }] }], /remove-cable needs from and to/);
     } finally {
       rmSync(dir, { recursive: true, force: true });

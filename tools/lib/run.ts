@@ -200,7 +200,8 @@ function editProblem(edit: unknown): string | null {
       const n = edit.node;
       if (!isRecord(n) || typeof n.id !== 'string' || !n.id || typeof n.type !== 'string' || !Number.isInteger(n.typeVersion)) return 'add-node needs node { id, type, typeVersion, params, position }';
       if (!isRecord(n.params) || !Object.values(n.params).every(isParamValue)) return 'add-node needs node.params of numbers, strings or booleans';
-      return isRecord(n.position) && Number.isFinite(n.position.x) && Number.isFinite(n.position.y) ? null : 'add-node needs node.position { x, y }';
+      if (!isRecord(n.position) || !Number.isFinite(n.position.x) || !Number.isFinite(n.position.y)) return 'add-node needs node.position { x, y }';
+      return n.pinned === undefined || (Array.isArray(n.pinned) && n.pinned.every((k) => typeof k === 'string')) ? null : 'add-node needs node.pinned to be strings, or none';
     }
     case 'add-cable': {
       const c = edit.cable;
