@@ -12,6 +12,14 @@ import type { AudioContextLike } from './audio/types';
 export const MAX_FRAME_DT = 0.033;
 /** The step for a first frame, or when the wall clock didn't move forward. */
 export const FALLBACK_FRAME_DT = 0.016;
+/** The widest frame interval, in seconds. After a hidden tab or a long stall the first frame back
+ *  covers only the last stretch of this length, rather than everything since the last frame. */
+export const MAX_FRAME_SPAN = 0.25;
+/** How far behind a frame's t0 a scheduled event may still be shown late, in seconds (Runtime.frame).
+ *  Covers a catch-up's late events (ADR 0017, at most 100 ms); older ones are dropped. */
+export const FRAME_BACKLOG = 0.25;
+/** Scheduled events held per visual node input while no frame runs (a hidden tab); the oldest go first. */
+export const FRAME_QUEUE_LIMIT = 4096;
 
 export interface FrameClock {
   /** The audio clock in seconds: AudioContext.currentTime. */
@@ -50,6 +58,7 @@ export interface FrameLoopOptions {
   timer?: FrameTimer;
   maxDt?: number;
   fallbackDt?: number;
+  maxSpan?: number;
 }
 
 /**
@@ -69,6 +78,7 @@ export class FrameLoop {
   private readonly timer: FrameTimer | undefined;
   private readonly maxDt: number;
   private readonly fallbackDt: number;
+  private readonly maxSpan: number;
   private last: { t1: number; wall: number } | null = null;
   private stop: (() => void) | null = null;
 
@@ -78,6 +88,7 @@ export class FrameLoop {
     this.timer = options.timer;
     this.maxDt = options.maxDt ?? MAX_FRAME_DT;
     this.fallbackDt = options.fallbackDt ?? FALLBACK_FRAME_DT;
+    this.maxSpan = options.maxSpan ?? MAX_FRAME_SPAN;
   }
 
   /**
@@ -85,7 +96,10 @@ export class FrameLoop {
    * output latency. The first frame (and the first after `reset`) is empty,
    * t0 = t1, with the fallback dt. t1 never moves back, so a latency that
    * grows mid-run (a Bluetooth headset connecting) holds the frame clock still
-   * until audio time catches up, rather than showing anything twice.
+   * until audio time catches up, rather than showing anything twice. An
+   * interval wider than MAX_FRAME_SPAN (the first frame after a hidden tab)
+   * is cut to its last MAX_FRAME_SPAN, so visual nodes don't get a long
+   * backlog at once; the runtime drops what's left behind (FRAME_BACKLOG).
    */
   tick(): FrameTick {
     const wall = this.clock.wallTime();
@@ -93,8 +107,8 @@ export class FrameLoop {
     const latency = Number.isFinite(raw) && raw > 0 ? raw : 0;
     const now = this.clock.audioTime() - latency;
     const last = this.last;
-    const t0 = last ? last.t1 : now;
-    const t1 = Math.max(t0, now);
+    const t1 = Math.max(last ? last.t1 : now, now);
+    const t0 = last ? Math.max(last.t1, t1 - this.maxSpan) : now;
     const elapsed = last ? (wall - last.wall) / 1000 : NaN;
     const dt = elapsed > 0 ? Math.min(this.maxDt, elapsed) : this.fallbackDt;
     this.last = { t1, wall };

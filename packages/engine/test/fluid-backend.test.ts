@@ -8,6 +8,7 @@ import {
   createFluidStepper,
   createInProcessFluid,
   Fluid,
+  MAX_OWED_SPLATS,
   fluidReplyTransfer,
   FluidHost,
   fluidSolverParams,
@@ -65,6 +66,8 @@ function emulatedWorker() {
     dropNext: () => {
       failNext = true;
     },
+    /** Replies waiting to be delivered. */
+    inbox,
   };
 }
 
@@ -74,7 +77,7 @@ describe('fluid stepper (the worker side)', () => {
     const sim = new Fluid(GRID.w, GRID.h);
     for (let k = 0; k < 20; k++) {
       const w = work(k);
-      const reply = step({ ...w, generation: 0, recycle: null });
+      const reply = step({ ...w, generation: 0, seq: 1, recycle: null });
       sim.swirl = w.params.swirl;
       sim.persistence = w.params.persistence;
       sim.drag = w.params.drag;
@@ -88,16 +91,16 @@ describe('fluid stepper (the worker side)', () => {
 
   it('times the step and the colorizing with the clock it is given', () => {
     let t = 0;
-    const reply = createFluidStepper(() => (t += 2))({ ...work(0), generation: 0, recycle: null });
+    const reply = createFluidStepper(() => (t += 2))({ ...work(0), generation: 0, seq: 1, recycle: null });
     expect([reply.stepMs, reply.colorMs]).toEqual([2, 2]);
   });
 
   it('starts from still water when the generation changes, and ignores a recycled buffer of the wrong size', () => {
     const step = createFluidStepper();
-    const dyed = step({ ...work(0), generation: 0, recycle: new Uint8ClampedArray(4) });
+    const dyed = step({ ...work(0), generation: 0, seq: 1, recycle: new Uint8ClampedArray(4) });
     expect(dyed.pixels.length).toBe(GRID.w * GRID.h * 4);
-    const still = step({ ...work(1), splats: [], generation: 1, recycle: null });
-    const fresh = createFluidStepper()({ ...work(1), splats: [], generation: 0, recycle: null });
+    const still = step({ ...work(1), splats: [], generation: 1, seq: 1, recycle: null });
+    const fresh = createFluidStepper()({ ...work(1), splats: [], generation: 0, seq: 1, recycle: null });
     expect(still.pixels).toEqual(fresh.pixels);
     expect(still.generation).toBe(1);
   });
@@ -138,15 +141,52 @@ describe('FluidHost', () => {
     host.step(work(6));
     expect(requests).toHaveLength(1);
     expect(host.pending).toBe(true);
+    expect(host.stats).toMatchObject({ waitingFrames: 2, maxWaitingFrames: 2 });
+    // The reply sends what waited at once, without waiting for the next frame:
+    // dt summed, splats in order, the latest knobs.
     deliver();
-    // The next frame's work goes with what waited: dt summed, splats in order, its own knobs.
-    host.step(work(7));
     expect(requests).toHaveLength(2);
     const merged = requests[1]!;
-    expect(merged.dt).toBeCloseTo(work(3).dt + work(6).dt + work(7).dt, 12);
-    expect(merged.splats).toEqual([...work(3).splats, ...work(6).splats, ...work(7).splats]);
-    expect(merged.params).toEqual(work(7).params);
-    expect(host.stats).toMatchObject({ sent: 2, received: 1, merged: 2 });
+    expect(merged.dt).toBeCloseTo(work(3).dt + work(6).dt, 12);
+    expect(merged.splats).toEqual([...work(3).splats, ...work(6).splats]);
+    expect(merged.params).toEqual(work(6).params);
+    expect(host.stats).toMatchObject({ sent: 2, received: 1, merged: 1, waitingFrames: 0, maxWaitingFrames: 2 });
+  });
+
+  it('caps the splats waiting for a worker that never answers, dropping the oldest, and counts the wait', () => {
+    const { host, requests } = emulatedWorker();
+    const splat = (i: number): SplatArgs => [i / 1000, 0.5, 1, 0, 0, 0.05, 0, 0];
+    // The worker dies before replying: nothing ever comes back.
+    host.step({ ...work(1), splats: [] });
+    for (let frame = 0; frame < 100; frame++) host.step({ ...work(1), splats: [splat(frame * 3), splat(frame * 3 + 1), splat(frame * 3 + 2)] });
+    expect(requests).toHaveLength(1);
+    expect(host.stats).toMatchObject({ waitingFrames: 100, maxWaitingFrames: 100, droppedSplats: 300 - MAX_OWED_SPLATS });
+    // The host gives up on it (onerror); the next frame sends the newest splats, in order.
+    host.fail('worker died');
+    host.step({ ...work(1), splats: [] });
+    expect(requests[1]!.splats).toHaveLength(MAX_OWED_SPLATS);
+    expect(requests[1]!.splats[0]).toEqual(splat(300 - MAX_OWED_SPLATS));
+    expect(requests[1]!.splats.at(-1)).toEqual(splat(299));
+  });
+
+  it('counts which steps the latched picture includes', () => {
+    const { host, deliver } = emulatedWorker();
+    host.step(work(0)); // step 1, sent
+    host.step(work(1)); // step 2, waits
+    expect([host.stepCount, host.latchedThrough]).toEqual([2, 0]);
+    deliver(); // step 1 finished; steps 2 sent
+    host.latch();
+    expect(host.latchedThrough).toBe(1);
+    host.step(work(2)); // step 3, waits
+    deliver(); // step 2 finished; 3 sent
+    deliver(); // step 3 finished
+    host.latch();
+    expect(host.latchedThrough).toBe(3);
+    expect(host.stats).toMatchObject({ received: 3, latched: 2 });
+    const local = createInProcessFluid();
+    local.step(work(0));
+    local.latch();
+    expect(local.latchedThrough).toBe(1);
   });
 
   it('a slow worker gives the same pixels as in process with the same merged work', () => {
@@ -160,15 +200,15 @@ describe('FluidHost', () => {
     }
     deliver();
     host.latch();
-    // In process: frame 0 alone, then each pair of frames merged as the host merged them.
-    // Frame 5's work waits for the next frame: a reply doesn't send what's owed (the spike's rule).
+    // In process: frames 0 and 1 alone (1 goes out on 0's reply), then each pair merged as the host merged them.
     local.step(work(0));
+    local.step(work(1));
     const pair = (a: number, b: number): FluidWork => ({ ...work(b), dt: work(a).dt + work(b).dt, splats: [...work(a).splats, ...work(b).splats] });
-    local.step(pair(1, 2));
-    local.step(pair(3, 4));
+    local.step(pair(2, 3));
+    local.step(pair(4, 5));
     local.latch();
     expect(host.latched()!.pixels).toEqual(local.latched()!.pixels);
-    expect(host.stats).toMatchObject({ sent: 3, received: 3, merged: 2 });
+    expect(host.stats).toMatchObject({ sent: 4, received: 4, merged: 2 });
   });
 
   it('recovers from a failed step: busy clears and the next frame sends again', () => {
@@ -184,7 +224,23 @@ describe('FluidHost', () => {
     deliver();
     host.latch();
     expect(host.latched()).not.toBeNull();
-    expect(host.stats.failed).toBe(1);
+    expect(host.stats).toMatchObject({ failed: 1, received: 1, stale: 0 });
+  });
+
+  it('drops a reply that comes after fail() gave its step up, without taking the next step for it', () => {
+    const { host, requests, inbox } = emulatedWorker();
+    host.step(work(0));
+    host.fail('spurious'); // the reply is still coming
+    host.step(work(3)); // a new step goes out
+    expect(requests).toHaveLength(2);
+    host.receive(inbox.shift()!); // the late reply to the first
+    expect(host.pending).toBe(true);
+    host.latch();
+    expect(host.latched()).toBeNull();
+    host.receive(inbox.shift()!);
+    host.latch();
+    expect(host.latched()).not.toBeNull();
+    expect(host.stats).toMatchObject({ received: 1, stale: 1, latched: 1 });
   });
 
   it('drops a reply from before a reset and starts the next step from still water', () => {
@@ -201,6 +257,7 @@ describe('FluidHost', () => {
     still.step({ ...work(1), splats: [] });
     still.latch();
     expect(host.latched()!.pixels).toEqual(still.latched()!.pixels);
+    expect(host.stats).toMatchObject({ received: 1, stale: 1 });
   });
 
   it('frees the busy flag if posting throws', () => {

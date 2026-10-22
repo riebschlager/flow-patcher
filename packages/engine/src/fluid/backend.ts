@@ -55,6 +55,8 @@ export interface FluidWork {
 export interface FluidStepRequest extends FluidWork {
   /** Counts resets: the stepper clears the solver when it changes, and the host drops replies from before one. */
   generation: number;
+  /** Numbers requests; the reply echoes it, so the host can tell a reply to the step in flight from a late one. */
+  seq: number;
   /** The pixels of an earlier reply, handed back so the worker needn't allocate. Transferred. */
   recycle: Uint8ClampedArray | null;
 }
@@ -62,6 +64,7 @@ export interface FluidStepRequest extends FluidWork {
 /** What comes back: the dye after the step, colored. `pixels` is transferred, not copied. */
 export interface FluidStepReply {
   generation: number;
+  seq: number;
   w: number;
   h: number;
   /** RGBA, row-major, top row first: one pixel per cell. */
@@ -127,7 +130,7 @@ export function createFluidStepper(now: () => number = () => 0): (request: Fluid
     let colorize = colorizers.get(request.palette);
     if (!colorize) colorizers.set(request.palette, (colorize = createFluidColorizer(request.palette)));
     renderFluidPixels(sim, pixels, time, colorize);
-    return { generation, w: sim.w, h: sim.h, pixels, stepMs: stepped - start, colorMs: now() - stepped };
+    return { generation, seq: request.seq, w: sim.w, h: sim.h, pixels, stepMs: stepped - start, colorMs: now() - stepped };
   };
 }
 
@@ -137,16 +140,30 @@ export const fluidReplyTransfer = (reply: FluidStepReply): ArrayBuffer[] => [rep
 /** Sends a request on, e.g. `worker.postMessage(request, transfer)`. */
 export type FluidPost = (request: FluidStepRequest, transfer: ArrayBuffer[]) => void;
 
+/** Splats that may wait for a busy worker; older ones are dropped past it. The per-node event budget. */
+export const MAX_OWED_SPLATS = 256;
+
 /** What a FluidHost has done, for the host's stats. */
 export interface FluidHostStats {
   /** Requests sent. */
   sent: number;
-  /** Replies latched or waiting to be. */
+  /** Replies to the step in flight, in the current generation: the ones readers can latch. */
   received: number;
+  /** Replies dropped: from before a reset, or arriving after `fail()` gave their step up. */
+  stale: number;
+  /** Finished steps moved to the readers by `latch()`. */
+  latched: number;
   /** Frames whose work waited for a busy worker and went with a later step. */
   merged: number;
+  /** Waiting splats dropped, oldest first, past MAX_OWED_SPLATS. */
+  droppedSplats: number;
   /** Requests that failed (`fail`). */
   failed: number;
+  /** Frames (`step` calls) since the step in flight was sent; 0 when none is. A worker that died keeps
+   *  this growing, so a host can warn on it. */
+  waitingFrames: number;
+  /** The most `waitingFrames` has reached. */
+  maxWaitingFrames: number;
   /** The last reply's timings. */
   stepMs: number;
   colorMs: number;
@@ -156,9 +173,10 @@ export interface FluidHostStats {
  * The main thread's side of the protocol, DOM-free, with the M0 spike's rules:
  * - one step in flight at a time;
  * - work that arrives while one is in flight waits: its dt adds up (the solver
- *   caps a step at 35 ms), its splats queue, and the latest knobs, grid,
- *   palette and time win, so a slow device steps less often rather than
- *   queueing work;
+ *   caps a step at 35 ms), its splats queue (at most MAX_OWED_SPLATS, oldest
+ *   dropped first), and the latest knobs, grid, palette and time win, so a
+ *   slow device steps less often rather than queueing work. It goes out as
+ *   soon as the reply arrives;
  * - a spare pixel buffer goes back with the next request, so steady state
  *   allocates nothing;
  * - a failure (`fail`) clears the busy flag, so the next frame sends again
@@ -166,11 +184,18 @@ export interface FluidHostStats {
  * Readers latch the last finished step at each frame.
  */
 export class FluidHost implements FluidBackend {
-  readonly stats: FluidHostStats = { sent: 0, received: 0, merged: 0, failed: 0, stepMs: 0, colorMs: 0 };
-  private busy = false;
-  /** Work waiting for the next request. */
-  private owed: FluidWork | null = null;
+  readonly stats: FluidHostStats = { sent: 0, received: 0, stale: 0, latched: 0, merged: 0, droppedSplats: 0, failed: 0, waitingFrames: 0, maxWaitingFrames: 0, stepMs: 0, colorMs: 0 };
+  /** The `seq` of the step in flight, or null. */
+  private inFlight: number | null = null;
+  private seq = 0;
+  /** Work waiting for the next request; its splats array is the host's own, appended in place. */
+  private owed: (FluidWork & { splats: SplatArgs[] }) | null = null;
   private generation = 0;
+  /** `step` calls so far, and how many of them the step in flight, the newest finished one and the latched one include. */
+  private steps = 0;
+  private inFlightThrough = 0;
+  private finishedThrough = 0;
+  private through = 0;
   /** The reply readers see this frame, and the newest one not yet latched. */
   private shown: FluidImage | null = null;
   private finished: FluidImage | null = null;
@@ -182,23 +207,57 @@ export class FluidHost implements FluidBackend {
     if (!this.finished) return;
     if (this.shown) this.spare = this.shown.pixels;
     this.shown = this.finished;
+    this.through = this.finishedThrough;
     this.finished = null;
+    this.stats.latched++;
   }
 
   latched(): FluidImage | null {
     return this.shown;
   }
 
+  /**
+   * How many `step` calls the latched picture includes, counted from the
+   * host's creation (resets included). A host that knows the frame whose step
+   * took some work (a tap's splash: `Runtime.lastFrame`) reads `stepCount`
+   * after that frame; the work is on screen once `latchedThrough` reaches it.
+   */
+  get latchedThrough(): number {
+    return this.through;
+  }
+
+  /** `step` calls so far. */
+  get stepCount(): number {
+    return this.steps;
+  }
+
   /** True while a step is in flight. */
   get pending(): boolean {
-    return this.busy;
+    return this.inFlight !== null;
   }
 
   step(work: FluidWork): void {
-    if (this.owed) {
+    this.steps++;
+    const owed = this.owed;
+    if (owed) {
       this.stats.merged++;
-      this.owed = { ...work, dt: this.owed.dt + work.dt, splats: [...this.owed.splats, ...work.splats] };
+      owed.dt += work.dt;
+      owed.grid = work.grid;
+      owed.params = work.params;
+      owed.palette = work.palette;
+      owed.time = work.time;
+      owed.splats.push(...work.splats);
     } else this.owed = { ...work, splats: [...work.splats] };
+    const splats = this.owed!.splats;
+    if (splats.length > MAX_OWED_SPLATS) {
+      const drop = splats.length - MAX_OWED_SPLATS;
+      splats.splice(0, drop);
+      this.stats.droppedSplats += drop;
+    }
+    if (this.inFlight !== null) {
+      this.stats.waitingFrames++;
+      this.stats.maxWaitingFrames = Math.max(this.stats.maxWaitingFrames, this.stats.waitingFrames);
+    }
     this.flush();
   }
 
@@ -208,42 +267,59 @@ export class FluidHost implements FluidBackend {
     this.shown = this.finished = null;
   }
 
-  /** A reply from the worker. Replies from before a reset only give their buffer back. */
+  /**
+   * A reply from the worker. Only the reply to the step in flight, in the
+   * current generation, is kept for readers; any other gives its buffer back.
+   * Work that waited while the step ran goes out at once.
+   */
   receive(reply: FluidStepReply): void {
-    this.busy = false;
-    this.stats.received++;
+    if (reply.seq !== this.inFlight) {
+      // Its step was given up (`fail`); the step in flight, if any, is another one.
+      this.stats.stale++;
+      this.spare = reply.pixels;
+      return;
+    }
+    this.inFlight = null;
+    this.stats.waitingFrames = 0;
     this.stats.stepMs = reply.stepMs;
     this.stats.colorMs = reply.colorMs;
-    const image = { width: reply.w, height: reply.h, pixels: reply.pixels };
-    if (reply.generation !== this.generation) this.spare = reply.pixels;
-    else {
+    if (reply.generation !== this.generation) {
+      this.stats.stale++;
+      this.spare = reply.pixels;
+    } else {
+      this.stats.received++;
       // A reply that arrived after another one in the same frame replaces it; that one's buffer is spare.
       if (this.finished) this.spare = this.finished.pixels;
-      this.finished = image;
+      this.finished = { width: reply.w, height: reply.h, pixels: reply.pixels };
+      this.finishedThrough = this.inFlightThrough;
     }
+    this.flush();
   }
 
   /** The worker failed a step (onerror, onmessageerror). Its buffers are gone; the next frame sends again. */
   fail(_reason?: unknown): void {
-    this.busy = false;
+    this.inFlight = null;
+    this.stats.waitingFrames = 0;
     this.spare = null;
     this.stats.failed++;
   }
 
   private flush(): void {
-    if (this.busy || !this.owed) return;
+    if (this.inFlight !== null || !this.owed) return;
     const work = this.owed;
     const recycle = this.spare;
     this.owed = null;
     this.spare = null;
-    this.busy = true;
+    const seq = ++this.seq;
+    this.inFlight = seq;
+    this.inFlightThrough = this.steps;
     this.stats.sent++;
-    const request: FluidStepRequest = { ...work, grid: { ...work.grid }, params: { ...work.params }, splats: work.splats, generation: this.generation, recycle };
+    const request: FluidStepRequest = { ...work, grid: { ...work.grid }, params: { ...work.params }, splats: work.splats, generation: this.generation, seq, recycle };
     try {
       this.post(request, recycle ? [recycle.buffer as ArrayBuffer] : []);
     } catch (error) {
       // A post that throws never reaches the worker; nothing will reply.
-      this.fail(error);
+      if (this.inFlight === seq) this.fail(error);
       throw error;
     }
   }

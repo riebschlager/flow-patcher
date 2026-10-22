@@ -29,6 +29,7 @@ const delay: NodeDefinition = {
 /** A fluid: Write fields in, the fluid out, plus a Signal input. */
 const fluid: NodeDefinition = {
   type: 'fluid', version: 1, label: 'Fluid', category: 'visual', description: '',
+  unique: true,
   ports: [
     { name: 'writers', type: 'field', fieldKind: 'write', direction: 'in' },
     { name: 'force', type: 'signal', direction: 'in' },
@@ -169,5 +170,19 @@ describe('graph compiler: window limit', () => {
     const nan: NodeDefinition = { ...delay, type: 'nan', delay: () => NaN };
     const result = compilePatch(patch([node('n', 'nan')], []), new Map([...definitions, ['nan', nan]]));
     expect(result.ok ? [] : result.errors).toEqual(['node "n": delay must be a positive number of seconds, got NaN']);
+  });
+});
+
+describe('graph compiler: one per patch', () => {
+  it('rejects a second node of a unique type, naming both', () => {
+    const result = failure(patch([node('f1', 'fluid'), node('w', 'writer'), node('f2', 'fluid'), node('f3', 'fluid')], [cable('w', 'f2', 'write', 'writers')]));
+    expect(result.errors).toEqual([
+      'node "f2": only one Fluid per patch ("f1" is one already)',
+      'node "f3": only one Fluid per patch ("f1" is one already)',
+    ]);
+  });
+
+  it('allows one, and any number of nodes of types that are not unique', () => {
+    expect(compile(patch([node('f', 'fluid'), node('p1', 'probe'), node('p2', 'probe')], [])).order).toHaveLength(3);
   });
 });

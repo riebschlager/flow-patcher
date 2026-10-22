@@ -5,8 +5,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   compilePatch,
+  FRAME_BACKLOG,
+  FRAME_QUEUE_LIMIT,
   FrameLoop,
   ManualClock,
+  MAX_FRAME_SPAN,
   Runtime,
   Scheduler,
   type AudioContextLike,
@@ -128,6 +131,10 @@ describe('frames and the immediate path (ADR 0020)', () => {
     expect(frame.t1).toBeCloseTo(0.816, 12);
     expect(seen(runtime)).toEqual([{ time: event.time, channel: 3, path: 'immediate', t1: frame.t1 }]);
     expect(played()).toEqual([event.time]);
+    // The host learns which frame handed the tap over (the browser's splash log, #40).
+    expect(runtime.lastFrame).toMatchObject({ t1: frame.t1, immediate: 1, taps: [{ node: 'v', port: 'in', time: event.time, channel: 3 }] });
+    step(1.032);
+    expect(runtime.lastFrame).toMatchObject({ immediate: 0, taps: [] });
   });
 
   it('keeps scheduled events and what the tap causes later on the shifted clock, and shows each once', () => {
@@ -231,5 +238,54 @@ describe('frames and rewinds', () => {
     expect(seen(runtime).map((e) => [e.time, e.path])).toEqual([[1, 'immediate']]);
     runtime.frame(0.72, 1.2, 0.016);
     expect(seen(runtime)).toHaveLength(1);
+  });
+
+  it('two identical taps where a frame showed only the first: a re-run still shows the second', () => {
+    const runtime = new Runtime(compile(patch([node('t', 'tap'), node('v', 'sink')], [cable('t', 'v')])), { history: true });
+    runtime.query(0, 0.12);
+    runtime.push('t', 'out', { time: 0.05, channel: 0 }, { now: 0.045, path: 'immediate' });
+    runtime.frame(-0.2, -0.18, 0.016);
+    // The same fields, the same stamp: a second tap the frame hasn't seen.
+    runtime.push('t', 'out', { time: 0.05, channel: 0 }, { now: 0.045, path: 'immediate' });
+    runtime.frame(-0.18, -0.16, 0.016);
+    runtime.frame(-0.16, 0.2, 0.016);
+    expect(seen(runtime).map((e) => [e.time, e.path, e.t1])).toEqual([[0.05, 'immediate', -0.18], [0.05, 'immediate', -0.16]]);
+  });
+});
+
+describe('frames after a hidden tab', () => {
+  it('drops scheduled events more than FRAME_BACKLOG behind the frame, and reports them', () => {
+    const runtime = new Runtime(compile(patch([node('m', 'metro', { period: 0.05 }), node('v', 'sink')], [cable('m', 'v')])));
+    // No frames for ten seconds while the windows keep coming.
+    for (let k = 0; k < 400; k++) runtime.query(k * 0.025, (k + 1) * 0.025);
+    runtime.frame(9.75, 10, 0.033);
+    const times = seen(runtime).map((e) => ms(e.time));
+    // The first frame back: only what's within the backlog of its t0 (9.75 − 0.25).
+    expect(FRAME_BACKLOG).toBe(0.25);
+    expect(times).toEqual([9500, 9550, 9600, 9650, 9700, 9750, 9800, 9850, 9900, 9950]);
+    expect(runtime.lastFrame!.dropped).toBe(190);
+  });
+
+  it('a frame loop after a long gap covers only MAX_FRAME_SPAN, so the first frame back hands over a bounded batch', () => {
+    const runtime = new Runtime(compile(patch([node('m', 'metro', { period: 0.05 }), node('v', 'sink')], [cable('m', 'v')])));
+    const clock = { audio: 0, wall: 0 };
+    const loop = new FrameLoop(runtime, { clock: { audioTime: () => clock.audio, wallTime: () => clock.wall } });
+    loop.tick();
+    runtime.query(0, 30);
+    clock.audio = clock.wall / 1000 + 30;
+    clock.wall += 30_000;
+    const frame = loop.tick();
+    expect(frame.t1 - frame.t0).toBeCloseTo(MAX_FRAME_SPAN, 12);
+    expect(batches(runtime).at(-1)!.length).toBeLessThanOrEqual(Math.ceil((MAX_FRAME_SPAN + FRAME_BACKLOG) / 0.05) + 1);
+  });
+
+  it('holds at most FRAME_QUEUE_LIMIT scheduled events per input while no frame runs, dropping the oldest', () => {
+    const runtime = new Runtime(compile(patch([node('m', 'metro', { period: 0.001 }), node('v', 'sink')], [cable('m', 'v')])));
+    // 6 s at 1 ms: 6,000 events, in windows small enough for the event caps.
+    for (let k = 0; k < 600; k++) runtime.query(k * 0.01, (k + 1) * 0.01);
+    runtime.frame(-1, 10, 0.016);
+    const times = seen(runtime).map((e) => e.time);
+    expect(times).toHaveLength(FRAME_QUEUE_LIMIT);
+    expect(ms(times.at(-1)!)).toBe(5999);
   });
 });

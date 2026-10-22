@@ -40,6 +40,8 @@ export const renderer: NodeDefinition = {
   version: 1,
   label: 'Renderer',
   category: 'visual',
+  // One per patch: one canvas (ADR 0005).
+  unique: true,
   description: 'Draws the fluid’s Field on the canvas. One per patch.',
   ports: [{ name: 'field', type: 'field', direction: 'in', label: 'Field', fieldKind: 'fluid' }],
   params: [],

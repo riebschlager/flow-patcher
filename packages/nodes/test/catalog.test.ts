@@ -25,6 +25,17 @@ describe('node catalog', () => {
     expect(nodeRegistry.size).toBe(nodeDefinitions.length);
   });
 
+  it('takes one Fluid and one Renderer per patch (ADR 0003, ADR 0005)', () => {
+    for (const type of ['fluid', 'renderer']) {
+      const definition = nodeRegistry.get(type)!;
+      expect(definition.unique, type).toBe(true);
+      const node = (id: string) => ({ id, type, typeVersion: definition.version, params: {}, position: { x: 0, y: 0 } });
+      const two: Patch = { format: PATCH_FORMAT, version: PATCH_VERSION, seed: 1, nodes: [node('a'), node('b')], cables: [] };
+      const result = compilePatch(two, nodeRegistry);
+      expect(result.ok ? [] : result.errors, type).toEqual([`node "b": only one ${definition.label} per patch ("a" is one already)`]);
+    }
+  });
+
   for (const definition of nodeDefinitions) {
     describe(definition.type, () => {
       it('is well formed', () => {

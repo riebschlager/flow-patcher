@@ -253,6 +253,9 @@ export interface NodeDefinition {
   params: readonly ParamSpec[];
   /** Set on adapter nodes (Sample & Hold, Threshold, …) so the editor can find them by type pair. */
   adapter?: AdapterSpec;
+  /** At most one node of this type per patch (Fluid, ADR 0003; Renderer, ADR 0005).
+   *  The compiler rejects a second; the editor can grey it out in the palette. */
+  unique?: boolean;
   /** Event and Note outputs. Pure: the same inputs and window give the same events. */
   query?(ctx: QueryContext): QueryResult;
   /** Signal outputs: a pure function of time per channel, sampled at event times. */

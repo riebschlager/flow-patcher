@@ -37,6 +37,8 @@ export const fluid: NodeDefinition = {
   version: 3,
   label: 'Fluid',
   category: 'visual',
+  // One per patch: every Fluid would share the host's one backend (ADR 0003).
+  unique: true,
   description: 'The fluid simulation (CPU solver). Writers splat into it; its Field feeds the Renderer.',
   ports: [
     { name: 'writers', type: 'field', direction: 'in', label: 'Writers', fieldKind: 'write' },
