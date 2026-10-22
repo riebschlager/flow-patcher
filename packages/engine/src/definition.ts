@@ -86,8 +86,12 @@ export type ParamValues = Readonly<Record<string, ParamValue>>;
  * - Keep it in `ctx.state` (mutate it or assign keys), never in module scope
  *   or closures, and change it only inside `query()`.
  * - It depends only on the events and times seen, never on how time was
- *   split into windows: after query(a, b) then query(b, c), the state equals
- *   the state after query(a, c). Process inputs in time order.
+ *   split into windows, as far as anyone can observe: after query(a, b) then
+ *   query(b, c), every event the node emits and every read it allows (below)
+ *   is identical to what it gives after query(a, c). Parts of the state that
+ *   nothing can observe may differ, such as which transport anchors older
+ *   than TRANSPORT_HISTORY are left (transport.ts; ADR 0021). Process inputs
+ *   in time order.
  * `signal()` and `value()` may read the state. During queries they are only
  * asked about times t0 <= t < t1 of the chunk being run, after this node's
  * own query for that chunk, so knowing the current chunk is enough. (A delay

@@ -24,6 +24,7 @@ Short records of settled calls. Read the relevant ones before changing anything 
 | [0018](0018-transport-on-a-cable.md) | The transport travels on a cable from Clock; a reader with no cable stays at beat 0 |
 | [0019](0019-live-events-rewind.md) | Live events rewind state and re-query, so results depend only on event times |
 | [0020](0020-tap-splash-skips-latency-shift.md) | A tap's own splash skips the output-latency shift |
+| [0021](0021-transport-tempo-changes.md) | Transport tempo, division and swing changes keep Phase continuous; state need only be observably equal (amends 0018) |
 
 ## Adding a decision
 Copy the shape of an existing file: number, title, `Status: Accepted · <date>`, then Context (if needed), Decision and Consequences. Keep it under a page. If it replaces an older record, set the old one's status to `Superseded by NNNN`. If it changes only part of an older record, set the old one's status to `Amended by NNNN` and leave its text as written; the new record says what changed.

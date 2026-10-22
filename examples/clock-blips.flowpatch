@@ -6,7 +6,7 @@
     {
       "id": "clock",
       "type": "clock",
-      "typeVersion": 2,
+      "typeVersion": 3,
       "params": {
         "bpm": 112,
         "division": "1/8"
