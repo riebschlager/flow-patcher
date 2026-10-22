@@ -23,6 +23,7 @@ import {
   type NodeState,
   type ParamValues,
   type PortSpec,
+  type QueryContext,
 } from './definition';
 import { compareEvents, type EngineEvent, type EventField } from './events';
 import { LIMIT_WINDOW, limitWindowOf, NODE_EVENT_LIMIT, PATCH_EVENT_LIMIT, WARNING_KINDS, type NodeWarning, type NodeWarningKind } from './limits';
@@ -376,6 +377,10 @@ export interface RuntimeOptions {
 }
 
 type PortEvents = Record<string, EngineEvent[]>;
+type PushedEvents = QueryContext['pushed'];
+
+/** `pushed` for a node with no live events in the chunk: shared, so the common case allocates nothing. */
+const NO_PUSHES: PushedEvents = Object.freeze({});
 
 /** One queried window and the state at its start. */
 interface WindowRecord {
@@ -784,16 +789,18 @@ export class Runtime {
           queries++;
           this.counters.queries++;
           const inputs = definition.delay ? (this.delayInputs.get(id) ?? {}) : this.gatherInputs(id, outputs);
-          definition.query({ ...this.contexts.get(id)!, inputs, t0: c0, t1: c1 });
+          // Its own pushes too, so state built from them replays (its events come from emittedIn above).
+          definition.query({ ...this.contexts.get(id)!, inputs, pushed: this.pushedIn(id, c0, c1), t0: c0, t1: c1 });
         }
         continue;
       }
       const inputs = definition.delay ? (this.delayInputs.get(id) ?? {}) : this.gatherInputs(id, outputs);
       const result: PortEvents = {};
+      const pushed = this.pushedIn(id, c0, c1);
       if (definition.query) {
         queries++;
         this.counters.queries++;
-        const raw = definition.query({ ...this.contexts.get(id)!, inputs, t0: c0, t1: c1 });
+        const raw = definition.query({ ...this.contexts.get(id)!, inputs, pushed, t0: c0, t1: c1 });
         for (const [port, events] of Object.entries(raw)) {
           if (!events?.length) continue;
           // Only events inside the window: anything else would break rewind and the no-late-events rule.
@@ -802,9 +809,8 @@ export class Runtime {
           if (inside.length) result[port] = inside;
         }
       }
-      for (const { node: from, port, event } of this.injected) {
-        if (from === id && event.time >= c0 && event.time < c1) (result[port] ??= []).push(event);
-      }
+      // Live events pass through after the query, which saw them as `pushed` and doesn't return them.
+      for (const [port, events] of Object.entries(pushed)) (result[port] ??= []).push(...events);
       for (const events of Object.values(result)) events.sort(compareEvents);
       this.applyLimits(id, result, emit !== null);
       outputs.set(id, result);
@@ -819,6 +825,18 @@ export class Runtime {
       if (node.definition.delay && (!scope || scope.only.has(node.id) || scope.follow.has(node.id))) this.delayInputs.set(node.id, this.gatherInputs(node.id, outputs));
     }
     return queries;
+  }
+
+  /** The live events on `id`'s own outputs in [c0, c1), per port, sorted as the outputs will be. */
+  private pushedIn(id: string, c0: number, c1: number): PushedEvents {
+    let found: Record<string, EngineEvent[]> | null = null;
+    for (const { node, port, event } of this.injected) {
+      if (node === id && event.time >= c0 && event.time < c1) ((found ??= {})[port] ??= []).push(event);
+    }
+    if (!found) return NO_PUSHES;
+    // Stable: ties keep push order, as in the merge into the outputs.
+    for (const events of Object.values(found)) Object.freeze(events.sort(compareEvents));
+    return Object.freeze(found);
   }
 
   /** Index × step, not a running sum, so chunk edges don't drift; the last ends exactly at t1. */

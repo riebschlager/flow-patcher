@@ -11,7 +11,21 @@ html, body, #root { height: 100%; margin: 0; background: var(--fp-surface-canvas
 .app__bar { height: 44px; flex: none; box-sizing: border-box; display: flex; gap: var(--fp-space-5); align-items: center; padding: 0 10px 0 14px; background: var(--fp-surface-chrome); border-bottom: 1px solid var(--fp-line-1); }
 .app__name { font-size: var(--fp-text-md); font-weight: var(--fp-weight-semibold); letter-spacing: -0.01em; }
 .app__status { font-family: var(--fp-font-mono); font-size: var(--fp-text-xs); color: var(--fp-text-muted); }
-.app__graph { flex: 1; min-height: 0; }
+.app__graph { position: relative; flex: 1; min-height: 0; }
+
+/* Preview pane: the performance canvas floating over the graph (design system PreviewPane). */
+.preview { position: absolute; z-index: 5; top: var(--fp-space-7); right: var(--fp-space-7); border-radius: var(--fp-radius-xl); overflow: hidden; background: var(--fp-bg-1); border: 1px solid var(--fp-line-2); box-shadow: var(--fp-shadow-pop); font-family: var(--fp-font-ui); }
+.preview__bar { height: 28px; display: flex; align-items: center; gap: var(--fp-space-4); padding: 0 10px; border-bottom: 1px solid var(--fp-line-1); font-size: var(--fp-text-xs); color: var(--fp-text-secondary); user-select: none; }
+.preview__led { width: var(--fp-space-3); height: var(--fp-space-3); border-radius: var(--fp-radius-full); background: var(--fp-fg-4); }
+.preview__led--live { background: var(--fp-audio); }
+.preview__state { margin-left: auto; font-family: var(--fp-font-mono); font-size: var(--fp-text-micro); color: var(--fp-text-faint); }
+.preview__body { position: relative; background: var(--fp-bg-0); }
+/* The canvas owns every touch on it: no scrolling or zooming, pointer capture on down (Platform rules). */
+.preview__canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+.preview__hint { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; font-family: var(--fp-font-mono); font-size: var(--fp-text-micro); color: var(--fp-text-faint); }
+.preview__grip { position: absolute; left: 0; bottom: 0; width: var(--fp-space-6); height: var(--fp-space-6); cursor: nesw-resize; touch-action: none; }
+.preview__grip::after { content: ''; position: absolute; left: var(--fp-space-2); bottom: var(--fp-space-2); width: var(--fp-space-3); height: var(--fp-space-3); border-left: 1px solid var(--fp-line-3); border-bottom: 1px solid var(--fp-line-3); }
+@media (pointer: coarse) { .preview__grip { width: var(--fp-space-8); height: var(--fp-space-8); } }
 
 /* React Flow, themed onto the tokens. */
 .react-flow {

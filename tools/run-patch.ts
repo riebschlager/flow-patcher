@@ -8,7 +8,7 @@
 // and frame-<node>.png (one per visual node, last frame) to the out directory.
 import { parseArgs } from 'node:util';
 import { join } from 'node:path';
-import { loadPatch, patchName, PatchError, runPatch, writeRun } from './lib/run';
+import { loadInputs, loadPatch, patchName, PatchError, runPatch, writeRun } from './lib/run';
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -48,7 +48,7 @@ const seconds = number('seconds', values.seconds) ?? (windows ? windows * window
 
 try {
   const name = patchName(file);
-  const result = await runPatch(loadPatch(file), { seconds, window, fps, audio: !values['no-audio'], live: values.live });
+  const result = await runPatch(loadPatch(file), { seconds, window, fps, audio: !values['no-audio'], live: values.live }, { inputs: loadInputs(file) });
   const written = writeRun(result, values.out ?? join('out', name), name);
   console.log(`${name}: ${result.events.length} events, ${result.frames} frames, ${seconds}s`);
   for (const path of written) console.log(`  ${path}`);
