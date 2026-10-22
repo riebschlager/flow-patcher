@@ -365,7 +365,7 @@ An edit produces a new plan. The scheduler swaps plans at the next window bounda
 | Fluid step | GPU step target to be measured. CPU, in a Worker: about 8 ms at 35,000 cells on desktop, about 31 ms with coloring on the Surface; mobile capped at 16,128 cells | Grid budget knob, capped by device class |
 | Main thread | No task over about 4 ms *(tune)* while a patch plays | Fluid work in a Worker or on the GPU; the immediate-path checks run with the Fluid stepping |
 | Voices | 64 simultaneous, oldest stolen first | Runtime voice pool |
-| Events per window | 256 per node, 2,048 per patch | Scheduler; excess dropped with a warning on the node |
+| Events per 120 ms | 256 per node, 2,048 per patch, on a fixed grid of the audio clock ([ADR 0022](decisions/0022-event-caps-on-a-fixed-grid.md)) | Runtime; excess dropped with a warning on the node |
 | Feedback | Delay feedback at most 0.42; event cycles need a delay edge | Node limits, graph compiler |
 | Output | Peak guard and limiter on the single Output node | Output node, which can't be removed |
 

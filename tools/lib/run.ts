@@ -13,6 +13,7 @@ import {
   type LoggedEvent,
   type NodeDefinition,
   type NodeImage,
+  type NodeWarning,
   type Patch,
   type SchedulerStats,
 } from '@flow-patcher/engine';
@@ -71,6 +72,8 @@ export interface RunResult {
   events: LoggedEvent[];
   /** The scheduler's counters at the end of the run. */
   scheduler: SchedulerStats;
+  /** The runtime's per-node warnings at the end of the run, such as an event cap biting. */
+  warnings: NodeWarning[];
   frames: number;
   audio: RenderedAudio | null;
   images: { node: string; image: NodeImage }[];
@@ -195,10 +198,11 @@ async function runOnce(patch: Patch, opts: Required<RunOptions>, hooks: RunHooks
     run();
   }
   const images = runtime.images();
+  const warnings = runtime.warnings();
   runtime.dispose();
   // The last wake looks ahead past the end; the run covers [0, seconds).
   const events = scheduler.events().filter((e) => e.time < opts.seconds);
-  return { patch, options: opts, attempts: attempt, events, scheduler: scheduler.stats, frames, audio, images };
+  return { patch, options: opts, attempts: attempt, events, scheduler: scheduler.stats, warnings, frames, audio, images };
 }
 
 /** One event per line, so event logs diff cleanly. */
@@ -225,6 +229,7 @@ export function writeRun(result: RunResult, outDir: string, name: string): strin
     events: result.events.length,
     eventsByPort: byNode,
     scheduler: result.scheduler,
+    warnings: result.warnings,
     frames: result.frames,
     audio: result.audio && { file: 'audio.wav', seconds: result.options.seconds, peak: Math.round(peak(result.audio) * 1e6) / 1e6 },
     images: result.images.map(({ node, image }) => ({ node, file: `frame-${node}.png`, width: image.width, height: image.height })),

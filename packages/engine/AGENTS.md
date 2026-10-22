@@ -5,7 +5,7 @@ Framework-free runtime: patch format, node definition types, seeded RNG, CPU flu
 - No DOM, React, editor, nodes or Node imports or globals; ESLint enforces it and test/boundary.test.ts proves the rule fires. If you need a browser API, take it as an injected interface (see audio/types.ts).
 - tsconfig has no DOM lib on purpose. Don't add it.
 - Randomness: `randomAt(seed, ...keys)` in window queries (independent of windowing), `createRng(seed)` only for one-time setup.
-- runtime.ts holds the graph compiler and the Runtime (window queries, frames, audio, rewind and re-query); scheduler.ts decides which windows to query and when. Hot patching and runtime limits are still to come; keep the compile → query/frame/attachAudio shape.
+- runtime.ts holds the graph compiler and the Runtime (window queries, frames, audio, rewind and re-query); scheduler.ts decides which windows to query and when. The event caps and per-node warnings are in limits.ts and runtime.ts. Hot patching is still to come; keep the compile → query/frame/attachAudio shape.
 - Public API goes through src/index.ts. Changing `NodeDefinition` in definition.ts affects every node, so check packages/nodes too.
 - Patch format changes need the example patches to keep round-tripping byte for byte (packages/nodes/test/catalog.test.ts).
 

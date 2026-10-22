@@ -74,7 +74,7 @@ export function parsePatch(input: unknown): ParseResult {
     if (typeof type !== 'string' || !type) errors.push(`${where}.type: expected a string`);
     if (typeof typeVersion !== 'number' || !Number.isInteger(typeVersion)) errors.push(`${where}.typeVersion: expected an integer`);
     if (!isRecord(params) || !Object.values(params).every(isParamValue)) errors.push(`${where}.params: expected number/string/boolean values`);
-    if (!isRecord(position) || typeof position.x !== 'number' || typeof position.y !== 'number') errors.push(`${where}.position: expected { x, y }`);
+    if (!isRecord(position) || !Number.isFinite(position.x) || !Number.isFinite(position.y)) errors.push(`${where}.position: expected { x, y } numbers`);
     if (pinned !== undefined && (!Array.isArray(pinned) || !pinned.every((p) => typeof p === 'string'))) errors.push(`${where}.pinned: expected strings`);
     if (errors.length > errorsBefore) return;
     const node: PatchNode = {
@@ -104,26 +104,47 @@ export function parsePatch(input: unknown): ParseResult {
   return { ok: true, patch };
 }
 
-/** Canonical JSON: fixed key order, two-space indent, trailing newline. */
+/** Plain JSON with every object's keys sorted, for data the format doesn't describe (subpatches until M4). */
+function sortKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeys);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortKeys(value[key])]));
+}
+
+/**
+ * Canonical JSON: fixed key order (params and subpatches sorted by key), the
+ * format, version and every node's type version written, two-space indent and
+ * a trailing newline. Nodes, cables and pinned knobs keep their order, which
+ * the plan's tie-breaks depend on. Save → load → save is byte-identical. Throws
+ * on what wouldn't load back the same: a missing type version, or a number
+ * JSON can't hold (NaN, Infinity). A user's save path must catch that and
+ * report it rather than lose the save (M4's save will need to).
+ */
 export function serializePatch(patch: Patch): string {
   const canonical = {
-    format: patch.format,
-    version: patch.version,
+    format: PATCH_FORMAT,
+    version: PATCH_VERSION,
     seed: patch.seed,
-    nodes: patch.nodes.map((node) => ({
-      id: node.id,
-      type: node.type,
-      typeVersion: node.typeVersion,
-      params: Object.fromEntries(Object.keys(node.params).sort().map((key) => [key, node.params[key]])),
-      position: { x: node.position.x, y: node.position.y },
-      ...(node.pinned ? { pinned: node.pinned } : {}),
-    })),
+    nodes: patch.nodes.map((node) => {
+      if (!Number.isInteger(node.typeVersion)) throw new TypeError(`serializePatch: node "${node.id}" has no integer typeVersion (${node.typeVersion})`);
+      return {
+        id: node.id,
+        type: node.type,
+        typeVersion: node.typeVersion,
+        params: sortKeys(node.params),
+        position: { x: node.position.x, y: node.position.y },
+        ...(node.pinned ? { pinned: [...node.pinned] } : {}),
+      };
+    }),
     cables: patch.cables.map((cable) => ({
       from: { node: cable.from.node, port: cable.from.port },
       to: { node: cable.to.node, port: cable.to.port },
       ...(cable.depth !== undefined ? { depth: cable.depth } : {}),
     })),
-    ...(patch.subpatches ? { subpatches: patch.subpatches } : {}),
+    ...(patch.subpatches ? { subpatches: sortKeys(patch.subpatches) } : {}),
   };
-  return JSON.stringify(canonical, null, 2) + '\n';
+  return JSON.stringify(canonical, (key, value) => {
+    if (typeof value === 'number' && !Number.isFinite(value)) throw new RangeError(`serializePatch: "${key}" is ${value}, which JSON can't hold`);
+    return value;
+  }, 2) + '\n';
 }

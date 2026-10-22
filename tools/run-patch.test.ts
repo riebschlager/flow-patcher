@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -10,6 +10,23 @@ import { ROOT } from '../test-support/golden';
 const EXAMPLE = join(ROOT, 'examples/clock-blips.flowpatch');
 
 describe('headless runner', () => {
+  // M1 gate: Determinism. Two fresh runs in one process, so module-level state
+  // or unseeded randomness would show up as a difference.
+  for (const file of readdirSync(join(ROOT, 'examples')).filter((f) => f.endsWith('.flowpatch')).sort()) {
+    it(`${file}: the same patch and seed give byte-identical event logs run to run`, async () => {
+      const run = async () => formatEvents((await runPatch(loadPatch(join(ROOT, 'examples', file)), { seconds: 4, fps: 0, audio: false })).events);
+      const first = await run();
+      expect(first).not.toBe('[]\n');
+      expect(await run()).toBe(first);
+    });
+  }
+
+  it('gives a seeded patch different events under a different seed', async () => {
+    const run = async (seed: number) => formatEvents((await runPatch({ ...loadPatch(EXAMPLE), seed }, { seconds: 4, fps: 0, audio: false })).events);
+    const original = loadPatch(EXAMPLE).seed;
+    expect(await run(original + 1)).not.toBe(await run(original));
+  });
+
   it('gives byte-identical event logs run to run', async () => {
     const a = await runPatch(loadPatch(EXAMPLE), { seconds: 3, audio: false });
     const b = await runPatch(loadPatch(EXAMPLE), { seconds: 3, audio: false });

@@ -2,7 +2,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { compilePatch, CUSTOM_PRESET, parsePatch, serializePatch, type Patch } from '@flow-patcher/engine';
+import { compilePatch, CUSTOM_PRESET, parsePatch, PATCH_FORMAT, PATCH_VERSION, serializePatch, type Patch } from '@flow-patcher/engine';
 import { nodeDefinitions, nodeRegistry } from '../src';
 import { ROOT } from '../../../test-support/golden';
 import { REWIND_SECONDS, rewindCheckable, rewindLogs, windowCheckable, windowLogs, WINDOW_SECONDS, WINDOW_STEPS } from '../../../test-support/window-independence';
@@ -103,6 +103,18 @@ describe('example patches', () => {
 
     it(`${file} round-trips byte for byte`, () => {
       expect(serializePatch(patch)).toBe(text);
+    });
+
+    // M1 gate: Format.
+    it(`${file} survives save → load → save byte for byte, with format and node type versions present`, () => {
+      const saved = serializePatch(patch);
+      const loaded = parsePatch(JSON.parse(saved));
+      expect(loaded.ok ? [] : loaded.errors).toEqual([]);
+      if (!loaded.ok) return;
+      expect(serializePatch(loaded.patch)).toBe(saved);
+      const json = JSON.parse(saved);
+      expect([json.format, json.version]).toEqual([PATCH_FORMAT, PATCH_VERSION]);
+      for (const node of json.nodes) expect(Number.isInteger(node.typeVersion), `${node.id} typeVersion`).toBe(true);
     });
   }
 });

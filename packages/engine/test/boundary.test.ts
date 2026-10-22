@@ -26,6 +26,9 @@ describe('engine boundary', () => {
     ['export const ctx = new AudioContext();', 'no-restricted-globals'],
     ['export const id = requestAnimationFrame(() => {});', 'no-restricted-globals'],
     ['export const r = Math.random();', 'no-restricted-properties'],
+    ['const { random } = Math;\nexport const r = random();', 'no-restricted-properties'],
+    ['export const r = crypto.getRandomValues(new Uint32Array(1));', 'no-restricted-globals'],
+    ['export const r = globalThis.crypto.getRandomValues(new Uint32Array(1));', 'no-restricted-properties'],
   ])('rejects %s', async (code, rule) => {
     expect(await ruleIds(code, ENGINE_FILE)).toContain(rule);
   });
@@ -44,8 +47,18 @@ describe('node rules', () => {
   it.each([
     ['export const t = setInterval(() => {}, 25);', 'no-restricted-globals'],
     ['export const r = Math.random();', 'no-restricted-properties'],
+    ['const { random } = Math;\nexport const r = random();', 'no-restricted-properties'],
+    ['export const id = crypto.randomUUID();', 'no-restricted-globals'],
+    ['export const id = globalThis.crypto.randomUUID();', 'no-restricted-properties'],
+    ['export const id = self.crypto.randomUUID();', 'no-restricted-properties'],
     ["import React from 'react';\nexport const x = React;", 'no-restricted-imports'],
   ])('rejects %s', async (code, rule) => {
     expect(await ruleIds(code, NODE_FILE)).toContain(rule);
+  });
+
+  // Seeded RNG everywhere (M1 scope): the rules hold on the real node source too.
+  it('passes on the real node source', async () => {
+    const results = await eslint.lintFiles(['packages/nodes/src']);
+    expect(results.flatMap((r) => r.messages.map((m) => `${r.filePath}: ${m.ruleId} ${m.message}`))).toEqual([]);
   });
 });

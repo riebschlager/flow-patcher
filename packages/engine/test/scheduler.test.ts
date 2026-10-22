@@ -469,7 +469,7 @@ describe('push rules', () => {
     clock.set(0.01);
     scheduler.push('t', 'out', { channel: 5 });
     scheduler.push('t', 'out', { channel: 6 });
-    return { stats: scheduler.stats, warnings };
+    return { stats: scheduler.stats, warnings, nodeWarnings: runtime.warnings() };
   }
 
   it('keeps deliveries whose fields only changed order', () => {
@@ -483,10 +483,12 @@ describe('push rules', () => {
     expect(rerun(() => ({ v: NaN }), () => ({ v: NaN })).stats.cancelled).toBe(0);
   });
 
-  it('warns once about an audio node with no cancel()', () => {
-    const { stats, warnings } = rerun((k) => ({ v: k }), (k) => ({ v: -k }), false);
+  it('warns once about an audio node with no cancel(), and keeps the warning on the node', () => {
+    const { stats, warnings, nodeWarnings } = rerun((k) => ({ v: k }), (k) => ({ v: -k }), false);
     expect(stats.uncancelled).toBeGreaterThan(0);
     expect(warnings).toEqual([expect.stringMatching(/audio node "r" has schedule\(\) but no cancel\(\)/)]);
+    // The editor reads it on the node, with every event it couldn't withdraw counted.
+    expect(nodeWarnings).toEqual([expect.objectContaining({ node: 'r', kind: 'no-cancel', count: stats.uncancelled })]);
   });
 
   it('refuses a live event before currentTime', () => {
