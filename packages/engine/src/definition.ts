@@ -160,6 +160,10 @@ export interface NodeDefinition {
   audio?(ctx: AudioSetupContext): AudioInstance;
   /** Visual nodes: the current picture, for the renderer and headless runs. */
   image?(state: NodeState, params: ParamValues): NodeImage | null;
+  /** Delay nodes (Delay Edge): seconds from an input event to the output it causes, read from params.
+   *  Cables into the node don't order the plan, so it can close a cycle. Its query sees the
+   *  previous window's inputs, and the runtime keeps windows no wider than this. */
+  delay?(params: ParamValues): number;
 }
 
 export function defaultParams(definition: NodeDefinition): Record<string, ParamValue> {

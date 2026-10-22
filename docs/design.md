@@ -61,7 +61,7 @@ The graph runs on one clock, the Web Audio clock. Musical nodes are pure functio
 
 **The main thread stays free.** No main-thread task runs longer than about 4 ms *(tune)* while a patch plays, so a pointerdown never waits long for its handler. Fluid solving and coloring run off the main thread ([ADR 0016](decisions/0016-main-thread-budget.md)).
 
-**Feedback is explicit.** Cycles are allowed, but each cycle must pass through a delay edge. Any Field → Signal read (for example Fluid Probe) counts as one implicitly: it returns the previous frame's value. A cycle with no delay is rejected when you connect it, and the cable flashes red.
+**Feedback is explicit.** Cycles are allowed, but each cycle must pass through a delay edge. Any Field → Signal read (for example Fluid Probe) counts as one implicitly: it returns the previous frame's value. The other is the Delay Edge node: a fixed delay of at least 10 ms, and the runtime never queries a window wider than it, so a cycle gives the same events however time is split into windows. A cycle with no delay is rejected when you connect it, and the cable flashes red.
 
 **Lifetimes.** Hidden tabs extend the lookahead to 1.25 s, as Flow does now. A wake up to 100 ms past its horizon queries the stretch it missed and plays it late, moved to start now so its events keep their spacing. Longer stalls skip their windows rather than bursting them ([ADR 0017](decisions/0017-immediate-offset-and-catch-up.md)). The runtime limits polyphony (64 voices), events per window, feedback gain and output peak, whatever the patch asks for.
 
@@ -173,7 +173,7 @@ The v1 catalog has about 60 small nodes in eight families. Canvas sources and re
 | Math / Map Range / Curve / Smooth | Arithmetic and shaping for Signals |
 | Threshold / Change | Signal → Event when a level is crossed or a value changes |
 | Get Field | Pulls one payload field out of an event as a Signal |
-| Delay Edge | Explicit one-window delay for cycles |
+| Delay Edge | Explicit fixed delay that closes cycles |
 
 ### Instruments
 
