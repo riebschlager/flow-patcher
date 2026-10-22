@@ -174,11 +174,58 @@ describe('sampled-voice', () => {
     expect(JSON.parse(JSON.stringify(state.glide))).toEqual(state.glide);
   });
 
-  it('repairs a malformed glide state', async () => {
+  it('breaks equal-time ties by pitch, so a chord delivered in either order glides the same', async () => {
+    const bends: number[] = [];
+    for (const order of [[60, 64, 67], [67, 60, 64], [64, 67, 60]]) {
+      let sources: [string, number, number][][] = [];
+      await render(1, (ctx) => {
+        sources = recordRates(ctx);
+        const instance = voice(ctx, { glide: 1, glideTime: 0.05 });
+        const chord = order.map((pitch) => note(0.1, pitch));
+        instance.schedule!('note', chord);
+        // A rewind re-sends the first chord note it delivered, after the others.
+        instance.cancel!('note', [chord[0]!]);
+        instance.schedule!('note', [note(0.1, order[0]!)]);
+        instance.schedule!('note', [note(0.2, 55)]);
+      });
+      bends.push(bend(sources.at(-1)));
+    }
+    // From the chord's highest note, whatever the delivery order.
+    for (const b of bends) expect(b).toBeCloseTo(67 - 55, 9);
+  });
+
+  it('ignores malformed glide state at every level, and repairs a broken top level', async () => {
+    let sources: [string, number, number][][] = [];
+    const nested: Record<string, unknown> = {
+      glide: { next: 5, base: { 0: 'x', 1: [0.05, 70] }, live: { 0: { 0: 5 }, 1: 'weird', 2: { 0: [[0.05, 72], 'x', [Number.NaN, 1]] }, 3: null } },
+    };
     await render(0.5, (ctx) => {
-      const state: Record<string, unknown> = { glide: 'weird' };
-      voice(ctx, { glide: 1 }, { state }).schedule!('note', [note(0.1), note(0.2, 62)]);
-      expect((state.glide as { next: number }).next).toBe(1);
+      sources = recordRates(ctx);
+      expect(() => voice(ctx, { glide: 1, glideTime: 0.05 }, { state: nested }).schedule!('note', [note(0.1, 60), note(0.1, 62, 0.3, 1)])).not.toThrow();
+      for (const glide of ['weird', null, [], { next: 'x', base: {}, live: {} }, { next: 0, base: [], live: {} }]) {
+        const state: Record<string, unknown> = { glide };
+        voice(ctx, { glide: 1 }, { state }).schedule!('note', [note(0.2), note(0.3, 62)]);
+        expect((state.glide as { next: number }).next).toBe(1);
+      }
+    });
+    // Only the well-formed entries count: channel 0 glides from instance 2's note, channel 1 from the base.
+    expect(bend(sources[0])).toBeCloseTo(72 - 60, 9);
+    expect(bend(sources[1])).toBeCloseTo(70 - 62, 9);
+  });
+
+  it('never writes to the shared state once disposed', async () => {
+    await render(0.5, (ctx) => {
+      const state: Record<string, unknown> = {};
+      const instance = voice(ctx, { glide: 1 }, { state });
+      const a = note(0.1);
+      instance.schedule!('note', [a]);
+      instance.dispose!();
+      const after = JSON.stringify(state.glide);
+      instance.cancel!('note', [a]);
+      instance.schedule!('note', [note(0.2, 62)]);
+      instance.dispose!();
+      expect(JSON.stringify(state.glide)).toBe(after);
+      expect(state.glide).toEqual({ next: 1, base: { 0: [0.1, 60] }, live: {} });
     });
   });
 

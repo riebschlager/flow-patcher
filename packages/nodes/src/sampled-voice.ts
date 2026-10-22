@@ -15,9 +15,9 @@
 //   and counted in `state.skippedNotes`, where Flow waited for the load and
 //   played it late.
 // - Glide comes from the previous note on the same channel: the one with the
-//   latest time before the note's own (ties: the one scheduled last) that
-//   wasn't withdrawn. It depends on note times, not on the order notes were
-//   delivered in, so a rewind or swap that re-sends some notes glides the same
+//   latest time before the note's own (ties: the highest pitch) that
+//   wasn't withdrawn. It depends only on the set of notes, never on the order
+//   they were delivered in, so a rewind or swap that re-sends some notes glides the same
 //   (ADR 0019). Notes at the same time on one channel (a chord) don't glide
 //   from each other. A note's bend is fixed when it is scheduled: if the note
 //   it glided from is withdrawn later and the note itself is kept, its bend
@@ -60,23 +60,27 @@ type GlideNote = [time: number, pitch: number];
  */
 interface GlideState {
   next: number;
-  base: Record<string, GlideNote>;
-  live: Record<string, Record<string, GlideNote[]>>;
+  /** GlideNote per channel. Typed loosely: state is shared, so each entry is checked when read. */
+  base: Record<string, unknown>;
+  /** Per instance id, GlideNote[] per channel. */
+  live: Record<string, unknown>;
 }
 
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isGlideNote = (v: unknown): v is GlideNote => Array.isArray(v) && v.length === 2 && v.every((n) => typeof n === 'number' && Number.isFinite(n));
 
 /** The node's glide state, repaired if it is missing or malformed. */
 function glideState(state: NodeState): GlideState {
-  const g = state.glide as Partial<GlideState> | undefined;
-  if (g && typeof g === 'object' && typeof g.next === 'number' && g.base && typeof g.base === 'object' && g.live && typeof g.live === 'object') return g as GlideState;
+  const g = state.glide;
+  if (isRecord(g) && typeof g.next === 'number' && Number.isFinite(g.next) && isRecord(g.base) && isRecord(g.live)) return g as unknown as GlideState;
   const fresh: GlideState = { next: 0, base: {}, live: {} };
   state.glide = fresh as unknown as NodeState[string];
   return fresh;
 }
 
-/** The later of two glide candidates; on equal times `b`, the one considered later. */
-const later = (a: GlideNote | null, b: GlideNote): GlideNote => (a && a[0] > b[0] ? a : b);
+/** The later of two glide candidates; on equal times the higher pitch, so the order they are looked at in never matters. */
+const later = (a: GlideNote | null, b: GlideNote): GlideNote => (a && (a[0] > b[0] || (a[0] === b[0] && a[1] >= b[1])) ? a : b);
+
 
 interface Voice {
   source: AudioBufferSourceNodeLike;
@@ -122,20 +126,29 @@ export const sampledVoice: NodeDefinition = {
     const voices = new Map<EngineEvent, Voice>();
     // Per channel, this instance's recent notes in schedule order, for glide.
     const history = new Map<number, Voice[]>();
+    // Once disposed, the instance never writes to the shared state again.
+    let disposed = false;
     const glide = glideState(state), id = String(glide.next++);
     const skip = () => { state.skippedNotes = skippedNotes(state) + 1; };
 
     /** The pitch of the latest note before `time` on the channel, from this instance and every other on the node. */
     const previous = (channel: number, time: number): number | null => {
       let best: GlideNote | null = null;
-      const consider = (note: GlideNote | undefined) => { if (note && isGlideNote(note) && note[0] < time) best = later(best, note); };
-      consider(glide.base[channel]);
-      for (const [other, channels] of Object.entries(glide.live)) if (other !== id) for (const note of channels[channel] ?? []) consider(note);
+      const consider = (note: GlideNote) => { if (note[0] < time) best = later(best, note); };
+      // State from other instances is checked at every level: weird state gives no glide, never an exception.
+      const base = glide.base[channel];
+      if (isGlideNote(base)) consider(base);
+      for (const [other, channels] of Object.entries(glide.live)) {
+        if (other === id || !isRecord(channels)) continue;
+        const notes = channels[channel];
+        if (Array.isArray(notes)) for (const note of notes) if (isGlideNote(note)) consider(note);
+      }
       for (const voice of history.get(channel) ?? []) consider([voice.time, voice.pitch]);
       return best === null ? null : (best as GlideNote)[1];
     };
     /** Writes this instance's recent notes into state.glide. */
     const publish = () => {
+      if (disposed) return;
       const channels: Record<string, GlideNote[]> = {};
       for (const [channel, list] of history) if (list.length) channels[channel] = list.map((v) => [v.time, v.pitch]);
       glide.live[id] = channels;
@@ -270,13 +283,20 @@ export const sampledVoice: NodeDefinition = {
         return end;
       },
       dispose() {
+        if (disposed) return;
+        disposed = true;
         for (const voice of voices.values()) {
           for (const node of voice.nodes) node.disconnect();
           pool.release(voice.handle);
         }
         voices.clear();
         // This instance's notes are final now: fold its latest per channel into the base.
-        for (const [channel, list] of history) for (const v of list) glide.base[channel] = later(glide.base[channel] ?? null, [v.time, v.pitch]);
+        for (const [channel, list] of history) {
+          for (const v of list) {
+            const base = glide.base[channel];
+            glide.base[channel] = later(isGlideNote(base) ? base : null, [v.time, v.pitch]);
+          }
+        }
         delete glide.live[id];
         history.clear();
         out.disconnect();
