@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import {
   createNodeContext,
   resolveParams,
@@ -108,3 +109,13 @@ export function queryTiled(
 }
 
 export const ticks = (times: number[], channel = 0): EngineEvent[] => times.map((time, index) => ({ time, channel, index }));
+
+/** A `HostServices.samples` that reads vendor/ from disk, as a headless host does. Counts its calls in `calls`. */
+export function vendorSamples(): ((file: string) => Promise<string>) & { calls: string[] } {
+  const calls: string[] = [];
+  const samples = async (file: string) => {
+    calls.push(file);
+    return readFile(new URL(`../../../vendor/${file}`, import.meta.url), 'utf8');
+  };
+  return Object.assign(samples, { calls });
+}
