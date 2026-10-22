@@ -11,3 +11,5 @@ export * from './render/palettes';
 export * from './rng';
 export * from './runtime';
 export * from './signal';
+export * from './scheduler';
+export * from './state';

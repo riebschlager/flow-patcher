@@ -41,6 +41,23 @@ describe('simple-synth', () => {
     expect(blocks[11]! / blocks[1]!).toBeCloseTo(1, 2);
   });
 
+  it('withdraws a cancelled note before it sounds, and keeps the others', async () => {
+    const notes: NoteEvent[] = [
+      { time: 0.1, channel: 0, pitch: 60, velocity: 1, duration: 0.1 },
+      { time: 0.6, channel: 0, pitch: 60, velocity: 1, duration: 0.1 },
+    ];
+    const audio = await renderOffline(1, (context) => {
+      const instance = simpleSynth.audio!(audioSetup(simpleSynth, context, { params: { release: 0.05 } }));
+      instance.outputs!.audio!.connect(context.destination);
+      instance.schedule!('note', notes);
+      // A copy with the same fields isn't the scheduled event, so it cancels nothing.
+      instance.cancel!('note', [{ ...notes[0]! }, notes[1]!]);
+    });
+    const blocks = blockLoudness(audio, 0.1);
+    expect(blocks[1]).toBeGreaterThan(0.05);
+    expect(blocks.slice(4).every((v) => v === 0)).toBe(true);
+  });
+
   it('ignores events that are not notes', async () => {
     const audio = await renderOffline(0.5, (context) => {
       const instance = simpleSynth.audio!(audioSetup(simpleSynth, context));

@@ -95,6 +95,61 @@ describe('bootstrap runtime', () => {
   });
 });
 
+describe('runtime rules', () => {
+  it('drops and counts events a query returns outside its window', () => {
+    const sloppy: NodeDefinition = {
+      type: 'sloppy', version: 1, label: 'Sloppy', category: 'control-logic', description: '',
+      ports: [{ name: 'out', type: 'event', direction: 'out' }],
+      params: [],
+      query: ({ t0, t1 }) => ({ out: [{ time: t0 - 0.01, channel: 0 }, { time: t0, channel: 0 }, { time: t1, channel: 0 }, { time: NaN, channel: 0 }] }),
+    };
+    const result = compilePatch(patch([node('s', 'sloppy')], []), new Map([[sloppy.type, sloppy]]));
+    if (!result.ok) throw new Error(result.errors.join('\n'));
+    const runtime = new Runtime(result.plan);
+    expect(runtime.query(1, 2).map((e) => e.time)).toEqual([1]);
+    expect(runtime.counters.outOfWindow).toBe(3);
+  });
+
+  it('snapshots query nodes at window starts only with history, and rejects state that is not plain data', () => {
+    const holder: NodeDefinition = {
+      type: 'holder', version: 1, label: 'Holder', category: 'control-logic', description: '',
+      ports: [{ name: 'out', type: 'event', direction: 'out' }],
+      params: [],
+      query: ({ state }) => {
+        state.handle = new Map();
+        return {};
+      },
+    };
+    const result = compilePatch(patch([node('h', 'holder')], []), new Map([[holder.type, holder]]));
+    if (!result.ok) throw new Error(result.errors.join('\n'));
+    const plain = new Runtime(result.plan);
+    plain.query(0, 1);
+    expect(() => plain.query(1, 2)).not.toThrow();
+    const kept = new Runtime(result.plan, { history: true });
+    kept.query(0, 1);
+    expect(() => kept.query(1, 2)).toThrow(/node "h" state\.handle is a Map/);
+  });
+
+  it('holds a live event past the horizon for the query that covers it', () => {
+    const runtime = new Runtime(compile(patch([node('s', 'source', { at: 5 }), node('p', 'pass')], [cable('s', 'p')])));
+    runtime.query(0, 0.1);
+    expect(runtime.push('s', 'out', { time: 0.15, channel: 2 })).toBeNull();
+    expect(runtime.query(0.1, 0.2).map((e) => [e.node, e.time, e.channel])).toEqual([['s', 0.15, 2], ['p', 0.15, 2]]);
+  });
+
+  it('refuses to rewind without history, or before the oldest retained window', () => {
+    const p = patch([node('s', 'source'), node('p', 'pass')], [cable('s', 'p')]);
+    const plain = new Runtime(compile(p));
+    plain.query(0, 0.1);
+    expect(() => plain.push('s', 'out', { time: 0.05, channel: 0 })).toThrow(/needs history/);
+    const kept = new Runtime(compile(p), { history: true });
+    for (let i = 0; i < 4; i++) kept.query(i * 0.1, (i + 1) * 0.1);
+    kept.retain(0.25);
+    expect(() => kept.push('s', 'out', { time: 0.15, channel: 0 })).toThrow(/before the oldest retained window \(0\.2\)/);
+    expect(kept.push('s', 'out', { time: 0.25, channel: 0 })?.from).toBe(0.2);
+  });
+});
+
 describe('delay nodes', () => {
   // source → a → d → b → a: every event through `a` comes back `time` later.
   const loop = (time: number) => patch(

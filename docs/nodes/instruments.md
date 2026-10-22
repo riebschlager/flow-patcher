@@ -15,5 +15,6 @@ Note → Audio. Design: "Node catalog" and "Reuse from Flow".
 - **Extract only voice playback from `AmbientAudio`.** It mixes app-level state with voice playback; bring over the playback part only.
 - **Voice pool.** Voices come from the runtime's 64-voice pool, oldest stolen first ([ADR 0011](../decisions/0011-runtime-safety-limits.md)). Instruments don't keep their own voice limits.
 - **Seeded beds.** Atmosphere beds are seeded from the patch seed.
+- **Cancel what you schedule.** An instrument whose `audio()` returns `schedule()` must also return `cancel(port, events)`, which withdraws the given events (the same objects it was handed) before they sound. A live event that rewinds a node replaces events already scheduled ([ADR 0019](../decisions/0019-live-events-rewind.md)); without `cancel()` they still play, and the runtime warns.
 - **Audio out.** Outputs are Audio ports. Instruments never connect to the destination directly; everything reaches the speakers through Output.
 - **Vendored samples.** WebAudioFont and FluidR3 samples keep their notices in `vendor/` ([ADR 0002](../decisions/0002-license-gpl-3.0.md)).

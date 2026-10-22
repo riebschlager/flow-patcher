@@ -69,7 +69,39 @@ export type ParamSpec = NumberParamSpec | EnumParamSpec | ToggleParamSpec | Text
 export type ParamValue = number | string | boolean;
 export type ParamValues = Readonly<Record<string, ParamValue>>;
 
-/** Per-instance state. The engine keeps it while the node id survives an edit. */
+/**
+ * Per-instance state. The engine keeps it while the node id survives an edit.
+ *
+ * Stateful nodes (ADR 0019). For every node with a `query()`, the engine
+ * snapshots `ctx.state` at each scheduler window boundary, and when a live
+ * event lands at time t inside a window already queried it restores the
+ * latest snapshot at or before t and queries the node again from there. That
+ * happens to the pushing node and everything downstream of it, and to the
+ * Signal and Value sources those nodes read, so their state stays in step.
+ * A node writes nothing special for this, but its state must follow three
+ * rules:
+ * - Plain data only: numbers, strings, booleans, null, arrays, plain objects
+ *   and typed arrays. No functions, class instances, Maps or audio/GPU
+ *   handles. Snapshots copy it with `clonePlain`, which throws on anything else.
+ * - Keep it in `ctx.state` (mutate it or assign keys), never in module scope
+ *   or closures, and change it only inside `query()`.
+ * - It depends only on the events and times seen, never on how time was
+ *   split into windows: after query(a, b) then query(b, c), the state equals
+ *   the state after query(a, c). Process inputs in time order.
+ * `signal()` and `value()` may read the state. During queries they are only
+ * asked about times t0 <= t < t1 of the chunk being run, after this node's
+ * own query for that chunk, so knowing the current chunk is enough. (A delay
+ * node reading at its inputs' times would reach back one chunk, at most its
+ * delay.) Two readers ask about other times; answer them from the latest
+ * state and don't keep history for them:
+ * - an audio node sampling a param at a caught-up note's moved time, up to
+ *   100 ms (the catch-up limit) after the chunk;
+ * - `frame()`, which runs behind the horizon by up to the lookahead (1.25 s
+ *   while hidden), so it asks about earlier times.
+ * State written by `frame()` or `audio()` alone (a fluid solver, voices) is
+ * not snapshotted, but it shares the object, so a node with `query()` must
+ * keep such handles out of it.
+ */
 export type NodeState = Record<string, unknown>;
 
 /** What a node sees in every hook: its params, state and the cables into it. */
@@ -95,7 +127,12 @@ interface EventContext extends NodeContext {
   readonly inputs: Readonly<Record<string, readonly EngineEvent[]>>;
 }
 
-/** A window query covers the half-open interval [t0, t1) on the audio clock. */
+/**
+ * A window query covers the half-open interval [t0, t1) on the audio clock.
+ * Every event a query returns must have its time in [t0, t1); the runtime
+ * drops (and counts) any that don't. Live input reaches a node through an
+ * ordinary query too: the engine re-runs the window from the event's time.
+ */
 export interface QueryContext extends EventContext {
   readonly t0: number;
   readonly t1: number;
@@ -116,8 +153,13 @@ export interface AudioInstance {
   /** Web Audio nodes behind each Audio input/output port. */
   inputs?: Record<string, AudioNodeLike>;
   outputs?: Record<string, AudioNodeLike>;
-  /** Receives the events that arrived on Event/Note inputs, once per window. */
+  /** Receives the events that arrived on Event/Note inputs, once per window.
+   *  Their times are never before the audio clock's currentTime. */
   schedule?(port: string, events: readonly EngineEvent[]): void;
+  /** Withdraws events handed to `schedule` earlier, which a rewind replaced
+   *  (ADR 0019). They are the same objects, so match them by identity. None
+   *  has started yet: each is at or after the live event that caused it. */
+  cancel?(port: string, events: readonly EngineEvent[]): void;
   dispose?(): void;
 }
 

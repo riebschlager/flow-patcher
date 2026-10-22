@@ -1,6 +1,6 @@
 # 0008 · One audio clock and pure window queries
 
-Status: Accepted · 2026-10-21 · Amended by [0017](0017-immediate-offset-and-catch-up.md) (5 ms offset, catch-up for late wakes)
+Status: Accepted · 2026-10-21 · Amended by [0017](0017-immediate-offset-and-catch-up.md) (5 ms offset, catch-up for late wakes) · Amended by [0019](0019-live-events-rewind.md) (live events rewind and re-query instead of a zero-width query)
 
 ## Context
 Flow's `ArpEngine` and `RhythmEngine` each own a `setInterval` timer and decide and schedule notes in the same loop. That makes timing hard to reason about, hard to test and hard to hot-patch. Every other engine choice depends on this one.
@@ -9,7 +9,7 @@ Flow's `ArpEngine` and `RhythmEngine` each own a `setInterval` timer and decide 
 - One clock: the Web Audio clock.
 - One scheduler wakes every 25 ms and asks the graph for events from `now` to `now + 120 ms` (1.25 s while the tab is hidden). Stalls skip missed windows instead of bursting them.
 - Event nodes implement `query(t0, t1, inputs) → events[]`. They're pure: generators compute their events from absolute time.
-- Live input takes an immediate path. Events are stamped `ctx.currentTime + ~10 ms` and pushed through the same node code with a zero-width query, without waiting for the scheduler.
+- Live input takes an immediate path. Events are stamped `ctx.currentTime + ~10 ms` and pushed through the same node code, without waiting for the scheduler. *(Amended by 0019: the event is merged into the pushing node's output, and that node and everything downstream re-run from the event's time to the horizon, not on a zero-width window.)*
 - Visual nodes run on the frame clock and read the events whose timestamps fall in each frame.
 - All randomness comes from seeded RNGs.
 
