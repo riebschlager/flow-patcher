@@ -225,7 +225,7 @@ export const scriptedEdits = (script: readonly ScriptedEdit[]): RunEdit[] =>
   script.map(({ time, edits }) => ({ time, edits, apply: (run) => void run.edit(edits) }));
 
 /** Every instrument a Sampled Voice plays in the plan or gets from these edits. */
-function instrumentsOf(plan: { order: readonly { definition: NodeDefinition; params: Record<string, unknown> }[] }, edits: readonly RunEdit[]): string[] {
+function instrumentsOf(plan: { order: readonly { id: string; definition: NodeDefinition; params: Record<string, unknown> }[] }, edits: readonly RunEdit[]): string[] {
   const keys = new Set<string>();
   const voices = new Set<string>();
   for (const node of plan.order) {

@@ -72,7 +72,8 @@ interface PendingSplash {
 
 /** Sampled Voice's samples, served from the repo's vendor/ (packages/editor/vite.config.ts). */
 async function fetchSample(file: string): Promise<string> {
-  const response = await fetch(`${import.meta.env.BASE_URL}vendor/${encodeURIComponent(file)}`);
+  // Relative to the page, so it follows wherever the editor is served from.
+  const response = await fetch(`vendor/${encodeURIComponent(file)}`);
   if (!response.ok) throw new Error(`Couldn't load ${file} (HTTP ${response.status})`);
   return response.text();
 }
