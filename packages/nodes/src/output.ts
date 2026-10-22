@@ -5,7 +5,7 @@ export const output: NodeDefinition = {
   version: 2,
   label: 'Output',
   category: 'effects-mix',
-  description: 'Makeup gain, limiter, peak guard and master level. Exactly one per patch.',
+  description: 'Limiter (unity gain below −9 dBFS), soft-knee peak guard and master level. Exactly one per patch.',
   ports: [{ name: 'audio', type: 'audio', direction: 'in', label: 'Audio' }],
   // The master level is set once at setup; modulating it would need AudioParam ramps.
   params: [{ name: 'level', kind: 'number', min: 0, max: 1, default: DEFAULT_MASTER_LEVEL, label: 'Level', modulatable: false }],

@@ -192,7 +192,7 @@ The v1 catalog has about 60 small nodes in eight families. Canvas sources and re
 | Delay ★ | Tempo-synced filtered feedback delay, divisions from 1/64 to two bars; feedback capped at 0.42 |
 | Filter | Low-pass, high-pass or band-pass; cutoff and Q modulatable |
 | Pan / Gain / Mixer | Basic routing and levels |
-| Output ★ | Makeup gain, limiter, soft-knee peak guard, master level. Always exactly one per patch |
+| Output ★ | Limiter (unity gain below −9 dBFS), soft-knee peak guard, master level. Always exactly one per patch |
 
 ## Visual system
 
