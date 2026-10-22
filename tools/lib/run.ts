@@ -157,20 +157,59 @@ export function loadInputs(patchFile: string): RunInput[] {
   return inputs;
 }
 
-/** The scripted edits beside a patch file (`<name>.edits.json`), or none. */
+/** The scripted edits beside a patch file (`<name>.edits.json`), or none. Throws, naming the
+ *  file and the entry, on anything that isn't a list of `{ time, edits: PatchEdit[] }`. */
 export function loadEdits(patchFile: string): ScriptedEdit[] {
   const file = join(dirname(patchFile), `${patchName(patchFile)}.edits.json`);
   if (!existsSync(file)) return [];
-  const edits: unknown = JSON.parse(readFileSync(file, 'utf8'));
-  const ops: readonly string[] = PATCH_EDIT_OPS;
-  const valid = (e: unknown): e is ScriptedEdit => {
-    if (typeof e !== 'object' || e === null) return false;
-    const { time, edits } = e as Record<string, unknown>;
-    return typeof time === 'number' && Number.isFinite(time) && time >= 0 && Array.isArray(edits)
-      && edits.every((edit) => typeof edit === 'object' && edit !== null && ops.includes((edit as { op?: unknown }).op as string));
+  const script: unknown = JSON.parse(readFileSync(file, 'utf8'));
+  const fail = (where: string, what: string): never => {
+    throw new Error(`${file}: ${where}: ${what}`);
   };
-  if (!Array.isArray(edits) || !edits.every(valid)) throw new Error(`${file}: expected [{ time, edits: [{ op: ${PATCH_EDIT_OPS.join(' | ')}, … }] }]`);
-  return edits;
+  if (!Array.isArray(script)) fail('top level', 'expected [{ time, edits: [{ op, … }] }]');
+  for (const [i, entry] of (script as unknown[]).entries()) {
+    const where = `[${i}]`;
+    if (!isRecord(entry)) fail(where, 'expected { time, edits }');
+    const { time, edits } = entry as Record<string, unknown>;
+    if (typeof time !== 'number' || !Number.isFinite(time) || time < 0) fail(`${where}.time`, 'expected a number of seconds, 0 or more');
+    if (!Array.isArray(edits)) fail(`${where}.edits`, 'expected an array of edits');
+    for (const [j, edit] of (edits as unknown[]).entries()) {
+      const problem = editProblem(edit);
+      if (problem) fail(`${where}.edits[${j}]`, problem);
+    }
+  }
+  return script as ScriptedEdit[];
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const isRef = (v: unknown) => isRecord(v) && typeof v.node === 'string' && typeof v.port === 'string';
+const isParamValue = (v: unknown) => typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v));
+
+/** What's wrong with one scripted PatchEdit, or null. Node types and ports are the compiler's to check. */
+function editProblem(edit: unknown): string | null {
+  if (!isRecord(edit)) return 'expected an object with an op';
+  const ops: readonly unknown[] = PATCH_EDIT_OPS;
+  if (!ops.includes(edit.op)) return `op must be one of ${PATCH_EDIT_OPS.join(', ')}, got ${JSON.stringify(edit.op)}`;
+  switch (edit.op as PatchEdit['op']) {
+    case 'set-param':
+      if (typeof edit.node !== 'string' || typeof edit.param !== 'string') return 'set-param needs node and param strings';
+      return isParamValue(edit.value) ? null : 'set-param needs a number, string or boolean value';
+    case 'remove-node':
+      return typeof edit.node === 'string' ? null : 'remove-node needs a node id string';
+    case 'add-node': {
+      const n = edit.node;
+      if (!isRecord(n) || typeof n.id !== 'string' || !n.id || typeof n.type !== 'string' || !Number.isInteger(n.typeVersion)) return 'add-node needs node { id, type, typeVersion, params, position }';
+      if (!isRecord(n.params) || !Object.values(n.params).every(isParamValue)) return 'add-node needs node.params of numbers, strings or booleans';
+      return isRecord(n.position) && Number.isFinite(n.position.x) && Number.isFinite(n.position.y) ? null : 'add-node needs node.position { x, y }';
+    }
+    case 'add-cable': {
+      const c = edit.cable;
+      if (!isRecord(c) || !isRef(c.from) || !isRef(c.to)) return 'add-cable needs cable { from: { node, port }, to: { node, port } }';
+      return c.depth === undefined || (typeof c.depth === 'number' && Number.isFinite(c.depth)) ? null : 'add-cable needs a finite depth, or none';
+    }
+    case 'remove-cable':
+      return isRef(edit.from) && isRef(edit.to) ? null : 'remove-cable needs from and to { node, port }';
+  }
 }
 
 /** Run edits that apply scripted patch edits, each set as one swap. */

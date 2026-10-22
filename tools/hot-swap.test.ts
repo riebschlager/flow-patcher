@@ -99,6 +99,7 @@ describe('a knob change across a rewind (ADR 0021)', () => {
 describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → Simple Synth under 100 edits', () => {
   const SECONDS = 10;
   const EDITS = 100;
+  const PAIRS = 10;
 
   const initial = () => makePatch(
     [
@@ -122,7 +123,9 @@ describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → S
     const pick = <T>(list: readonly T[]): T => list[Math.floor(rng.next() * list.length)]!;
     const int = (lo: number, hi: number) => lo + Math.floor(rng.next() * (hi - lo + 1));
     const round = (x: number) => Math.round(x * 100) / 100;
-    const times = Array.from({ length: EDITS }, () => round(0.3 + rng.next() * (SECONDS - 0.6)) + 0.0013).sort((a, b) => a - b);
+    // PAIRS of the edits come 0.4 ms after another, so both swaps land in one wake on one boundary.
+    const single = Array.from({ length: EDITS - PAIRS }, () => round(0.3 + rng.next() * (SECONDS - 0.6)) + 0.0013);
+    const times = [...single, ...single.slice(0, PAIRS).map((t) => t + 0.0004)].sort((a, b) => a - b);
     let p = initial();
     return times.map((time) => {
       const roll = rng.next();
@@ -250,29 +253,54 @@ describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → S
     const failures: string[] = [];
     const voices = new Map<AudioContextLike, Voice[]>();
     const registry = new Map(nodeRegistry).set('simple-synth', recordingSynth(voices, failures));
-    // Per attempt (a live run may start over): the plans in force and the audio context.
-    let attempt: { runtime: Runtime | null; context: AudioContextLike | null; stages: { time: number; patch: Patch }[]; kept: number; reset: number } = { runtime: null, context: null, stages: [], kept: 0, reset: 0 };
+    // Per attempt (a live run may start over): the plans in force, the audio context, the taps.
+    const fresh = (run: { runtime: Runtime; context: AudioContextLike | null; patch: Patch }) => ({ runtime: run.runtime, context: run.context, stages: [{ time: 0, patch: run.patch }], taps: [] as { time: number; crossed: boolean }[] });
+    let attempt: ReturnType<typeof fresh> | null = null;
+    const anchorsOf = (runtime: Runtime) => JSON.parse(JSON.stringify((runtime.stateOf('clock') as { transport: Transport }).transport.anchors)) as Transport['anchors'];
     const edits: RunEdit[] = plan.map(({ time, edits }) => ({
       time,
       apply(run) {
-        if (attempt.runtime !== run.runtime) attempt = { runtime: run.runtime, context: run.context, stages: [{ time: 0, patch: run.patch }], kept: 0, reset: 0 };
+        if (attempt?.runtime !== run.runtime) attempt = fresh(run);
         const ids = run.patch.nodes.map((n) => n.id);
         const before = new Map(ids.map((id) => [id, run.runtime.stateOf(id)]));
+        const anchors = anchorsOf(run.runtime);
         const report = run.edit(edits);
         attempt.stages.push({ time: report.time, patch: run.patch });
-        // Every id that survives keeps its very state object, unless the swap said it reset.
+        // Bookkeeping, true by construction of the stages: an id the swap didn't reset shares its state object.
         for (const id of ids) {
-          if (report.removed.includes(id)) continue;
-          if (report.reset.includes(id)) attempt.reset++;
-          else if (run.runtime.stateOf(id) === before.get(id)) attempt.kept++;
-          else failures.push(`${id} lost its state at the swap at ${report.time}`);
+          if (report.removed.includes(id) || report.reset.includes(id)) continue;
+          if (run.runtime.stateOf(id) !== before.get(id)) failures.push(`${id} lost its state object at the swap at ${report.time}`);
         }
+        // The content: Clock's transport gains an anchor at the swap time when its knobs changed, and nothing else.
+        const after = anchorsOf(run.runtime);
+        const T = report.time;
+        const expected = report.affected.has('clock') ? anchors.filter((a) => a.time < T) : anchors;
+        if (JSON.stringify(report.affected.has('clock') ? after.slice(0, -1) : after) !== JSON.stringify(expected)
+          || (report.affected.has('clock') && after.at(-1)!.time !== T)) failures.push(`clock anchors changed beyond one at ${T}`);
       },
     }));
-    const result = await runPatch(initial(), { seconds: SECONDS, fps: 0, live: true }, { registry, edits });
+    // Live taps on Clock's tick output, after every pair and every ninth edit, so rewinds replay
+    // across swaps (one wake's pair of them included). Marked, to tell them from Clock's own ticks.
+    const taps: RunEdit[] = plan.flatMap(({ time }, k) => (plan[k + 1]?.time === undefined || k % 9 === 0 || plan[k - 1]?.time === time - 0.0004 ? [{
+      time: time + 0.0011,
+      apply(run) {
+        if (attempt?.runtime !== run.runtime) attempt = fresh(run);
+        const tap = run.scheduler.push('clock', 'tick', { channel: 0, index: 1000 + k, live: true })!;
+        attempt.taps.push({ time: tap.time, crossed: tap.time < attempt.stages.at(-1)!.time });
+      },
+    }] : []));
+    const result = await runPatch(initial(), { seconds: SECONDS, fps: 0, live: true }, { registry, edits: [...edits, ...taps].sort((a, b) => a.time - b.time) });
+    // The edits' closures set it; TypeScript can't see that.
+    const run = attempt as ReturnType<typeof fresh> | null;
+    if (!run) throw new Error('no edit ran');
     const { events } = result;
     expect(result.audio).not.toBeNull();
-    const stages = attempt.stages;
+    const stages = run.stages;
+    // The taps rewound, and several replayed across a swap that hadn't started yet.
+    expect(run.taps.length).toBeGreaterThanOrEqual(PAIRS + 10);
+    expect(result.scheduler.rewinds).toBe(run.taps.length);
+    expect(run.taps.filter((t) => t.crossed).length).toBeGreaterThanOrEqual(5);
+    expect(result.swaps.filter((s, i) => i > 0 && s.report.time === result.swaps[i - 1]!.report.time).length).toBeGreaterThanOrEqual(PAIRS);
 
     // The script mixes every kind of edit, and each took effect.
     const kinds = new Map<string, number>();
@@ -280,7 +308,6 @@ describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → S
     expect(Math.min(...['knob', 'cable', 'node'].map((k) => kinds.get(k) ?? 0))).toBeGreaterThanOrEqual(15);
     expect(result.swaps.length).toBe(EDITS);
     expect(stages.length).toBe(EDITS + 1);
-    expect(attempt.kept).toBeGreaterThan(EDITS * 4);
 
     // No duplicates: no node emits twice on one port at one time and channel.
     const seen = new Set<string>();
@@ -292,12 +319,12 @@ describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → S
     // Clock is never touched by the other edits: its ticks are those of a run with only its own edits
     // (live too, so the edits land on the same render quanta and window boundaries).
     const clockOnly = await runPatch(initial(), { seconds: SECONDS, fps: 0, live: true }, {
-      edits: scriptedEdits(plan.filter((e) => e.target === 'clock')),
+      edits: [...scriptedEdits(plan.filter((e) => e.target === 'clock')), ...taps].sort((a, b) => a.time - b.time),
     });
     const ticks = (log: LoggedEvent[]) => formatEvents(log.filter((e) => e.node === 'clock'));
     if (ticks(events) !== ticks(clockOnly.events)) failures.push('clock ticks differ from a run with only the clock edits');
     // The transport carried its state through every swap: each step fires exactly once.
-    const indices = events.filter((e) => e.node === 'clock').map((e) => e.index);
+    const indices = events.filter((e) => e.node === 'clock' && !e.live).map((e) => e.index);
     if (indices.some((index, i) => index !== i)) failures.push('clock step indices skip or repeat');
     // Each other node gave exactly what its plan makes of what reached it: nothing missing,
     // nothing extra, and nothing at all while it was removed.
@@ -310,13 +337,14 @@ describe('Hot swap gate: Clock → Euclidean → Probability → Make Note → S
         notes.push(...events.filter((e) => e.node === c.from.node && e.port === c.from.port && e.time >= a && e.time < b));
       }
     }
-    const instances = voices.get(attempt.context!)!;
+    const instances = voices.get(run.context!)!;
     const key = (e: EngineEvent) => `${e.time}:${e.channel}:${e.pitch}:${e.duration}:${e.velocity}`;
     const played = instances.flatMap((v) => [...v.live]).filter((e) => e.time < SECONDS).map(key).sort();
     const logged = notes.map(key).sort();
     if (played.join() !== logged.join()) failures.push(`synth played ${played.length} notes, the log has ${logged.length}`);
     // Rebuilt instances were disposed only once their last note had released.
     expect(instances.length).toBeGreaterThan(3);
+    expect(instances.filter((v) => v.disposedAt !== null && v.disposedAt < SECONDS - 1e-6).length).toBeGreaterThan(0);
     for (const v of instances) if (v.disposedAt !== null && v.disposedAt < SECONDS - 1e-6 && v.disposedAt < v.idleAtDispose) failures.push(`disposed at ${v.disposedAt} with notes until ${v.idleAtDispose}`);
     expect(result.scheduler.lateScheduled + result.scheduler.lateImmediate + result.scheduler.uncancelled).toBe(0);
 
@@ -343,8 +371,16 @@ describe('scripted edits beside a patch', () => {
       // 60 bpm in eighths: half a second apart from the swap on.
       expect(gaps.every((g) => Math.abs(g! - 0.5) < 1e-9)).toBe(true);
 
-      writeFileSync(join(dir, 'blips.edits.json'), JSON.stringify([{ time: 1, edits: [{ op: 'rename' }] }]));
-      expect(() => loadEdits(file)).toThrow(/expected \[\{ time, edits/);
+      const rejects = (script: unknown, message: RegExp) => {
+        writeFileSync(join(dir, 'blips.edits.json'), JSON.stringify(script));
+        expect(() => loadEdits(file)).toThrow(message);
+      };
+      rejects({}, /blips\.edits\.json: top level/);
+      rejects([{ time: -1, edits: [] }], /blips\.edits\.json: \[0\]\.time/);
+      rejects([{ time: 1, edits: [{ op: 'rename' }] }], /\[0\]\.edits\[0\]: op must be one of/);
+      rejects([{ time: 1, edits: [{ op: 'set-param', node: 'clock', value: 60 }] }], /\[0\]\.edits\[0\]: set-param needs node and param/);
+      rejects([{ time: 1, edits: [{ op: 'add-node', node: { id: 'x', type: 'clock', typeVersion: 3, params: {} } }] }], /add-node needs node\.position/);
+      rejects([{ time: 1, edits: [{ op: 'remove-cable', from: { node: 'a' }, to: { node: 'b', port: 'in' } }] }], /remove-cable needs from and to/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

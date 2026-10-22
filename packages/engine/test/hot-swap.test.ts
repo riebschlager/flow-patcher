@@ -272,6 +272,50 @@ describe('hot swap', () => {
     expect(reset).toEqual(reset.map((_, i) => 10 * (i + 1)));
   });
 
+  it('applies both swaps\' state changes when two land on one boundary and a rewind crosses it', () => {
+    const run = setup(patch([node('m', 'metro', { period: 0.02 }), node('t', 'tap'), node('r', 'resetter')], [cable('m', 'r'), cable('t', 'r')]));
+    run.wakeEvery(0, 0.47);
+    // In one wake: add a counter, then change its step; change the resetter twice.
+    const first = run.edit(0.471,
+      { op: 'add-node', node: node('n', 'counter') }, { op: 'add-cable', cable: cable('m', 'n') }, { op: 'add-cable', cable: cable('t', 'n') },
+      { op: 'set-param', node: 'r', param: 'step', value: 5 });
+    const second = run.edit(0.4712, { op: 'set-param', node: 'n', param: 'step', value: 10 }, { op: 'set-param', node: 'r', param: 'step', value: 10 });
+    expect(second.time).toBe(first.time);
+    expect(second.reset).toEqual(['r']);
+    // A tap before the boundary rewinds across both swaps.
+    const tapped = run.push(0.472, 't');
+    run.wakeEvery(0.475, 1);
+    const T = first.time;
+    expect(tapped.time).toBeLessThan(T);
+    const from = (id: string) => run.of(id).filter((e) => e.time >= T).map((e) => e.count);
+    // n didn't exist before T, so it starts empty there; r started over at the first swap.
+    expect(from('n')).toEqual(from('n').map((_, i) => 10 * (i + 1)));
+    expect(from('r')).toEqual(from('r').map((_, i) => 10 * (i + 1)));
+    expect(run.of('n').every((e) => e.time >= T)).toBe(true);
+  });
+
+  it('applies both swaps\' state changes when two take effect at the horizon before the next query', () => {
+    const definitions = new Map([metro, tap, counter, resetter].map((d) => [d.type, d]));
+    const compile = (p: Patch) => {
+      const compiled = compilePatch(p, definitions);
+      if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+      return compiled.plan;
+    };
+    const nodes = (step: number, withN: boolean) => [node('m', 'metro', { period: 0.05 }), node('t', 'tap'), node('r', 'resetter', { step }), ...(withN ? [node('n', 'counter', { step })] : [])];
+    const cables = (withN: boolean) => [cable('m', 'r'), cable('t', 'r'), ...(withN ? [cable('m', 'n'), cable('t', 'n')] : [])];
+    const runtime = new Runtime(compile(patch(nodes(1, false), cables(false))), { history: true });
+    runtime.query(0, 0.5);
+    runtime.swap(compile(patch(nodes(5, true), cables(true))));
+    runtime.swap(compile(patch(nodes(10, true), cables(true))));
+    runtime.query(0.5, 1);
+    const rewind = runtime.push('t', 'out', { time: 0.3, channel: 0 }, { now: 0.3 });
+    const log = rewind!.added;
+    const counts = (id: string) => log.filter((e) => e.node === id && e.time >= 0.5).map((e) => e.count);
+    expect(counts('r')).toEqual(counts('r').map((_, i) => 10 * (i + 1)));
+    expect(counts('n')).toEqual(counts('n').map((_, i) => 10 * (i + 1)));
+    expect(counts('n').length).toBe(10);
+  });
+
   it('carries a delay node and the inputs it holds across a swap, and drops them when it goes', () => {
     const run = setup(patch([node('m', 'metro', { period: 0.05 }), node('d', 'delay', { time: 0.03 }), node('c', 'counter')], [cable('m', 'd'), cable('d', 'c')]));
     run.wakeEvery(0, 0.5);
@@ -337,6 +381,17 @@ describe('hot swap', () => {
     for (const e of run.of('d')) perSlice.set(limitWindowOf(e.time), (perSlice.get(limitWindowOf(e.time)) ?? 0) + 1);
     // Every whole limit window keeps exactly NODE_EVENT_LIMIT, the one the swap cuts included.
     expect([0, 1, 2, 3, 4, 5, 6, 7].map((k) => perSlice.get(k))).toEqual(Array(8).fill(NODE_EVENT_LIMIT));
+  });
+
+  it('orders the log by the plan each event was emitted under', () => {
+    const run = setup(patch([node('m', 'metro', { period: 0.05 }), node('a', 'counter'), node('b', 'counter')], [cable('m', 'a'), cable('m', 'b')]));
+    run.wakeEvery(0, 0.5);
+    // b → a puts b before a in the new plan; a now counts b's events too.
+    const report = run.edit(0.49, { op: 'add-cable', cable: cable('b', 'a') });
+    run.wakeEvery(0.5, 1);
+    const order = (before: boolean) => [...new Set(run.scheduler.events().filter((e) => e.node !== 'm' && (e.time < report.time) === before).map((e) => e.node))];
+    expect(order(true)).toEqual(['a', 'b']);
+    expect(order(false)).toEqual(['b', 'a']);
   });
 
   it('swaps at the horizon without a clock, and at once before the first query', () => {
