@@ -51,7 +51,7 @@ test('taps stay on time with the fluid stepping and the renderer drawing', async
   const splashes = taps.map((tap) => tap.splash!);
   console.log(
     `worst tap ${(worst * 1000).toFixed(2)} ms (bound ${(BOUND * 1000).toFixed(0)} ms); ` +
-      `splash frames ${Math.min(...splashes.map((s) => s.frames))}–${Math.max(...splashes.map((s) => s.frames))}, ` +
+      `splash handed after ${Math.max(...splashes.map((s) => s.handed))} frame(s), drawn after ${Math.min(...splashes.map((s) => s.frames))}–${Math.max(...splashes.map((s) => s.frames))}, ` +
       `ms ${Math.min(...splashes.map((s) => s.ms)).toFixed(1)}–${Math.max(...splashes.map((s) => s.ms)).toFixed(1)}; ` +
       `fluid step ${stats.fluid!.stepMs.toFixed(2)} ms, color ${stats.fluid!.colorMs.toFixed(2)} ms, ${stats.fluid!.merged} merged, ${stats.drawn}/${stats.frames} frames drawn`,
   );
@@ -62,8 +62,9 @@ test('taps stay on time with the fluid stepping and the renderer drawing', async
     expect(tap.stamped! - tap.at).toBeCloseTo(OFFSET, 6);
   }
   expect(worst).toBeLessThanOrEqual(BOUND);
-  // A splash reaches the Fluid on the next frame and shows once the Worker's step comes back (a frame or two).
-  for (const splash of splashes) expect(splash.frames).toBeLessThanOrEqual(4);
+  // ADR 0020: each tap's own event reaches the visual nodes on the very next frame, without the
+  // output-latency shift. When it is then drawn depends on the Worker's speed, so that is logged, not bounded.
+  for (const splash of splashes) expect(splash.handed).toBe(1);
 
   await page.screenshot({ path: 'test-results/fluid-load.png' });
   expect(errors).toEqual([]);

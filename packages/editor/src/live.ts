@@ -25,7 +25,9 @@ export type PointerPort = 'down' | 'move' | 'up' | 'cancel';
 export interface Tap {
   /** currentTime when the handler ran, in seconds. */
   at: number;
-  /** The pointerdown on the audio clock: `at` less the time the event waited before its handler ran. */
+  /** The pointerdown on the audio clock: `at` less the time the event waited before its handler ran
+   *  (performance.now() − event.timeStamp). currentTime only moves once per audio callback, so this is
+   *  `at`'s granularity, not a sample-exact mapping; what it adds is the main-thread wait ADR 0016 guards. */
   down: number;
   /** The time the push was stamped, or null when it was held for the AudioContext to start. */
   stamped: number | null;
@@ -34,9 +36,12 @@ export interface Tap {
   note: number | null;
   /** The push had to start the AudioContext, so its timing includes startup. */
   cold: boolean;
-  /** When the Renderer first drew the tap's splash (ADR 0020): frames after the push, and ms after the
-   *  pointerdown. Null until it has, or with no Renderer. */
-  splash: { frames: number; ms: number } | null;
+  /** The tap's splash (ADR 0020), null until it is drawn, or with no Renderer:
+   *  - `handed`: frames after the push until a frame handed the tap's own event to a visual node (1 = the
+   *    next frame, skipping the output-latency shift);
+   *  - `frames`, `ms`: frames after the push, and ms after the pointerdown, until the Renderer drew the
+   *    Fluid step that carried it. */
+  splash: { handed: number; frames: number; ms: number } | null;
 }
 
 /** The frame loop's counters, for the Immediate path under load gate check. */
@@ -49,15 +54,18 @@ export interface FrameStats {
   fluid: FluidHostStats | null;
 }
 
-/** A splash on its way to the canvas: it is drawn once the Worker has answered the request that carried it. */
+/** A splash on its way to the canvas: handed to a visual node by a frame (`Runtime.lastFrame.taps`), then
+ *  drawn once the Fluid has latched the step that frame took. */
 interface PendingSplash {
   tap: Tap;
+  /** The push's stamp, as the frame report lists it. */
+  time: number;
   /** Wall time of the pointerdown, ms. */
   downWall: number;
   /** Frames ticked when the push ran. */
   frame: number;
-  /** Requests the fluid had sent when the push ran; the next one carries the splash. */
-  sent: number;
+  /** Once a frame handed it over: frames since the push, and the Fluid's step count after that frame. */
+  carried: { handed: number; step: number } | null;
 }
 
 export interface LiveStatus {
@@ -175,7 +183,6 @@ export class LivePatch {
     const at = this.context.currentTime;
     const wall = performance.now();
     const waited = timeStamp !== undefined && timeStamp <= wall ? (wall - timeStamp) / 1000 : 0;
-    const sent = this.fluid?.host.stats.sent ?? 0;
     this.starts = [];
     let stamped: number | null = null;
     try {
@@ -187,7 +194,7 @@ export class LivePatch {
         const tap: Tap = { at, down: at - waited, stamped, note: starts.length ? Math.min(...starts) : null, cold, splash: null };
         if (cold && tap.note === null) this.coldTap = tap;
         if (this.renderer && this.fluid && stamped !== null) {
-          this.splashes.push({ tap, downWall: wall - waited * 1000, frame: this.frameCounts.frames, sent });
+          this.splashes.push({ tap, time: stamped, downWall: wall - waited * 1000, frame: this.frameCounts.frames, carried: null });
         }
         this.taps.push(tap);
         if (this.taps.length > 100) this.taps.shift();
@@ -213,12 +220,29 @@ export class LivePatch {
     const image = this.renderer ? rendererImage(this.runtime.stateOf(this.renderer) ?? {}) : null;
     if (image) this.frameCounts.drawn++;
     this.draw(image);
-    // The Fluid latched its newest reply at the start of this frame, so a splash whose request has been answered is on screen now.
-    const received = this.fluid?.host.stats.received ?? 0;
-    while (this.splashes.length && received > this.splashes[0]!.sent) {
-      const { tap, downWall, frame } = this.splashes.shift()!;
-      tap.splash = { frames: this.frameCounts.frames - frame, ms: performance.now() - downWall };
-      console.debug(`[live] splash: ${tap.splash.frames} frame(s), ${tap.splash.ms.toFixed(1)} ms after pointerdown`);
+    this.trackSplashes();
+  }
+
+  /** Follows each tap's splash: the frame that handed the tap's event over, then the frame that drew it. */
+  private trackSplashes(): void {
+    const host = this.fluid?.host;
+    if (!host || !this.splashes.length) return;
+    const report = this.runtime.lastFrame;
+    for (const pending of this.splashes) {
+      if (!pending.carried && report?.taps.some((tap) => tap.time === pending.time)) {
+        // The Fluid stepped after its writers this frame, so its newest step carries the splat.
+        pending.carried = { handed: this.frameCounts.frames - pending.frame, step: host.stepCount };
+      }
+    }
+    // Shown once the Fluid has latched (at a frame's start) the step that carried it.
+    for (let i = this.splashes.length - 1; i >= 0; i--) {
+      const { tap, downWall, frame, carried } = this.splashes[i]!;
+      // A tap that reaches no visual node is never handed over; stop following it after a couple of seconds.
+      if (!carried && this.frameCounts.frames - frame > SPLASH_GIVE_UP) this.splashes.splice(i, 1);
+      if (!carried || host.latchedThrough < carried.step) continue;
+      this.splashes.splice(i, 1);
+      tap.splash = { handed: carried.handed, frames: this.frameCounts.frames - frame, ms: performance.now() - downWall };
+      console.debug(`[live] splash: handed over ${carried.handed} frame(s) after the tap, drawn after ${tap.splash.frames} (${tap.splash.ms.toFixed(1)} ms after pointerdown)`);
     }
   }
 
@@ -279,6 +303,9 @@ export class LivePatch {
     }
   }
 }
+
+/** Frames to wait for a tap's event to reach a visual node before giving up on its splash. */
+const SPLASH_GIVE_UP = 120;
 
 const ms = (time: number | null, from: number) => (time === null ? '—' : `${((time - from) * 1000).toFixed(2)} ms`);
 
