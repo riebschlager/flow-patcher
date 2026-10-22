@@ -1,4 +1,4 @@
-// Runtime limits (ADR 0011; design.md, Budgets): event caps and the per-node
+// Runtime limits (ADRs 0011 and 0022; design.md, Budgets): event caps and the per-node
 // warnings the editor shows when one bites.
 //
 // The caps count events per limit window: a fixed grid of LIMIT_WINDOW-second
