@@ -56,6 +56,8 @@ html, body, #root { height: 100%; margin: 0; background: var(--fp-surface-canvas
 .patch-node--selected { box-shadow: var(--fp-ring-select), var(--fp-shadow-node); }
 .patch-node--unknown, .patch-node--error { border-color: var(--fp-error); }
 .patch-node--error .patch-node__icon { color: var(--fp-error); }
+/* As the design system's Node: rows dim under an error. */
+.patch-node--error .patch-node__row { opacity: 0.45; }
 .patch-node__loading { height: var(--fp-row); margin: var(--fp-space-3) var(--fp-space-4) 0; padding: 0 var(--fp-space-4); display: flex; align-items: center; gap: var(--fp-space-3); border-radius: var(--fp-radius-sm); background: var(--fp-bg-1); font-size: var(--fp-text-xs); color: var(--fp-text-muted); }
 .patch-node__spinner { font-size: 12px; animation: patch-node-spin 1s linear infinite; }
 @keyframes patch-node-spin { to { transform: rotate(360deg); } }

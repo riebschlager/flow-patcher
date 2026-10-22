@@ -33,6 +33,7 @@ function vendorPlugin(): Plugin {
     },
     generateBundle() {
       for (const name of readdirSync(vendor)) {
+        if (!statSync(resolve(vendor, name)).isFile()) continue;
         this.emitFile({ type: 'asset', fileName: `vendor/${name}`, source: readFileSync(resolve(vendor, name)) });
       }
     },

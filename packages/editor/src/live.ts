@@ -72,7 +72,7 @@ interface PendingSplash {
 
 /** Sampled Voice's samples, served from the repo's vendor/ (packages/editor/vite.config.ts). */
 async function fetchSample(file: string): Promise<string> {
-  const response = await fetch(`/vendor/${encodeURIComponent(file)}`);
+  const response = await fetch(`${import.meta.env.BASE_URL}vendor/${encodeURIComponent(file)}`);
   if (!response.ok) throw new Error(`Couldn't load ${file} (HTTP ${response.status})`);
   return response.text();
 }
@@ -129,9 +129,6 @@ export class LivePatch {
     this.runtime.onWarning = (message) => console.warn(`[live] ${message}`);
     this.pointers = compiled.plan.order.filter((node) => node.definition.type === 'pointer').map((node) => node.id);
     this.instruments = new Map(compiled.plan.order.filter((node) => node.definition.type === 'sampled-voice').map((node) => [node.id, node.params.instrument as string]));
-    this.unsubscribeInstruments = instrumentCache.subscribe((audio) => {
-      if (audio === this.audio) this.emit();
-    });
     this.context = new AudioContext({ latencyHint: 'interactive' });
     this.audio = this.observeStarts(this.context);
     this.runtime.attachAudio(this.audio);
@@ -155,6 +152,10 @@ export class LivePatch {
       // Held pushes run on the first wake after the context starts.
       this.scheduler.wake();
       this.emit();
+    });
+    // Subscribed once everything that can throw is built, so a failed constructor leaves no listener behind.
+    this.unsubscribeInstruments = instrumentCache.subscribe((audio) => {
+      if (audio === this.audio) this.emit();
     });
     document.addEventListener('visibilitychange', this.onVisibility);
     this.scheduler.start();

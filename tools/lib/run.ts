@@ -24,7 +24,7 @@ import {
   type SchedulerStats,
   type SwapReport,
 } from '@flow-patcher/engine';
-import { instrumentCache, nodeRegistry } from '@flow-patcher/nodes';
+import { INSTRUMENT_KEYS, instrumentCache, nodeRegistry, sampledVoice } from '@flow-patcher/nodes';
 import { encodeWav, peak, renderOffline, SuspendRaceError, type AudioEdit, type RenderedAudio } from './audio';
 import { encodePng } from './png';
 
@@ -75,6 +75,8 @@ export interface LiveRun {
 export interface RunEdit {
   time: number;
   apply(run: LiveRun): void;
+  /** The patch edits `apply` makes, when known up front: the runner preloads the instruments they bring in. */
+  edits?: readonly PatchEdit[];
 }
 
 /** Scripted patch edits, as in `<name>.edits.json`: at `time`, apply `edits` as one swap. */
@@ -220,7 +222,27 @@ function editProblem(edit: unknown): string | null {
 
 /** Run edits that apply scripted patch edits, each set as one swap. */
 export const scriptedEdits = (script: readonly ScriptedEdit[]): RunEdit[] =>
-  script.map(({ time, edits }) => ({ time, apply: (run) => void run.edit(edits) }));
+  script.map(({ time, edits }) => ({ time, edits, apply: (run) => void run.edit(edits) }));
+
+/** Every instrument a Sampled Voice plays in the plan or gets from these edits. */
+function instrumentsOf(plan: { order: readonly { definition: NodeDefinition; params: Record<string, unknown> }[] }, edits: readonly RunEdit[]): string[] {
+  const keys = new Set<string>();
+  const voices = new Set<string>();
+  for (const node of plan.order) {
+    if (node.definition.type !== 'sampled-voice') continue;
+    voices.add(node.id);
+    keys.add(node.params.instrument as string);
+  }
+  for (const edit of edits.flatMap((e) => e.edits ?? [])) {
+    if (edit.op === 'add-node' && edit.node.type === 'sampled-voice') {
+      voices.add(edit.node.id);
+      keys.add((edit.node.params.instrument as string | undefined) ?? (sampledVoice.params.find((p) => p.name === 'instrument')!.default as string));
+    } else if (edit.op === 'set-param' && edit.param === 'instrument' && voices.has(edit.node)) {
+      keys.add(edit.value as string);
+    }
+  }
+  return [...keys].filter((key) => INSTRUMENT_KEYS.includes(key));
+}
 
 export async function runPatch(patch: Patch, options: RunOptions = {}, hooks: RunHooks = {}): Promise<RunResult> {
   const opts: Required<RunOptions> = { seconds: 4, window: 0.025, fps: 60, latency: 0, audio: true, live: false, ...options };
@@ -245,10 +267,11 @@ async function runOnce(patch: Patch, opts: Required<RunOptions>, hooks: RunHooks
   if (!compiled.ok) throw new PatchError(compiled.errors);
   // The fluid steps in process, in lockstep with the frames, so its output is bit-exact.
   const runtime = new Runtime(compiled.plan, { services: { fluid: createInProcessFluid(), samples: vendorSamples } });
-  // Decode the patch's instruments on each render's context before anything is scheduled, so no
-  // note is skipped while one loads and the audio is the same every run. An instrument an edit
-  // brings in later still loads lazily, partway through the render.
-  const instruments = [...new Set(compiled.plan.order.filter((node) => node.definition.type === 'sampled-voice').map((node) => node.params.instrument as string))];
+  // Decode the patch's instruments, and those its scripted edits bring in, on each render's context
+  // before anything is scheduled, so no note is skipped while one loads and the audio is the same
+  // every run. Only an edit whose patch edits aren't known up front (a bare `apply`) can bring in an
+  // instrument that then loads lazily, partway through the render.
+  const instruments = instrumentsOf(compiled.plan, hooks.edits ?? []);
   const prepare = async (context: AudioContextLike) => {
     await Promise.all(instruments.map((key) => instrumentCache.load(context, key, vendorSamples)));
   };

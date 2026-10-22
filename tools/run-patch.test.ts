@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { OUTPUT_CEILING, type NodeDefinition, type Patch } from '@flow-patcher/engine';
-import { nodeRegistry } from '@flow-patcher/nodes';
+import { nodeRegistry, skippedNotes } from '@flow-patcher/nodes';
 import { maxDifference, peak, RENDER_TOLERANCE } from './lib/audio';
-import { formatEvents, loadInputs, loadPatch, runPatch, writeRun } from './lib/run';
+import { formatEvents, loadInputs, loadPatch, runPatch, scriptedEdits, writeRun } from './lib/run';
 import { ROOT } from '../test-support/golden';
 
 const EXAMPLE = join(ROOT, 'examples/clock-blips.flowpatch');
@@ -132,5 +132,18 @@ describe('headless runner', () => {
     // Shown 100 ms later on the audio clock: six frames at 60 fps.
     shifted.forEach((s, i) => expect(s.frame).toBe(plain[i]!.frame + 6));
     await expect(runPatch(patch, { latency: -1, audio: false }, { registry })).rejects.toThrow(/latency/);
+  });
+
+  it("preloads the instruments a scripted edit brings in, so no Sampled Voice note is skipped", async () => {
+    const patch = loadPatch(join(ROOT, 'examples/sampled-voice.flowpatch'));
+    let skipped = -1;
+    const edits = [
+      ...scriptedEdits([{ time: 1, edits: [{ op: 'set-param', node: 'vibes', param: 'instrument', value: 'piano' }] }]),
+      { time: 3.9, apply: (run: { runtime: { stateOf(id: string): Record<string, unknown> | undefined } }) => void (skipped = skippedNotes(run.runtime.stateOf('vibes'))) },
+    ];
+    const result = await runPatch(patch, { seconds: 4, fps: 0, live: true }, { edits });
+    expect(result.swaps).toHaveLength(1);
+    expect(result.events.filter((e) => e.node === 'tone' && e.time > result.swaps[0]!.report.time).length).toBeGreaterThan(5);
+    expect(skipped).toBe(0);
   });
 });
