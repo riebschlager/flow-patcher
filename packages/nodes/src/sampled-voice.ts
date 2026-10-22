@@ -31,6 +31,7 @@ import {
   type EngineEvent,
   type NodeDefinition,
   type NodeState,
+  type NodeStatus,
   type VoiceHandle,
 } from '@flow-patcher/engine';
 import { arpEnvelope, arpGlide } from './arpeggiator';
@@ -116,6 +117,25 @@ export const sampledVoice: NodeDefinition = {
     { name: 'q', kind: 'number', min: 0.1, max: 20, default: 0.55, label: 'Q' },
     { name: 'level', kind: 'number', min: 0, max: 2, default: 1, label: 'Level' },
   ],
+  status({ audio, params }): NodeStatus | null {
+    const key = params.instrument as string;
+    const name = (instrumentFor(key)?.name ?? key).toLowerCase();
+    switch (instrumentCache.status(audio, key)) {
+      case 'loading': return { kind: 'loading', message: `Loading ${name}` };
+      case 'error': return { kind: 'error', message: `Couldn't load ${name}. Check your connection, then retry.`, action: 'Retry' };
+      default: return null;
+    }
+  },
+  retry({ audio, params, services }) {
+    // A load already under way or done is returned as is, so this only retries a failed one.
+    instrumentCache.load(audio, params.instrument as string, services.samples).catch(() => {});
+  },
+  watchStatus({ audio }, listener) {
+    // Any instrument on this context: a param change can switch which one the node shows.
+    return instrumentCache.subscribe((changed) => {
+      if (changed === audio) listener();
+    });
+  },
   audio({ audio, params, param, state, voices: pool, services }) {
     const out = audio.createGain();
     const key = params.instrument as string;
