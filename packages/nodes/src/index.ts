@@ -11,14 +11,18 @@ import { probability } from './probability';
 import { progression } from './progression';
 import { renderer } from './renderer';
 import { sampleAndHold } from './sample-and-hold';
+import { sampledVoice } from './sampled-voice';
 import { simpleSynth } from './simple-synth';
 import { splat } from './splat';
 import { thresholdChange } from './threshold-change';
 
 export { rendererImage } from './renderer';
-export { chordTone, clock, delayEdge, euclidean, fluid, makeNote, output, pointer, probability, progression, renderer, sampleAndHold, simpleSynth, splat, thresholdChange };
+export { InstrumentCache, instrumentCache, type InstrumentListener, type InstrumentStatus } from './instruments';
+export { skippedNotes } from './sampled-voice';
+export { INSTRUMENTS, INSTRUMENT_GROUPS, INSTRUMENT_KEYS, instrumentFile } from './music';
+export { chordTone, clock, delayEdge, euclidean, fluid, makeNote, output, pointer, probability, progression, renderer, sampleAndHold, sampledVoice, simpleSynth, splat, thresholdChange };
 
 /** Every node type, in palette order. Add new node files here. */
-export const nodeDefinitions: readonly NodeDefinition[] = [pointer, clock, euclidean, probability, delayEdge, sampleAndHold, thresholdChange, progression, chordTone, makeNote, simpleSynth, output, fluid, splat, renderer];
+export const nodeDefinitions: readonly NodeDefinition[] = [pointer, clock, euclidean, probability, delayEdge, sampleAndHold, thresholdChange, progression, chordTone, makeNote, sampledVoice, simpleSynth, output, fluid, splat, renderer];
 
 export const nodeRegistry: ReadonlyMap<string, NodeDefinition> = new Map(nodeDefinitions.map((d) => [d.type, d]));

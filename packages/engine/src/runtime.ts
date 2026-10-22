@@ -13,6 +13,7 @@
 // warnings they raise. Hot patching (`swap`, ADR 0023) replaces the plan at a
 // window boundary; each window remembers the plan it ran under.
 import type { AudioContextLike, AudioNodeLike } from './audio/types';
+import { VoicePool } from './audio/voices';
 import { createNodeContext, type BoundContext, type NodeWiring } from './context';
 import {
   isModulatable,
@@ -597,6 +598,8 @@ export class Runtime {
   private readonly dismissed = new Map<string, Map<Drop['kind'], number>>();
   /** The context `attachAudio` was given, for the instances a swap builds. */
   private audioContext: AudioContextLike | null = null;
+  /** The voice pool on `audioContext`: every audio instance built on it shares it, swaps included. */
+  private voicePool: VoicePool | null = null;
   /** Audio instances a swap removed or rebuilt, still sounding. */
   private retiring: Retiring[] = [];
   /** What each audio output is connected to, in connection order. */
@@ -965,6 +968,8 @@ export class Runtime {
 
   /** Builds every audio node's Web Audio graph and connects the audio cables. Swaps build their own from then on. */
   attachAudio(context: AudioContextLike): void {
+    // A new context starts with an empty pool; voices on the old one don't sound on it.
+    if (context !== this.audioContext || !this.voicePool) this.voicePool = new VoicePool(() => context.currentTime);
     this.audioContext = context;
     for (const node of this.stage.plan.order) if (node.definition.audio) this.stage.audio.set(node.id, this.buildAudio(node, this.stage));
     this.rewire();
@@ -1032,7 +1037,9 @@ export class Runtime {
 
   private buildAudio(node: PlanNode, stage: Stage): AudioInstance {
     const { param } = stage.contexts.get(node.id)!;
-    return node.definition.audio!({ audio: this.audioContext!, params: node.params, state: stage.states.get(node.id)!, param });
+    return node.definition.audio!({
+      audio: this.audioContext!, params: node.params, state: stage.states.get(node.id)!, param, voices: this.voicePool!, services: this.services,
+    });
   }
 
   /** Withdraws what an old audio instance was handed from `time` on, and keeps it until its notes finish. Returns the count withdrawn. */

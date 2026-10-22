@@ -34,6 +34,8 @@ export interface RenderOptions {
    * everything it needs. Default 1: the error reaches the caller.
    */
   attempts?: number;
+  /** Awaited on each fresh context before `setup`, such as decoding samples. */
+  prepare?: (context: AudioContextLike) => Promise<void>;
   /** Called before each try with its number (from 1). */
   onAttempt?(attempt: number): void;
   /** Test only: on the tries this returns true for, also make one suspend()
@@ -79,7 +81,7 @@ export async function renderOffline(seconds: number, setup: (context: AudioConte
 async function renderOnce(
   seconds: number,
   setup: (context: AudioContextLike) => void,
-  { channels = 2, sampleRate = SAMPLE_RATE, edits = [] }: RenderOptions,
+  { channels = 2, sampleRate = SAMPLE_RATE, edits = [], prepare }: RenderOptions,
   lateSuspend: boolean,
 ): Promise<RenderedAudio> {
   const length = Math.max(1, Math.round(seconds * sampleRate));
@@ -92,6 +94,7 @@ async function renderOnce(
     if (!(quantum >= 0) || quantum * RENDER_QUANTUM >= length) throw new RangeError(`renderOffline: edit at ${edit.time} s is outside the render`);
     byQuantum.set(quantum, [...(byQuantum.get(quantum) ?? []), edit]);
   }
+  await prepare?.(like);
   setup(like);
   const quanta = [...byQuantum.keys()].sort((a, b) => a - b);
   let editError: unknown = null, suspendError: unknown = null, applied = 0;

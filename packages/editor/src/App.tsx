@@ -2,7 +2,7 @@ import { Background, BackgroundVariant, Controls, MiniMap, ReactFlow } from '@xy
 import { compilePatch, parsePatch } from '@flow-patcher/engine';
 import { nodeRegistry } from '@flow-patcher/nodes';
 import { patchToGraph } from './patch-graph';
-import { PatchNode } from './PatchNode';
+import { LivePatchContext, PatchNode } from './PatchNode';
 import { CableEdge } from './CableEdge';
 import { LivePatch } from './live';
 import { PreviewPane } from './PreviewPane';
@@ -46,11 +46,13 @@ export function App() {
         <span className="app__status" data-testid="compile-status">{status}</span>
       </header>
       <main className="app__graph">
-        <ReactFlow defaultNodes={graph.nodes} defaultEdges={graph.edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} snapToGrid snapGrid={[20, 20]} fitView colorMode="dark">
-          <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-          <MiniMap pannable zoomable nodeBorderRadius={8} />
-          <Controls />
-        </ReactFlow>
+        <LivePatchContext.Provider value={live}>
+          <ReactFlow defaultNodes={graph.nodes} defaultEdges={graph.edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} snapToGrid snapGrid={[20, 20]} fitView colorMode="dark">
+            <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+            <MiniMap pannable zoomable nodeBorderRadius={8} />
+            <Controls />
+          </ReactFlow>
+        </LivePatchContext.Provider>
         <PreviewPane live={live} />
       </main>
     </div>

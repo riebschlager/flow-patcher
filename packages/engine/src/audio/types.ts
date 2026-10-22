@@ -6,6 +6,8 @@ export interface AudioParamLike {
   value: number;
   setValueAtTime(value: number, time: number): unknown;
   linearRampToValueAtTime(value: number, time: number): unknown;
+  /** `value` must be non-zero and share the current value's sign. */
+  exponentialRampToValueAtTime(value: number, time: number): unknown;
   setTargetAtTime(target: number, time: number, timeConstant: number): unknown;
   cancelScheduledValues(time: number): unknown;
 }
@@ -24,6 +26,35 @@ export interface OscillatorNodeLike extends AudioNodeLike {
   readonly frequency: AudioParamLike;
   start(when?: number): void;
   stop(when?: number): void;
+}
+
+/** Decoded sample data. The engine only passes it from decodeAudioData to a buffer source. */
+export interface AudioBufferLike {
+  readonly sampleRate: number;
+  readonly length: number;
+  readonly duration: number;
+  readonly numberOfChannels: number;
+}
+
+export interface AudioBufferSourceNodeLike extends AudioNodeLike {
+  buffer: AudioBufferLike | null;
+  readonly playbackRate: AudioParamLike;
+  loop: boolean;
+  /** Seconds into the buffer. */
+  loopStart: number;
+  loopEnd: number;
+  /** Starts at audio-clock time `when`, `offset` seconds into the buffer. */
+  start(when?: number, offset?: number): void;
+  stop(when?: number): void;
+  /** Called once playback has stopped. Typed loosely so the DOM's event handler fits. */
+  onended: ((event: never) => unknown) | null;
+}
+
+export interface BiquadFilterNodeLike extends AudioNodeLike {
+  /** 'lowpass', 'highpass', 'bandpass', … as in Web Audio. */
+  type: string;
+  readonly frequency: AudioParamLike;
+  readonly Q: AudioParamLike;
 }
 
 export interface DynamicsCompressorNodeLike extends AudioNodeLike {
@@ -51,4 +82,8 @@ export interface AudioContextLike {
   createOscillator(): OscillatorNodeLike;
   createDynamicsCompressor(): DynamicsCompressorNodeLike;
   createWaveShaper(): WaveShaperNodeLike;
+  createBufferSource(): AudioBufferSourceNodeLike;
+  createBiquadFilter(): BiquadFilterNodeLike;
+  /** Decodes an encoded file (MP3, Ogg, WAV, …). Rejects on data it can't decode. */
+  decodeAudioData(data: ArrayBuffer): Promise<AudioBufferLike>;
 }
