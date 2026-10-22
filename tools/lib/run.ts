@@ -191,6 +191,9 @@ export function loadEdits(patchFile: string): ScriptedEdit[] {
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isRef = (v: unknown) => isRecord(v) && typeof v.node === 'string' && typeof v.port === 'string';
 const isParamValue = (v: unknown) => typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v));
+const isPosition = (v: unknown) => isRecord(v) && Number.isFinite(v.x) && Number.isFinite(v.y);
+/** An optional list index: none, or an integer 0 or more (the range is checked when it applies). */
+const isIndex = (v: unknown) => v === undefined || (Number.isInteger(v) && (v as number) >= 0);
 
 /** What's wrong with one scripted PatchEdit, or null. Node types and ports are the compiler's to check. */
 function editProblem(edit: unknown): string | null {
@@ -201,22 +204,30 @@ function editProblem(edit: unknown): string | null {
     case 'set-param':
       if (typeof edit.node !== 'string' || typeof edit.param !== 'string') return 'set-param needs node and param strings';
       return isParamValue(edit.value) ? null : 'set-param needs a number, string or boolean value';
+    case 'unset-param':
+      return typeof edit.node === 'string' && typeof edit.param === 'string' ? null : 'unset-param needs node and param strings';
+    case 'move-node':
+      if (typeof edit.node !== 'string') return 'move-node needs a node id string';
+      return isPosition(edit.position) ? null : 'move-node needs position { x, y }';
     case 'remove-node':
       return typeof edit.node === 'string' ? null : 'remove-node needs a node id string';
     case 'add-node': {
       const n = edit.node;
       if (!isRecord(n) || typeof n.id !== 'string' || !n.id || typeof n.type !== 'string' || !Number.isInteger(n.typeVersion)) return 'add-node needs node { id, type, typeVersion, params, position }';
       if (!isRecord(n.params) || !Object.values(n.params).every(isParamValue)) return 'add-node needs node.params of numbers, strings or booleans';
-      if (!isRecord(n.position) || !Number.isFinite(n.position.x) || !Number.isFinite(n.position.y)) return 'add-node needs node.position { x, y }';
+      if (!isPosition(n.position)) return 'add-node needs node.position { x, y }';
+      if (!isIndex(edit.index)) return 'add-node needs an integer index, 0 or more, or none';
       return n.pinned === undefined || (Array.isArray(n.pinned) && n.pinned.every((k) => typeof k === 'string')) ? null : 'add-node needs node.pinned to be strings, or none';
     }
     case 'add-cable': {
       const c = edit.cable;
       if (!isRecord(c) || !isRef(c.from) || !isRef(c.to)) return 'add-cable needs cable { from: { node, port }, to: { node, port } }';
+      if (!isIndex(edit.index)) return 'add-cable needs an integer index, 0 or more, or none';
       return c.depth === undefined || (typeof c.depth === 'number' && Number.isFinite(c.depth)) ? null : 'add-cable needs a finite depth, or none';
     }
     case 'remove-cable':
-      return isRef(edit.from) && isRef(edit.to) ? null : 'remove-cable needs from and to { node, port }';
+      if (!isRef(edit.from) || !isRef(edit.to)) return 'remove-cable needs from and to { node, port }';
+      return isIndex(edit.index) ? null : 'remove-cable needs an integer index, 0 or more, or none';
   }
 }
 
@@ -239,6 +250,8 @@ function instrumentsOf(plan: { order: readonly { id: string; definition: NodeDef
       keys.add((edit.node.params.instrument as string | undefined) ?? (sampledVoice.params.find((p) => p.name === 'instrument')!.default as string));
     } else if (edit.op === 'set-param' && edit.param === 'instrument' && voices.has(edit.node)) {
       keys.add(edit.value as string);
+    } else if (edit.op === 'unset-param' && edit.param === 'instrument' && voices.has(edit.node)) {
+      keys.add(sampledVoice.params.find((p) => p.name === 'instrument')!.default as string);
     }
   }
   return [...keys].filter((key) => INSTRUMENT_KEYS.includes(key));
