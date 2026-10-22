@@ -23,7 +23,8 @@ export function patchToGraph(patch: Patch, registry: Registry, selected: Readonl
     data: { definition: registry.get(node.type) ?? null, type: node.type, params: node.params },
   }));
   const typeOf = new Map(patch.nodes.map((node) => [node.id, node.type]));
-  const edges = patch.cables.map((cable) => {
+  // Cables into a parameter have no handle to end on until knobs take cables (#31), so they aren't drawn yet.
+  const edges = patch.cables.filter((cable) => portOf(registry, typeOf.get(cable.to.node), 'in', cable.to.port)).map((cable) => {
     const id = cableId(cable);
     return {
       id,
