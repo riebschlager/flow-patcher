@@ -1,0 +1,122 @@
+[
+  {
+    "node": "pointer",
+    "port": "down",
+    "event": {
+      "time": 0.3,
+      "channel": 1,
+      "x": 0.2,
+      "y": 0.5,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "move",
+    "event": {
+      "time": 0.5,
+      "channel": 1,
+      "x": 0.4,
+      "y": 0.5,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "move",
+    "event": {
+      "time": 0.8,
+      "channel": 1,
+      "x": 0.6,
+      "y": 0.5,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "move",
+    "event": {
+      "time": 1.1,
+      "channel": 1,
+      "x": 0.7,
+      "y": 0.5,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "move",
+    "event": {
+      "time": 1.5,
+      "channel": 1,
+      "x": 0.8,
+      "y": 0.5,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "up",
+    "event": {
+      "time": 1.9,
+      "channel": 1,
+      "x": 0.8,
+      "y": 0.5,
+      "pressure": 0,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "down",
+    "event": {
+      "time": 2.7,
+      "channel": 2,
+      "x": 0.3,
+      "y": 0.5,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "move",
+    "event": {
+      "time": 3,
+      "channel": 2,
+      "x": 0.2,
+      "y": 0.5,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "move",
+    "event": {
+      "time": 3.4,
+      "channel": 2,
+      "x": 0.6,
+      "y": 0.5,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "up",
+    "event": {
+      "time": 3.6,
+      "channel": 2,
+      "x": 0.6,
+      "y": 0.5,
+      "pressure": 0,
+      "pointerType": "touch"
+    }
+  }
+]

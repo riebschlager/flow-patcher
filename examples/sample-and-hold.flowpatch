@@ -4,6 +4,16 @@
   "seed": 20261022,
   "nodes": [
     {
+      "id": "pointer",
+      "type": "pointer",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 0,
+        "y": 420
+      }
+    },
+    {
       "id": "clock",
       "type": "clock",
       "typeVersion": 3,
@@ -82,6 +92,16 @@
     }
   ],
   "cables": [
+    {
+      "from": {
+        "node": "pointer",
+        "port": "x"
+      },
+      "to": {
+        "node": "hold",
+        "port": "in"
+      }
+    },
     {
       "from": {
         "node": "slow",

@@ -1486,6 +1486,16 @@
    "duration": 0.15
   },
   {
+   "node": "pointer",
+   "port": "down",
+   "time": 0.4,
+   "channel": 1,
+   "x": 0.1,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
    "node": "clock",
    "port": "tick",
    "time": 0.625,
@@ -1503,6 +1513,16 @@
    "duration": 0.15
   },
   {
+   "node": "pointer",
+   "port": "move",
+   "time": 0.7,
+   "channel": 1,
+   "x": 0.18,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
    "node": "clock",
    "port": "tick",
    "time": 0.9375,
@@ -1518,6 +1538,26 @@
    "pitch": 57,
    "velocity": 0.7,
    "duration": 0.15
+  },
+  {
+   "node": "pointer",
+   "port": "move",
+   "time": 1,
+   "channel": 1,
+   "x": 0.25,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
+   "node": "pointer",
+   "port": "up",
+   "time": 1.1,
+   "channel": 1,
+   "x": 0.25,
+   "y": 0.5,
+   "pressure": 0,
+   "pointerType": "touch"
   },
   {
    "node": "clock",
@@ -1539,7 +1579,7 @@
    "time": 1.25,
    "channel": 0,
    "index": 4,
-   "pitch": 57,
+   "pitch": 60,
    "velocity": 0.7,
    "duration": 0.15
   },
@@ -1556,9 +1596,19 @@
    "time": 1.5625,
    "channel": 0,
    "index": 5,
-   "pitch": 57,
+   "pitch": 60,
    "velocity": 0.7,
    "duration": 0.15
+  },
+  {
+   "node": "pointer",
+   "port": "down",
+   "time": 1.8,
+   "channel": 2,
+   "x": 0.5,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
   },
   {
    "node": "clock",
@@ -1573,9 +1623,19 @@
    "time": 1.875,
    "channel": 0,
    "index": 6,
-   "pitch": 57,
+   "pitch": 60,
    "velocity": 0.7,
    "duration": 0.15
+  },
+  {
+   "node": "pointer",
+   "port": "move",
+   "time": 2.05,
+   "channel": 2,
+   "x": 0.6,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
   },
   {
    "node": "clock",
@@ -1590,9 +1650,19 @@
    "time": 2.1875,
    "channel": 0,
    "index": 7,
-   "pitch": 57,
+   "pitch": 60,
    "velocity": 0.7,
    "duration": 0.15
+  },
+  {
+   "node": "pointer",
+   "port": "move",
+   "time": 2.3,
+   "channel": 2,
+   "x": 0.75,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
   },
   {
    "node": "clock",
@@ -1614,7 +1684,7 @@
    "time": 2.5,
    "channel": 0,
    "index": 8,
-   "pitch": 57,
+   "pitch": 66,
    "velocity": 0.7,
    "duration": 0.15
   },
@@ -1631,9 +1701,29 @@
    "time": 2.8125,
    "channel": 0,
    "index": 9,
-   "pitch": 57,
+   "pitch": 66,
    "velocity": 0.7,
    "duration": 0.15
+  },
+  {
+   "node": "pointer",
+   "port": "up",
+   "time": 2.9,
+   "channel": 2,
+   "x": 0.75,
+   "y": 0.5,
+   "pressure": 0,
+   "pointerType": "touch"
+  },
+  {
+   "node": "pointer",
+   "port": "down",
+   "time": 3,
+   "channel": 3,
+   "x": 0.9,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
   },
   {
    "node": "clock",
@@ -1648,9 +1738,19 @@
    "time": 3.125,
    "channel": 0,
    "index": 10,
-   "pitch": 57,
+   "pitch": 66,
    "velocity": 0.7,
    "duration": 0.15
+  },
+  {
+   "node": "pointer",
+   "port": "move",
+   "time": 3.25,
+   "channel": 3,
+   "x": 0.7,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
   },
   {
    "node": "clock",
@@ -1665,9 +1765,19 @@
    "time": 3.4375,
    "channel": 0,
    "index": 11,
-   "pitch": 57,
+   "pitch": 66,
    "velocity": 0.7,
    "duration": 0.15
+  },
+  {
+   "node": "pointer",
+   "port": "move",
+   "time": 3.5,
+   "channel": 3,
+   "x": 0.5,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
   },
   {
    "node": "clock",
@@ -1689,9 +1799,19 @@
    "time": 3.75,
    "channel": 0,
    "index": 12,
-   "pitch": 57,
+   "pitch": 63,
    "velocity": 0.7,
    "duration": 0.15
+  },
+  {
+   "node": "pointer",
+   "port": "up",
+   "time": 3.9,
+   "channel": 3,
+   "x": 0.5,
+   "y": 0.5,
+   "pressure": 0,
+   "pointerType": "touch"
   }
  ],
  "threshold-change.flowpatch": [
@@ -1703,11 +1823,70 @@
    "index": 0
   },
   {
+   "node": "pointer",
+   "port": "down",
+   "time": 0.3,
+   "channel": 1,
+   "x": 0.2,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
+   "node": "pointer",
+   "port": "move",
+   "time": 0.5,
+   "channel": 1,
+   "x": 0.4,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
    "node": "clock",
    "port": "tick",
    "time": 0.625,
    "channel": 0,
    "index": 1
+  },
+  {
+   "node": "change",
+   "port": "out",
+   "time": 0.626,
+   "channel": 0,
+   "value": 0.4,
+   "rising": true
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 0.626,
+   "channel": 0,
+   "value": 0.4,
+   "rising": true,
+   "pitch": 64,
+   "velocity": 0.7,
+   "duration": 0.2
+  },
+  {
+   "node": "pointer",
+   "port": "move",
+   "time": 0.8,
+   "channel": 1,
+   "x": 0.6,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
+   "node": "pointer",
+   "port": "move",
+   "time": 1.1,
+   "channel": 1,
+   "x": 0.7,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
   },
   {
    "node": "clock",
@@ -1717,11 +1896,88 @@
    "index": 2
   },
   {
+   "node": "change",
+   "port": "out",
+   "time": 1.25,
+   "channel": 0,
+   "value": 0.7,
+   "rising": true
+  },
+  {
+   "node": "cross",
+   "port": "out",
+   "time": 1.25,
+   "channel": 0,
+   "value": 0.7,
+   "rising": true
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 1.25,
+   "channel": 0,
+   "value": 0.7,
+   "rising": true,
+   "pitch": 64,
+   "velocity": 0.7,
+   "duration": 0.2
+  },
+  {
+   "node": "accent",
+   "port": "note",
+   "time": 1.25,
+   "channel": 0,
+   "value": 0.7,
+   "rising": true,
+   "pitch": 76,
+   "velocity": 0.9,
+   "duration": 0.4
+  },
+  {
+   "node": "pointer",
+   "port": "move",
+   "time": 1.5,
+   "channel": 1,
+   "x": 0.8,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
    "node": "clock",
    "port": "tick",
    "time": 1.875,
    "channel": 0,
    "index": 3
+  },
+  {
+   "node": "change",
+   "port": "out",
+   "time": 1.876,
+   "channel": 0,
+   "value": 0.8,
+   "rising": true
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 1.876,
+   "channel": 0,
+   "value": 0.8,
+   "rising": true,
+   "pitch": 64,
+   "velocity": 0.7,
+   "duration": 0.2
+  },
+  {
+   "node": "pointer",
+   "port": "up",
+   "time": 1.9,
+   "channel": 1,
+   "x": 0.8,
+   "y": 0.5,
+   "pressure": 0,
+   "pointerType": "touch"
   },
   {
    "node": "clock",
@@ -1731,6 +1987,26 @@
    "index": 4
   },
   {
+   "node": "pointer",
+   "port": "down",
+   "time": 2.7,
+   "channel": 2,
+   "x": 0.3,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
+   "node": "pointer",
+   "port": "move",
+   "time": 3,
+   "channel": 2,
+   "x": 0.2,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
    "node": "clock",
    "port": "tick",
    "time": 3.125,
@@ -1738,11 +2014,107 @@
    "index": 5
   },
   {
+   "node": "change",
+   "port": "out",
+   "time": 3.126,
+   "channel": 0,
+   "value": 0.2,
+   "rising": false
+  },
+  {
+   "node": "cross",
+   "port": "out",
+   "time": 3.126,
+   "channel": 0,
+   "value": 0.2,
+   "rising": false
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 3.126,
+   "channel": 0,
+   "value": 0.2,
+   "rising": false,
+   "pitch": 64,
+   "velocity": 0.7,
+   "duration": 0.2
+  },
+  {
+   "node": "accent",
+   "port": "note",
+   "time": 3.126,
+   "channel": 0,
+   "value": 0.2,
+   "rising": false,
+   "pitch": 76,
+   "velocity": 0.9,
+   "duration": 0.4
+  },
+  {
+   "node": "pointer",
+   "port": "move",
+   "time": 3.4,
+   "channel": 2,
+   "x": 0.6,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch"
+  },
+  {
+   "node": "pointer",
+   "port": "up",
+   "time": 3.6,
+   "channel": 2,
+   "x": 0.6,
+   "y": 0.5,
+   "pressure": 0,
+   "pointerType": "touch"
+  },
+  {
    "node": "clock",
    "port": "tick",
    "time": 3.75,
    "channel": 0,
    "index": 6
+  },
+  {
+   "node": "change",
+   "port": "out",
+   "time": 3.75,
+   "channel": 0,
+   "value": 0.6,
+   "rising": true
+  },
+  {
+   "node": "cross",
+   "port": "out",
+   "time": 3.75,
+   "channel": 0,
+   "value": 0.6,
+   "rising": true
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 3.75,
+   "channel": 0,
+   "value": 0.6,
+   "rising": true,
+   "pitch": 64,
+   "velocity": 0.7,
+   "duration": 0.2
+  },
+  {
+   "node": "accent",
+   "port": "note",
+   "time": 3.75,
+   "channel": 0,
+   "value": 0.6,
+   "rising": true,
+   "pitch": 76,
+   "velocity": 0.9,
+   "duration": 0.4
   }
  ]
 }
