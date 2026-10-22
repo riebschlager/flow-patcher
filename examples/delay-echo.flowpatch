@@ -1,0 +1,147 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261021,
+  "nodes": [
+    {
+      "id": "clock",
+      "type": "clock",
+      "typeVersion": 2,
+      "params": {
+        "bpm": 112,
+        "division": "1/4"
+      },
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "maybe",
+      "type": "probability",
+      "typeVersion": 2,
+      "params": {
+        "chance": 0.6
+      },
+      "position": {
+        "x": 240,
+        "y": 100
+      }
+    },
+    {
+      "id": "echo",
+      "type": "delay-edge",
+      "typeVersion": 1,
+      "params": {
+        "time": 0.18
+      },
+      "position": {
+        "x": 240,
+        "y": 240
+      }
+    },
+    {
+      "id": "note",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.2,
+        "pitch": 64,
+        "velocity": 0.8
+      },
+      "position": {
+        "x": 480,
+        "y": 100
+      }
+    },
+    {
+      "id": "synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.005,
+        "level": 0.3,
+        "release": 0.4,
+        "wave": "triangle"
+      },
+      "position": {
+        "x": 720,
+        "y": 100
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 960,
+        "y": 100
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "clock",
+        "port": "tick"
+      },
+      "to": {
+        "node": "maybe",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "maybe",
+        "port": "out"
+      },
+      "to": {
+        "node": "note",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "note",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    },
+    {
+      "from": {
+        "node": "maybe",
+        "port": "out"
+      },
+      "to": {
+        "node": "echo",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "echo",
+        "port": "out"
+      },
+      "to": {
+        "node": "maybe",
+        "port": "in"
+      }
+    }
+  ]
+}

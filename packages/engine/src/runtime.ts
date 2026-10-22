@@ -1,10 +1,15 @@
-// Bootstrap runtime: just enough evaluation for the headless runner and tests.
+// Graph compiler (M1) and the bootstrap runtime.
 //
-// It compiles a patch into a sorted plan and runs window queries, frames and
-// audio setup, with the fan-in rules for all six port types. It is NOT the M1
-// engine: no delay edges (every cycle is rejected), no hot patching, no runtime
-// limits and no scheduler. The M1 graph compiler and scheduler replace this
-// file; keep its public shape (compile → query/frame/attachAudio) where it fits.
+// `compilePatch` is the M1 graph compiler: it checks every cable against the
+// port and fan-in rules, marks delay edges (cables into a Delay Edge node, and
+// Field → Signal reads), sorts the nodes over the other cables and rejects any
+// cycle without a delay edge, naming its nodes and cables (ADR 0010). The plan
+// is plain data, so the scheduler can swap it.
+//
+// `Runtime` is still the bootstrap runtime until the scheduler lands (#19):
+// window queries, frames and audio setup, but no hot patching, rewind, runtime
+// limits or scheduling. Keep its public shape (compile → query/frame/attachAudio)
+// where it fits.
 import type { AudioContextLike } from './audio/types';
 import { createNodeContext, type BoundContext, type NodeWiring } from './context';
 import {
@@ -30,6 +35,8 @@ export interface Link {
   from: PortRef;
   /** Input port, or param name for `params` links. */
   toPort: string;
+  /** A delay edge: it doesn't order the plan, so it may close a cycle. */
+  delay?: true;
 }
 
 /** The cables into one node, grouped by how they fan in. */
@@ -48,15 +55,28 @@ export interface NodeLinks {
 
 export interface Plan {
   seed: number;
-  /** Nodes in topological order over every non-Audio cable. */
+  /** Nodes in topological order over every non-Audio cable that isn't a delay edge. */
   order: PlanNode[];
   /** Incoming non-Audio cables per node id. */
   incoming: Map<string, NodeLinks>;
   /** Audio cables, in patch order. */
   audioCables: { from: PortRef; to: PortRef }[];
+  /** Indices into `patch.cables` of the delay edges, ascending. */
+  delayEdges: number[];
+  /** Widest window the runtime may query at once: the smallest delay of the
+   *  plan's delay nodes, or Infinity when it has none. */
+  maxWindow: number;
 }
 
-export type CompileResult = { ok: true; plan: Plan } | { ok: false; errors: string[] };
+/** One cycle without a delay edge: its nodes in cable order, and the indices into
+ *  `patch.cables` of the cables that close it (`cables[i]` runs from `nodes[i]`
+ *  to `nodes[i + 1]`, wrapping around). */
+export interface Cycle {
+  nodes: string[];
+  cables: number[];
+}
+
+export type CompileResult = { ok: true; plan: Plan } | { ok: false; errors: string[]; cycles?: Cycle[] };
 
 export type DefinitionLookup = ReadonlyMap<string, NodeDefinition>;
 
@@ -85,6 +105,11 @@ export function compilePatch(patch: Patch, definitions: DefinitionLookup): Compi
 
   const incoming = new Map<string, NodeLinks>([...nodes.keys()].map((id) => [id, emptyLinks()]));
   const audioCables: Plan['audioCables'] = [];
+  /** Non-Audio cables that order the plan; delay edges are left out. */
+  const edges: Edge[] = [];
+  const delayEdges: number[] = [];
+  /** Delay nodes with a delay edge into them; only these limit the window. */
+  const delaying = new Set<string>();
   for (const [i, cable] of patch.cables.entries()) {
     const where = `cables[${i}] ${cable.from.node}.${cable.from.port} → ${cable.to.node}.${cable.to.port}`;
     const source = nodes.get(cable.from.node), target = nodes.get(cable.to.node);
@@ -106,12 +131,22 @@ export function compilePatch(patch: Patch, definitions: DefinitionLookup): Compi
       if (param!.kind !== 'number') errors.push(`${where}: parameter "${param!.name}" is not a number`);
       else if (!isModulatable(param)) errors.push(`${where}: parameter "${param!.name}" cannot be modulated`);
       else if (out.type !== 'signal') errors.push(`${where}: only signal cables can feed a parameter, not ${out.type}`);
-      else links.params.push({ ...link, depth: cable.depth ?? 1 });
+      else {
+        links.params.push({ ...link, depth: cable.depth ?? 1 });
+        edges.push({ from: source.id, to: target.id, cable: i });
+      }
       continue;
     }
     if (!portsCompatible(out, into)) {
       errors.push(`${where}: cannot connect ${describePort(out)} to ${describePort(into)}`);
       continue;
+    }
+    if (out.type !== 'audio') {
+      if (isDelayEdge(out, target.definition)) {
+        link.delay = true;
+        delayEdges.push(i);
+        if (target.definition.delay) delaying.add(target.id);
+      } else edges.push({ from: source.id, to: target.id, cable: i });
     }
     switch (out.type) {
       case 'event':
@@ -135,21 +170,129 @@ export function compilePatch(patch: Patch, definitions: DefinitionLookup): Compi
   }
   if (errors.length) return { ok: false, errors };
 
-  // Kahn's algorithm, stable in patch order.
-  const sourcesOf = (links: NodeLinks) => Object.values(links).flatMap((group: Link[]) => group.map((l) => l.from.node));
-  const remaining = new Map([...nodes.keys()].map((id) => [id, new Set(sourcesOf(incoming.get(id)!))]));
+  // Kahn's algorithm over the ordering edges, stable in patch order.
+  const remaining = new Map([...nodes.keys()].map((id) => [id, new Set<string>()]));
+  for (const edge of edges) remaining.get(edge.to)!.add(edge.from);
   const order: PlanNode[] = [];
   while (remaining.size) {
     const ready = [...remaining].find(([, deps]) => deps.size === 0);
     if (!ready) {
-      return { ok: false, errors: [`cycle without a delay edge through: ${[...remaining.keys()].join(', ')}`] };
+      const cycles = findCycles([...remaining.keys()], edges);
+      return {
+        ok: false,
+        errors: cycles.map((c) => `cycle without a delay edge through: ${[...c.nodes, c.nodes[0]].join(' → ')}`),
+        cycles,
+      };
     }
     const [id] = ready;
     remaining.delete(id);
     for (const deps of remaining.values()) deps.delete(id);
     order.push(nodes.get(id)!);
   }
-  return { ok: true, plan: { seed: patch.seed, order, incoming, audioCables } };
+
+  // Delay nodes see the previous chunk's inputs, so a chunk must be no wider
+  // than the shortest delay for the output to depend only on event times.
+  let maxWindow = Infinity;
+  for (const node of order) {
+    if (!node.definition.delay) continue;
+    const delay = node.definition.delay(node.params);
+    // NaN, zero or a negative delay can't close a cycle without making the
+    // output depend on the windowing; +Infinity just imposes no limit.
+    if (!(delay > 0)) errors.push(`node "${node.id}": delay must be a positive number of seconds, got ${delay}`);
+    // An unwired delay node has nothing to delay, so it doesn't shrink every window.
+    else if (delaying.has(node.id)) maxWindow = Math.min(maxWindow, delay);
+  }
+  if (errors.length) return { ok: false, errors };
+  return { ok: true, plan: { seed: patch.seed, order, incoming, audioCables, delayEdges, maxWindow } };
+}
+
+interface Edge {
+  from: string;
+  to: string;
+  /** Index into `patch.cables`. */
+  cable: number;
+}
+
+/** True when the node has a Signal output port. */
+const hasSignalOutput = (definition: NodeDefinition) => definition.ports.some((p) => p.direction === 'out' && p.type === 'signal');
+
+/**
+ * Delay edges (ADR 0010): Event/Note cables into a delay node (Delay Edge),
+ * and Field cables into a node with a Signal output (a Field → Signal read,
+ * which returns the previous frame). Signal and Value cables into a delay node
+ * still order the plan: they are sampled lazily, so a cycle through them would
+ * recurse instead of waiting a window.
+ */
+function isDelayEdge(out: PortSpec, target: NodeDefinition): boolean {
+  if (out.type === 'event' || out.type === 'note') return target.delay !== undefined;
+  if (out.type === 'field') return hasSignalOutput(target);
+  return false;
+}
+
+/**
+ * One simple cycle per strongly connected component that has one (Tarjan's
+ * algorithm), over the nodes the sort got stuck on. Deterministic: nodes are
+ * visited in patch order and edges in cable order.
+ */
+function findCycles(stuck: string[], edges: Edge[]): Cycle[] {
+  const inStuck = new Set(stuck);
+  const out = new Map<string, Edge[]>(stuck.map((id) => [id, []]));
+  for (const edge of [...edges].sort((a, b) => a.cable - b.cable)) {
+    if (inStuck.has(edge.from) && inStuck.has(edge.to)) out.get(edge.from)!.push(edge);
+  }
+
+  const index = new Map<string, number>(), low = new Map<string, number>();
+  const stack: string[] = [], onStack = new Set<string>();
+  const components: string[][] = [];
+  const connect = (v: string) => {
+    index.set(v, index.size);
+    low.set(v, index.get(v)!);
+    stack.push(v);
+    onStack.add(v);
+    for (const { to } of out.get(v)!) {
+      if (!index.has(to)) {
+        connect(to);
+        low.set(v, Math.min(low.get(v)!, low.get(to)!));
+      } else if (onStack.has(to)) low.set(v, Math.min(low.get(v)!, index.get(to)!));
+    }
+    if (low.get(v) === index.get(v)) {
+      const component: string[] = [];
+      let w: string;
+      do {
+        w = stack.pop()!;
+        onStack.delete(w);
+        component.push(w);
+      } while (w !== v);
+      components.push(component);
+    }
+  };
+  for (const id of stuck) if (!index.has(id)) connect(id);
+
+  const order = new Map(stuck.map((id, i) => [id, i]));
+  const cycles: Cycle[] = [];
+  for (const component of components) {
+    const members = new Set(component);
+    const start = component.reduce((a, b) => (order.get(a)! < order.get(b)! ? a : b));
+    if (component.length === 1 && !out.get(start)!.some((e) => e.to === start)) continue;
+    // DFS from the first node in patch order until an edge leads back to it:
+    // the path on the stack is then a simple cycle.
+    const nodes: string[] = [], cables: number[] = [], seen = new Set<string>();
+    const walk = (v: string): boolean => {
+      seen.add(v);
+      nodes.push(v);
+      for (const edge of out.get(v)!) {
+        if (!members.has(edge.to)) continue;
+        cables.push(edge.cable);
+        if (edge.to === start || (!seen.has(edge.to) && walk(edge.to))) return true;
+        cables.pop();
+      }
+      nodes.pop();
+      return false;
+    };
+    walk(start);
+    cycles.push({ nodes, cables });
+  }
+  return cycles.sort((a, b) => order.get(a.nodes[0]!)! - order.get(b.nodes[0]!)!);
 }
 
 /** One event as it appears in a run's log. */
@@ -168,6 +311,12 @@ export class Runtime {
   private readonly audio = new Map<string, AudioInstance>();
   /** Events waiting for visual nodes, per node id and input port. */
   private readonly pendingFrames = new Map<string, Map<string, EngineEvent[]>>();
+  /**
+   * Inputs each delay node received in the last chunk, per node id and input
+   * port; its next query sees them. This is runtime state like `states`: the
+   * scheduler's rewind snapshots (#19) must include this map.
+   */
+  private readonly delayInputs = new Map<string, Record<string, EngineEvent[]>>();
 
   constructor(plan: Plan) {
     this.plan = plan;
@@ -181,13 +330,34 @@ export class Runtime {
     }
   }
 
-  /** Runs every Event node over [t0, t1) and returns the events in time order. */
+  /**
+   * Runs every Event node over [t0, t1) and returns the events in time order.
+   * A window wider than `plan.maxWindow` runs as consecutive chunks no wider
+   * than it, so delay nodes see their inputs one chunk late but never late
+   * enough to change an event's time.
+   */
   query(t0: number, t1: number): LoggedEvent[] {
-    const outputs = new Map<string, Record<string, EngineEvent[]>>();
     const log: LoggedEvent[] = [];
+    // A hair under the shortest delay, so t + delay can't round below the next
+    // chunk's start and leave a delayed event a chunk late. Rounding may add a
+    // tiny trailing chunk, which is harmless.
+    const width = t1 - t0, step = this.plan.maxWindow * (1 - 1e-6);
+    const chunks = width > step ? Math.ceil(width / step) : 1;
+    // Index × step, not a running sum, so chunk edges don't drift; the last ends exactly at t1.
+    // (One chunk is the whole window: step may be Infinity, and 0 × Infinity is NaN.)
+    for (let i = 0; i < chunks; i++) {
+      this.queryChunk(i === 0 ? t0 : t0 + i * step, i === chunks - 1 ? t1 : t0 + (i + 1) * step, log);
+    }
+    // Time order (stable, so chunk then plan order breaks ties): concatenated
+    // windows then give the same log however time was split.
+    return log.sort(compareEvents);
+  }
+
+  private queryChunk(t0: number, t1: number, log: LoggedEvent[]): void {
+    const outputs = new Map<string, Record<string, EngineEvent[]>>();
     for (const node of this.plan.order) {
-      const inputs = this.gatherInputs(node.id, outputs);
       const { definition } = node;
+      const inputs = definition.delay ? (this.delayInputs.get(node.id) ?? {}) : this.gatherInputs(node.id, outputs);
       const result: Record<string, EngineEvent[]> = {};
       if (definition.query) {
         const raw = definition.query({ ...this.contexts.get(node.id)!, inputs, t0, t1 });
@@ -202,9 +372,10 @@ export class Runtime {
       if (instance?.schedule) for (const [port, events] of Object.entries(inputs)) if (events.length) instance.schedule(port, events);
       if (definition.frame) this.queueForFrame(node.id, inputs);
     }
-    // Time order (stable, so plan order breaks ties): concatenated windows then
-    // give the same log however time was split.
-    return log.sort(compareEvents);
+    // Delay nodes get this chunk's inputs in the next chunk (or the next query).
+    for (const node of this.plan.order) {
+      if (node.definition.delay) this.delayInputs.set(node.id, this.gatherInputs(node.id, outputs));
+    }
   }
 
   /** Steps every visual node with the events whose time is before t1. */

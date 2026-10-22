@@ -223,6 +223,6 @@ describe('fan-in compile errors', () => {
     const loop = definitions.get('reader')!;
     const echo: NodeDefinition = { ...loop, type: 'echo', ports: [...loop.ports, { name: 'level', type: 'signal', direction: 'out' }] };
     const result = compilePatch(patch([node('e1', 'echo'), node('e2', 'echo')], [cable('e1', 'level', 'e2', 'knob'), cable('e2', 'level', 'e1', 'sig')]), new Map([...definitions, ['echo', echo]]));
-    expect(result.ok ? [] : result.errors).toEqual(['cycle without a delay edge through: e1, e2']);
+    expect(result.ok ? [] : result.errors).toEqual(['cycle without a delay edge through: e1 → e2 → e1']);
   });
 });
