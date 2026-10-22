@@ -73,6 +73,15 @@ describe('node catalog', () => {
         }
       });
 
+      if (definition.adapter) {
+        it('is an adapter whose input and output ports have its from and to types', () => {
+          const { from, to, input, output } = definition.adapter!;
+          expect(from).not.toBe(to);
+          expect(definition.ports.find((p) => p.direction === 'in' && p.name === input)?.type, `input ${input}`).toBe(from);
+          expect(definition.ports.find((p) => p.direction === 'out' && p.name === output)?.type, `output ${output}`).toBe(to);
+        });
+      }
+
       it('has a unit test', () => {
         expect(existsSync(join(ROOT, 'packages/nodes/test', `${definition.type}.test.ts`)), `packages/nodes/test/${definition.type}.test.ts`).toBe(true);
       });

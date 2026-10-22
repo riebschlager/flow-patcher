@@ -5,11 +5,12 @@ import { fluid } from './fluid';
 import { makeNote } from './make-note';
 import { output } from './output';
 import { probability } from './probability';
+import { sampleAndHold } from './sample-and-hold';
 import { simpleSynth } from './simple-synth';
 
-export { clock, delayEdge, fluid, makeNote, output, probability, simpleSynth };
+export { clock, delayEdge, fluid, makeNote, output, probability, sampleAndHold, simpleSynth };
 
 /** Every node type, in palette order. Add new node files here. */
-export const nodeDefinitions: readonly NodeDefinition[] = [clock, probability, delayEdge, makeNote, simpleSynth, output, fluid];
+export const nodeDefinitions: readonly NodeDefinition[] = [clock, probability, delayEdge, sampleAndHold, makeNote, simpleSynth, output, fluid];
 
 export const nodeRegistry: ReadonlyMap<string, NodeDefinition> = new Map(nodeDefinitions.map((d) => [d.type, d]));

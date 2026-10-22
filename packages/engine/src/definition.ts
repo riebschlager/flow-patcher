@@ -178,6 +178,18 @@ export interface NodeImage {
   pixels: Uint8ClampedArray;
 }
 
+/**
+ * Marks a node as an adapter the editor offers when a cable joins a `from`
+ * output to a `to` input (docs/nodes/control-logic.md). `input` is the node's
+ * port the cable's source plugs into, `output` the port that feeds its target.
+ */
+export interface AdapterSpec {
+  from: PortType;
+  to: PortType;
+  input: string;
+  output: string;
+}
+
 export interface NodeDefinition {
   /** Stable type id stored in patches, e.g. "clock". */
   type: string;
@@ -188,6 +200,8 @@ export interface NodeDefinition {
   description: string;
   ports: readonly PortSpec[];
   params: readonly ParamSpec[];
+  /** Set on adapter nodes (Sample & Hold, Threshold, …) so the editor can find them by type pair. */
+  adapter?: AdapterSpec;
   /** Event and Note outputs. Pure: the same inputs and window give the same events. */
   query?(ctx: QueryContext): QueryResult;
   /** Signal outputs: a pure function of time per channel, sampled at event times. */
