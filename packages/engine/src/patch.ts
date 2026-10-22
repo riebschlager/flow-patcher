@@ -117,7 +117,8 @@ function sortKeys(value: unknown): unknown {
  * a trailing newline. Nodes, cables and pinned knobs keep their order, which
  * the plan's tie-breaks depend on. Save → load → save is byte-identical. Throws
  * on what wouldn't load back the same: a missing type version, or a number
- * JSON can't hold (NaN, Infinity).
+ * JSON can't hold (NaN, Infinity). A user's save path must catch that and
+ * report it rather than lose the save (M4's save will need to).
  */
 export function serializePatch(patch: Patch): string {
   const canonical = {

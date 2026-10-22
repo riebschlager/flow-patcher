@@ -28,6 +28,7 @@ describe('engine boundary', () => {
     ['export const r = Math.random();', 'no-restricted-properties'],
     ['const { random } = Math;\nexport const r = random();', 'no-restricted-properties'],
     ['export const r = crypto.getRandomValues(new Uint32Array(1));', 'no-restricted-globals'],
+    ['export const r = globalThis.crypto.getRandomValues(new Uint32Array(1));', 'no-restricted-properties'],
   ])('rejects %s', async (code, rule) => {
     expect(await ruleIds(code, ENGINE_FILE)).toContain(rule);
   });
@@ -48,6 +49,8 @@ describe('node rules', () => {
     ['export const r = Math.random();', 'no-restricted-properties'],
     ['const { random } = Math;\nexport const r = random();', 'no-restricted-properties'],
     ['export const id = crypto.randomUUID();', 'no-restricted-globals'],
+    ['export const id = globalThis.crypto.randomUUID();', 'no-restricted-properties'],
+    ['export const id = self.crypto.randomUUID();', 'no-restricted-properties'],
     ["import React from 'react';\nexport const x = React;", 'no-restricted-imports'],
   ])('rejects %s', async (code, rule) => {
     expect(await ruleIds(code, NODE_FILE)).toContain(rule);

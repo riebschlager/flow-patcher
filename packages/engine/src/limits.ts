@@ -26,8 +26,10 @@
 //   for audio, so catch-up never changes what drops. Windows a stall skips
 //   are never queried and count nothing: the rest of a slice a stall cut into
 //   may keep events a full run would have dropped.
-// - Drop counts (RuntimeCounters, NodeWarning.count) are net of rewinds: a
-//   re-run takes back the drops it re-runs before making its own.
+// - Drop counts (RuntimeCounters, NodeWarning.count and .time) are net of
+//   rewinds: a re-run takes back the drops it re-runs before making its own.
+//   After `clearWarnings`, a re-run that makes the same drops again counts
+//   them but doesn't raise the warning again; only new drops do.
 
 /** Events one node may emit per limit window, all output ports together. */
 export const NODE_EVENT_LIMIT = 256;
@@ -37,8 +39,15 @@ export const PATCH_EVENT_LIMIT = 2048;
  *  "window", on a fixed grid so the count doesn't depend on wake timing. */
 export const LIMIT_WINDOW = 0.12;
 
-/** The limit window an event time falls in. */
-export const limitWindowOf = (time: number): number => Math.floor(time / LIMIT_WINDOW);
+/** The limit window an event time falls in: the k with k × LIMIT_WINDOW ≤ time < (k + 1) × LIMIT_WINDOW,
+ *  as those products round, so an event exactly on an edge is in the window it starts. */
+export function limitWindowOf(time: number): number {
+  // time / LIMIT_WINDOW can round across an edge (11 × 0.12 / 0.12 < 11); correct by one.
+  let k = Math.floor(time / LIMIT_WINDOW);
+  if ((k + 1) * LIMIT_WINDOW <= time) k++;
+  else if (k * LIMIT_WINDOW > time) k--;
+  return k;
+}
 
 export type NodeWarningKind =
   /** The node passed NODE_EVENT_LIMIT in a limit window; the excess was dropped. */
@@ -56,7 +65,7 @@ export interface NodeWarning {
   message: string;
   /** Events affected so far: dropped by a cap (net of rewinds that re-ran them), or left uncancelled. */
   count: number;
-  /** Audio-clock time of the latest affected event. */
+  /** Audio-clock time of the latest affected event still counted (a rewind that takes drops back moves it back). */
   time: number;
 }
 

@@ -401,6 +401,13 @@ interface LimitCount {
 interface Drop {
   time: number;
   kind: 'node-event-limit' | 'patch-event-limit';
+  /** The `seq` of the warning it was counted on; 0 when it was counted on none (a dismissed drop a re-run made again). */
+  seq: number;
+}
+
+/** A warning as the runtime holds it: `seq` tells it from an earlier, cleared warning of the same kind. */
+interface HeldWarning extends NodeWarning {
+  seq: number;
 }
 
 /** An event handed to an audio node: as computed, and as sent (maybe moved later). */
@@ -463,11 +470,17 @@ export class Runtime {
   /** Each node's cap counts per limit window (by `limitWindowOf`). Only windows
    *  a query or rewind can still reach are held. */
   private readonly counts = new Map<string, Map<number, LimitCount>>();
+  /** Events the whole patch kept per limit window: the sum of every node's `kept`. */
+  private readonly patchKept = new Map<number, number>();
   /** What the caps dropped per node since the oldest retained window; only with history. */
   private readonly drops = new Map<string, Drop[]>();
   /** Current warnings per node id and kind. */
-  private readonly nodeWarnings = new Map<string, Map<NodeWarningKind, NodeWarning>>();
+  private readonly nodeWarnings = new Map<string, Map<NodeWarningKind, HeldWarning>>();
+  /** During a rewind: per node and kind, how many undone drops had been dismissed
+   *  (`clearWarnings`). The re-run's drops use these up before they raise anything. */
+  private readonly dismissed = new Map<string, Map<Drop['kind'], number>>();
   private version = 0;
+  private warningSeq = 0;
   /**
    * Called when a node first raises a kind of warning (again after
    * `clearWarnings`), such as passing an event cap or an audio node with no
@@ -522,7 +535,7 @@ export class Runtime {
       if (!kinds) continue;
       for (const kind of WARNING_KINDS) {
         const warning = kinds.get(kind);
-        if (warning) out.push({ ...warning });
+        if (warning) out.push(publicWarning(warning));
       }
     }
     return out;
@@ -557,6 +570,7 @@ export class Runtime {
     // Counts in limit windows nothing can query or rewind into any more.
     const reach = limitWindowOf(this.history?.[0]?.t0 ?? t0);
     for (const counts of this.counts.values()) for (const k of counts.keys()) if (k < reach) counts.delete(k);
+    for (const k of this.patchKept.keys()) if (k < reach) this.patchKept.delete(k);
     const log: LoggedEvent[] = [];
     this.forChunks(t0, t1, (a, b) => this.runChunk(a, b, null, { log, timing }));
     if (this.end === null || t1 > this.end) this.end = t1;
@@ -708,12 +722,14 @@ export class Runtime {
     for (const id of affected) {
       const kinds = this.nodeWarnings.get(id);
       for (const kind of ['node-event-limit', 'patch-event-limit'] as const) {
-        if (kinds?.get(kind)?.count === 0) {
-          kinds.delete(kind);
+        const warning = kinds?.get(kind);
+        if (warning && warning.count <= 0) {
+          kinds!.delete(kind);
           this.version++;
         }
       }
     }
+    this.dismissed.clear();
     return { time: t, from: start.t0, to: history.at(-1)!.t1, affected, followed, queries, removed, added: this.sortLog(emit.log) };
   }
 
@@ -948,9 +964,22 @@ export class Runtime {
   /** Sets a node's cap counts back to a window's start. */
   private restoreCounts(id: string, window: WindowRecord): void {
     const counts = this.counts.get(id)!, from = limitWindowOf(window.t0);
-    for (const k of counts.keys()) if (k >= from) counts.delete(k);
+    for (const [k, count] of counts) {
+      if (k < from) continue;
+      this.addPatchKept(k, -count.kept);
+      counts.delete(k);
+    }
     const count = window.counts.get(id);
-    if (count) counts.set(from, { ...count });
+    if (count) {
+      counts.set(from, { ...count });
+      this.addPatchKept(from, count.kept);
+    }
+  }
+
+  private addPatchKept(k: number, n: number): void {
+    const total = (this.patchKept.get(k) ?? 0) + n;
+    if (total) this.patchKept.set(k, total);
+    else this.patchKept.delete(k);
   }
 
   /**
@@ -963,7 +992,8 @@ export class Runtime {
     const ports = Object.keys(result);
     if (!ports.length) return;
     const counts = this.counts.get(id)!;
-    // The usual case: one limit window, far from both caps. Just count.
+    // The usual case: far from both caps in every limit window the events fall
+    // in. Count per window, without sorting, and keep everything.
     let n = 0, first = Infinity, last = -Infinity;
     for (const port of ports) {
       const events = result[port]!;
@@ -971,43 +1001,53 @@ export class Runtime {
       first = Math.min(first, events[0]!.time);
       last = Math.max(last, events.at(-1)!.time);
     }
-    const only = limitWindowOf(first);
-    if (only === limitWindowOf(last)) {
-      const count = counts.get(only) ?? { admitted: 0, kept: 0 };
-      let patch = 0;
-      for (const other of this.counts.values()) patch += other.get(only)?.kept ?? 0;
-      if (count.admitted + n <= NODE_EVENT_LIMIT && patch + n <= PATCH_EVENT_LIMIT) {
-        count.admitted += n;
-        count.kept += n;
-        counts.set(only, count);
+    const fits = (k: number, m: number) => (counts.get(k)?.admitted ?? 0) + m <= NODE_EVENT_LIMIT && (this.patchKept.get(k) ?? 0) + m <= PATCH_EVENT_LIMIT;
+    const keepAll = (k: number, m: number) => {
+      const count = counts.get(k);
+      if (count) {
+        count.admitted += m;
+        count.kept += m;
+      } else counts.set(k, { admitted: m, kept: m });
+      this.addPatchKept(k, m);
+    };
+    const lo = limitWindowOf(first), hi = limitWindowOf(last);
+    if (lo === hi) {
+      if (fits(lo, n)) return keepAll(lo, n);
+    } else {
+      const perWindow = new Map<number, number>();
+      for (const port of ports) for (const event of result[port]!) {
+        const k = limitWindowOf(event.time);
+        perWindow.set(k, (perWindow.get(k) ?? 0) + 1);
+      }
+      if ([...perWindow].every(([k, m]) => fits(k, m))) {
+        for (const [k, m] of perWindow) keepAll(k, m);
         return;
       }
     }
+    // A cap binds: decide event by event, in log order.
     const outPosition = this.outPosition.get(id)!;
     const all: { port: string; event: EngineEvent; keep: boolean }[] = [];
     for (const port of ports) for (const event of result[port]!) all.push({ port, event, keep: true });
     // Stable, so events a port gave in one order keep it.
     all.sort((a, b) => compareEvents(a.event, b.event) || (outPosition.get(a.port) ?? Infinity) - (outPosition.get(b.port) ?? Infinity));
-    let window = NaN, count: LimitCount = { admitted: 0, kept: 0 }, patch = 0, dropped = false;
+    let window = NaN, count: LimitCount = { admitted: 0, kept: 0 }, dropped = false;
     for (const item of all) {
       const k = limitWindowOf(item.event.time);
       if (k !== window) {
         window = k;
         count = counts.get(k) ?? { admitted: 0, kept: 0 };
         counts.set(k, count);
-        patch = 0;
-        for (const other of this.counts.values()) patch += other.get(k)?.kept ?? 0;
       }
       // The node cap counts what it let through, whatever the patch cap then did,
       // so it depends on the node's own events only.
       let kind: Drop['kind'] | null = 'node-event-limit';
       if (count.admitted < NODE_EVENT_LIMIT) {
         count.admitted++;
-        kind = patch < PATCH_EVENT_LIMIT ? null : 'patch-event-limit';
+        kind = (this.patchKept.get(k) ?? 0) < PATCH_EVENT_LIMIT ? null : 'patch-event-limit';
       }
       if (!kind) {
         count.kept++;
-        patch++;
+        this.addPatchKept(k, 1);
         continue;
       }
       item.keep = false;
@@ -1022,22 +1062,35 @@ export class Runtime {
   private recordDrop(id: string, time: number, kind: Drop['kind']): void {
     if (kind === 'node-event-limit') this.counters.droppedNodeLimit++;
     else this.counters.droppedPatchLimit++;
+    // A rewind re-making a drop that had been dismissed: counted, but not raised again.
+    const dismissed = this.dismissed.get(id);
+    const credit = dismissed?.get(kind) ?? 0;
+    let seq = 0;
+    if (credit > 0) dismissed!.set(kind, credit - 1);
+    else {
+      const ms = Math.round(LIMIT_WINDOW * 1000);
+      seq = this.warn(id, kind, 1, time, kind === 'node-event-limit'
+        ? `node "${id}" emitted more than ${NODE_EVENT_LIMIT} events in a ${ms} ms window; the excess was dropped`
+        : `the patch emitted more than ${PATCH_EVENT_LIMIT} events in a ${ms} ms window; node "${id}" lost events past that`);
+    }
     if (this.history) {
       let drops = this.drops.get(id);
       if (!drops) this.drops.set(id, (drops = []));
-      drops.push({ time, kind });
+      drops.push({ time, kind, seq });
     }
-    const ms = Math.round(LIMIT_WINDOW * 1000);
-    this.warn(id, kind, 1, time, kind === 'node-event-limit'
-      ? `node "${id}" emitted more than ${NODE_EVENT_LIMIT} events in a ${ms} ms window; the excess was dropped`
-      : `the patch emitted more than ${PATCH_EVENT_LIMIT} events in a ${ms} ms window; node "${id}" lost events past that`);
   }
 
-  /** A rewind re-runs a node from `t`: take back the drops it made from then on, since the re-run makes its own. */
+  /**
+   * A rewind re-runs a node from `t`: take back the drops it made from then on,
+   * since the re-run makes its own. Only drops counted on the node's current
+   * warning come off it; drops whose warning was dismissed become credits, so
+   * the re-run making them again doesn't raise them again.
+   */
   private undoDrops(id: string, t: number): void {
     const drops = this.drops.get(id);
     if (!drops?.length) return;
     const kept: Drop[] = [];
+    const touched = new Set<HeldWarning>();
     for (const drop of drops) {
       if (drop.time < t) {
         kept.push(drop);
@@ -1045,17 +1098,28 @@ export class Runtime {
       }
       if (drop.kind === 'node-event-limit') this.counters.droppedNodeLimit--;
       else this.counters.droppedPatchLimit--;
-      // Left at zero for the re-run to add to; the rewind clears what stays at zero.
       const warning = this.nodeWarnings.get(id)?.get(drop.kind);
-      if (!warning) continue;
-      warning.count--;
-      this.version++;
+      if (warning && drop.seq >= warning.seq) {
+        // Left at zero for the re-run to add to; the rewind clears what stays at zero.
+        warning.count--;
+        touched.add(warning);
+      } else {
+        let dismissed = this.dismissed.get(id);
+        if (!dismissed) this.dismissed.set(id, (dismissed = new Map()));
+        dismissed.set(drop.kind, (dismissed.get(drop.kind) ?? 0) + 1);
+      }
     }
     this.drops.set(id, kept);
+    // The latest time comes from the drops still counted on the warning.
+    for (const warning of touched) {
+      warning.time = -Infinity;
+      for (const drop of kept) if (drop.kind === warning.kind && drop.seq >= warning.seq) warning.time = Math.max(warning.time, drop.time);
+      this.version++;
+    }
   }
 
-  /** Raises or adds to a node's warning; the host hears about it the first time. */
-  private warn(id: string, kind: NodeWarningKind, count: number, time: number, message: string): void {
+  /** Raises or adds to a node's warning; the host hears about it the first time. Returns the warning's `seq`. */
+  private warn(id: string, kind: NodeWarningKind, count: number, time: number, message: string): number {
     let kinds = this.nodeWarnings.get(id);
     if (!kinds) this.nodeWarnings.set(id, (kinds = new Map()));
     const warning = kinds.get(kind);
@@ -1063,11 +1127,12 @@ export class Runtime {
     if (warning) {
       warning.count += count;
       warning.time = Math.max(warning.time, time);
-      return;
+      return warning.seq;
     }
-    const raised: NodeWarning = { node: id, kind, message, count, time };
+    const raised: HeldWarning = { node: id, kind, message, count, time, seq: ++this.warningSeq };
     kinds.set(kind, raised);
-    this.onWarning?.(message, { ...raised });
+    this.onWarning?.(message, publicWarning(raised));
+    return raised.seq;
   }
 
   private resnapshot(window: WindowRecord, affected: ReadonlySet<string>): void {
@@ -1128,6 +1193,11 @@ export class Runtime {
     if (!pending) this.pendingFrames.set(id, (pending = new Map()));
     for (const [port, events] of Object.entries(inputs)) pending.set(port, [...(pending.get(port) ?? []), ...events]);
   }
+}
+
+/** A copy of a held warning without its internal `seq`. */
+function publicWarning({ seq: _seq, ...warning }: HeldWarning): NodeWarning {
+  return warning;
 }
 
 /** Same time, channel and fields, whatever their order. NaN equals NaN; nothing else is coerced. */

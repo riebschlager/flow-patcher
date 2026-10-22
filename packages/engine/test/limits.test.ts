@@ -6,9 +6,12 @@ import {
   LIMIT_WINDOW,
   limitWindowOf,
   LOOKAHEAD,
+  ManualClock,
   NODE_EVENT_LIMIT,
   PATCH_EVENT_LIMIT,
   Runtime,
+  Scheduler,
+  type AudioContextLike,
   type EngineEvent,
   type LoggedEvent,
   type NodeDefinition,
@@ -284,5 +287,186 @@ describe('event limits under rewind', () => {
     expect(runtime.warnings()).toEqual([]);
     expect(runtime.counters.droppedNodeLimit).toBe(0);
     expect(runtime.warningsVersion).toBeGreaterThan(version);
+  });
+});
+
+describe('limit windows', () => {
+  it('puts an event exactly on an edge in the window it starts, at every edge', () => {
+    expect(limitWindowOf(11 * LIMIT_WINDOW)).toBe(11);
+    for (let k = 0; k < 100_000; k++) {
+      expect(limitWindowOf(k * LIMIT_WINDOW)).toBe(k);
+      expect(limitWindowOf((k + 1) * LIMIT_WINDOW - 1e-9)).toBe(k);
+    }
+    expect(limitWindowOf(-LIMIT_WINDOW / 2)).toBe(-1);
+  });
+});
+
+/** Passes `in` through and ignores `ctl`: a live event into `ctl` rewinds it without changing what it emits. */
+const ignore: NodeDefinition = {
+  type: 'ignore', version: 1, label: 'Ignore', category: 'control-logic', description: '',
+  ports: [{ name: 'in', type: 'event', direction: 'in' }, { name: 'ctl', type: 'event', direction: 'in' }, { name: 'out', type: 'event', direction: 'out' }],
+  params: [],
+  query: ({ inputs }) => ({ out: [...(inputs.in ?? [])] }),
+};
+/** Passes its input until a `mute` event, then nothing. */
+const mute: NodeDefinition = {
+  type: 'mute', version: 1, label: 'Mute', category: 'control-logic', description: '',
+  ports: [{ name: 'in', type: 'event', direction: 'in' }, { name: 'mute', type: 'event', direction: 'in' }, { name: 'out', type: 'event', direction: 'out' }],
+  params: [],
+  query: ({ inputs, state }) => {
+    const at = Math.min((state.at as number | undefined) ?? Infinity, ...(inputs.mute ?? []).map((e) => e.time));
+    if (Number.isFinite(at)) state.at = at;
+    return { out: (inputs.in ?? []).filter((e) => e.time < at) };
+  },
+};
+/** Records what audio is handed, net of cancels. */
+function recorder(heard: EngineEvent[]): NodeDefinition {
+  return {
+    type: 'recorder', version: 1, label: 'Recorder', category: 'instruments', description: '',
+    ports: [{ name: 'in', type: 'event', direction: 'in' }],
+    params: [],
+    audio: () => ({
+      schedule: (_port, events) => void heard.push(...events),
+      cancel: (_port, events) => {
+        for (const event of events) heard.splice(heard.indexOf(event), 1);
+      },
+    }),
+  };
+}
+
+function build(p: Patch, extra: NodeDefinition[] = []) {
+  const result = compilePatch(p, new Map([...definitions, ...[ignore, mute, ...extra].map((d) => [d.type, d] as const)]));
+  if (!result.ok) throw new Error(result.errors.join('\n'));
+  const runtime = new Runtime(result.plan, { history: true });
+  const raised: NodeWarning[] = [];
+  runtime.onWarning = (_message, warning) => raised.push(warning);
+  return { runtime, raised };
+}
+
+describe('warnings across dismiss and rewind', () => {
+  const floods = [node('a', 'flood', { rate: 200 }), node('b', 'flood', { rate: 200 }), node('t', 'tap')];
+
+  it('never goes negative when a rewind takes back drops counted on a dismissed warning', () => {
+    const { runtime, raised } = build(patch([...floods, node('m', 'mute')], [cable('a', 'm'), cable('b', 'm'), cable('t', 'm', 'out', 'mute')]));
+    runtime.query(0, LIMIT_WINDOW);
+    expect(runtime.warnings('m')[0]!.count).toBe(144);
+    runtime.clearWarnings('m');
+    runtime.query(LIMIT_WINDOW, 2 * LIMIT_WINDOW);
+    expect(runtime.warnings('m').map((w) => w.count)).toEqual([144]);
+    // A mute before every drop: the re-run drops nothing, in either window.
+    runtime.push('t', 'out', { time: 0.01, channel: 0 });
+    expect(runtime.warnings()).toEqual([]);
+    expect(runtime.counters.droppedNodeLimit).toBe(0);
+    expect(raised).toHaveLength(2);
+  });
+
+  it('does not raise a dismissed warning again when a re-run makes the same drops', () => {
+    const { runtime, raised } = build(patch([...floods, node('i', 'ignore')], [cable('a', 'i'), cable('b', 'i'), cable('t', 'i', 'out', 'ctl')]));
+    runtime.query(0, LIMIT_WINDOW);
+    expect(raised).toHaveLength(1);
+    runtime.clearWarnings();
+    runtime.push('t', 'out', { time: 0.01, channel: 0 });
+    expect(runtime.warnings()).toEqual([]);
+    expect(raised).toHaveLength(1);
+    expect(runtime.counters.droppedNodeLimit).toBe(144);
+    // New drops still raise it.
+    runtime.query(LIMIT_WINDOW, 2 * LIMIT_WINDOW);
+    expect(runtime.warnings('i').map((w) => w.count)).toEqual([144]);
+    expect(raised).toHaveLength(2);
+  });
+
+  it('moves the warning time back when a rewind takes the latest drops back', () => {
+    const { runtime } = build(patch([...floods, node('m', 'mute')], [cable('a', 'm'), cable('b', 'm'), cable('t', 'm', 'out', 'mute')]));
+    runtime.query(0, 0.24);
+    const before = runtime.warnings('m')[0]!;
+    expect(limitWindowOf(before.time)).toBe(1);
+    // Muting in the second window takes back its drops; the first window's stay, and the time is theirs.
+    runtime.push('t', 'out', { time: 0.125, channel: 0 });
+    const after = runtime.warnings('m')[0]!;
+    expect(after.count).toBe(144);
+    expect(limitWindowOf(after.time)).toBe(0);
+    expect(after.time).toBeLessThan(LIMIT_WINDOW);
+  });
+});
+
+describe('event limits with audio, retain and catch-up', () => {
+  const capped = (rate: number) => patch([node('f', 'flood', { rate }), node('t', 'tap'), node('c', 'counter'), node('r', 'recorder')], [cable('f', 'c'), cable('t', 'c'), cable('c', 'r')]);
+  const taps = [0.26, 0.27, 0.28, 0.29, 0.305, 0.31, 0.315, 0.32];
+
+  it('rewinds into a window starting mid-slice after retain(), with counts restored from it', () => {
+    const run = (live: boolean) => {
+      const heard: EngineEvent[] = [];
+      const { runtime } = build(capped(250), [recorder(heard)]);
+      runtime.attachAudio({} as AudioContextLike);
+      const early = live ? taps.slice(0, 4) : taps;
+      for (const [i, time] of early.entries()) runtime.push('t', 'out', { time, channel: 1, tap: i });
+      const log: LoggedEvent[] = [];
+      for (let i = 0; i < 10; i++) log.push(...runtime.query(i * 0.05, (i + 1) * 0.05));
+      if (live) {
+        // Keep from the window at 0.3, mid-way through the slice [0.24, 0.36); the next query prunes older counts.
+        runtime.retain(0.31);
+        log.push(...runtime.query(0.5, 0.55));
+        expect(() => runtime.push('t', 'out', { time: 0.29, channel: 1 })).toThrow(/oldest retained window/);
+        for (const [i, time] of taps.slice(4).entries()) {
+          const report = runtime.push('t', 'out', { time, channel: 1, tap: i + 4 })!;
+          expect(report.from).toBe(6 * 0.05);
+          const kept = log.filter((e) => !(report.affected.has(e.node) && e.time >= report.time));
+          log.length = 0;
+          log.push(...kept, ...report.added);
+        }
+      } else log.push(...runtime.query(0.5, 0.55));
+      return { log: JSON.stringify(runtime.sortLog(log)), runtime, heard };
+    };
+    const reference = run(false), live = run(true);
+    expect(live.log).toBe(reference.log);
+    expect(live.runtime.counters.droppedNodeLimit).toBe(taps.length - 6);
+    expect(live.runtime.counters.droppedNodeLimit).toBe(reference.runtime.counters.droppedNodeLimit);
+    expect(live.runtime.warnings()).toEqual(reference.runtime.warnings());
+  });
+
+  it('never hands a dropped event to audio, in a rewind\'s re-run too', () => {
+    const heard: EngineEvent[] = [];
+    const { runtime } = build(capped(250), [recorder(heard)]);
+    runtime.attachAudio({} as AudioContextLike);
+    const log: LoggedEvent[] = [];
+    for (let i = 0; i < 4; i++) log.push(...runtime.query(i * LIMIT_WINDOW, (i + 1) * LIMIT_WINDOW));
+    for (const [i, time] of taps.entries()) {
+      const report = runtime.push('t', 'out', { time, channel: 1, tap: i })!;
+      const kept = log.filter((e) => !(report.affected.has(e.node) && e.time >= report.time));
+      log.length = 0;
+      log.push(...kept, ...report.added);
+    }
+    expect(runtime.counters.droppedNodeLimit).toBe(taps.length - 6);
+    const fromC = runtime.sortLog(log).filter((e) => e.node === 'c');
+    expect(Object.values(perWindow(fromC, 'c'))).toEqual([250, 250, 256, 250]);
+    // Audio heard exactly what c kept: same events, nothing dropped slipped through.
+    const key = (e: EngineEvent) => `${e.time}/${e.channel}/${e.n}`;
+    expect(heard.map(key).sort()).toEqual(fromC.map(key).sort());
+  });
+
+  it('drops the same events when a late wake catches up', () => {
+    const run = (late: boolean) => {
+      const heard: EngineEvent[] = [];
+      const result = compilePatch(patch([node('f', 'flood', { rate: 1000 }), node('r', 'recorder')], [cable('f', 'r')]), new Map([flood, recorder(heard)].map((d) => [d.type, d])));
+      if (!result.ok) throw new Error(result.errors.join('\n'));
+      const runtime = new Runtime(result.plan);
+      runtime.attachAudio({} as AudioContextLike);
+      const clock = new ManualClock();
+      const scheduler = new Scheduler(runtime, { clock, record: true });
+      for (let i = 0; i < 40; i++) {
+        // Six wakes missed: the next is 55 ms past the horizon, within the catch-up limit, so its missed stretch plays late.
+        if (late && i >= 10 && i < 16) continue;
+        clock.set(i * 0.025);
+        scheduler.wake();
+      }
+      return { log: JSON.stringify(scheduler.events()), stats: scheduler.stats, heard };
+    };
+    const onTime = run(false), late = run(true);
+    expect(late.stats.catchUps).toBeGreaterThan(0);
+    expect(late.stats.caughtUp).toBeGreaterThan(0);
+    expect(late.log).toBe(onTime.log);
+    expect(late.stats.droppedNodeLimit).toBe(onTime.stats.droppedNodeLimit);
+    expect(late.heard).toHaveLength(onTime.heard.length);
+    expect(late.heard.map((e) => e.k)).toEqual(onTime.heard.map((e) => e.k));
   });
 });

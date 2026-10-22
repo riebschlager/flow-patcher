@@ -7,7 +7,11 @@ import tseslint from 'typescript-eslint';
 
 /** Seeded randomness only (ADR 0008): engine and node code. */
 const noMathRandom = {
-  'no-restricted-properties': ['error', { object: 'Math', property: 'random', message: 'Use the seeded RNG from @flow-patcher/engine (randomAt / createRng).' }],
+  'no-restricted-properties': ['error',
+    { object: 'Math', property: 'random', message: 'Use the seeded RNG from @flow-patcher/engine (randomAt / createRng).' },
+    // Web Crypto reached through the global object; the bare `crypto` global is in noCrypto.
+    ...['globalThis', 'self'].map((object) => ({ object, property: 'crypto', message: 'Unseeded randomness: use the seeded RNG from @flow-patcher/engine (randomAt / createRng).' })),
+  ],
 };
 /** The other unseeded source, Web Crypto (getRandomValues, randomUUID); goes in each no-restricted-globals list. */
 const noCrypto = { name: 'crypto', message: 'Unseeded randomness: use the seeded RNG from @flow-patcher/engine (randomAt / createRng).' };
