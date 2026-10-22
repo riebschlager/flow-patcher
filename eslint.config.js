@@ -5,10 +5,12 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
-/** Seeded randomness only (ADR 0008). */
+/** Seeded randomness only (ADR 0008): engine and node code. */
 const noMathRandom = {
   'no-restricted-properties': ['error', { object: 'Math', property: 'random', message: 'Use the seeded RNG from @flow-patcher/engine (randomAt / createRng).' }],
 };
+/** The other unseeded source, Web Crypto (getRandomValues, randomUUID); goes in each no-restricted-globals list. */
+const noCrypto = { name: 'crypto', message: 'Unseeded randomness: use the seeded RNG from @flow-patcher/engine (randomAt / createRng).' };
 
 /** The engine runs without a DOM, React or Node (design.md, Technical architecture; ADR 0013). */
 export const engineBoundary = {
@@ -23,6 +25,7 @@ export const engineBoundary = {
   'no-restricted-globals': ['error',
     ...['window', 'document', 'navigator', 'location', 'localStorage', 'sessionStorage', 'indexedDB', 'HTMLElement', 'HTMLCanvasElement', 'Element', 'Node', 'Event', 'EventTarget', 'requestAnimationFrame', 'cancelAnimationFrame', 'AudioContext', 'OfflineAudioContext', 'process', 'require', 'Buffer', '__dirname']
       .map((name) => ({ name, message: `packages/engine has no DOM or Node globals (${name}). Inject what you need.` })),
+    noCrypto,
   ],
 };
 
@@ -30,6 +33,7 @@ export const engineBoundary = {
 const nodeRules = {
   'no-restricted-globals': ['error',
     ...['setTimeout', 'setInterval', 'requestAnimationFrame', 'window', 'document'].map((name) => ({ name, message: `Nodes never own timers or touch the DOM (${name}); the engine drives query()/frame().` })),
+    noCrypto,
   ],
   'no-restricted-imports': ['error', {
     patterns: [
