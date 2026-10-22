@@ -872,6 +872,7 @@
    "index": 27
   }
  ],
+ "pointer-notes.flowpatch": [],
  "sample-and-hold.flowpatch": [
   {
    "node": "clock",
