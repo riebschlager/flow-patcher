@@ -99,17 +99,15 @@ test('hover, enter and leave reach Pointer, and All tags every event with its ph
   expect(hovers.some((e) => e.speed > 0 && e.dx > 0)).toBe(true);
   const hovered = Math.max(...hovers.map((e) => e.time));
 
-  // Pushes in one render quantum share a stamp, and Pointer orders them Down, Move, Up there (the
-  // same-time rule), so a press right after a hover move would sort ahead of it. Real hands are
-  // slower than Playwright: leave a few quanta between the phases.
-  await page.waitForTimeout(50);
+  // No pauses: a hover move, the press, the drag, the up and the move after it often share render
+  // quanta, and Pointer still applies a hover move before a Down at its stamp and after an Up.
+  await page.mouse.move(box.x + 95, box.y + box.height / 2);
   await page.keyboard.down('Shift');
   await page.mouse.down();
   await page.mouse.move(box.x + 120, box.y + box.height / 2 + 10, { steps: 3 });
-  await page.waitForTimeout(50);
   await page.mouse.up();
   await page.keyboard.up('Shift');
-  await page.waitForTimeout(50);
+  await page.mouse.move(box.x + 125, box.y + 10);
   await page.mouse.move(box.x - 30, box.y + 10);
   await expect.poll(slots).toEqual([[1, null]]);
 
@@ -122,12 +120,15 @@ test('hover, enter and leave reach Pointer, and All tags every event with its ph
   const down = all.findIndex((e) => e.phase === 'down');
   const up = all.findIndex((e) => e.phase === 'up');
   // After the hover, the press with Shift, a drag and the up.
-  expect(all[down]!.time).toBeGreaterThan(hovered);
+  expect(all[down]!.time).toBeGreaterThanOrEqual(hovered);
   expect(all.slice(0, down).every((e) => e.phase === 'move' && e.buttons === 0)).toBe(true);
   expect(all[down]).toMatchObject({ buttons: 1, shift: true, age: 0 });
   expect(all.slice(down + 1, up).every((e) => e.phase === 'move' && e.buttons === 1)).toBe(true);
   expect(all[up]!.age).toBeGreaterThan(0);
   expect(all[up]!.buttons).toBe(0);
+  // After the up, hover again.
+  expect(all.slice(up + 1).every((e) => e.phase === 'move' && e.buttons === 0)).toBe(true);
+  expect(all.length - up - 1).toBeGreaterThanOrEqual(1);
 
   await page.evaluate(() => (window as unknown as { unwatchAll: () => void }).unwatchAll());
   expect(errors).toEqual([]);
@@ -153,9 +154,10 @@ test('coalesced samples reach Pointer (high rate), and only the plain move reach
     const live = window.flowPatcher!;
     (window as unknown as { unwatch: (() => void)[] }).unwatch = ['p', 'h'].map((id) => live.watchProbe(id, 'move', 'out', 'event', () => {}));
   });
-  const moves = (id: string) => page.evaluate((node) => (window.flowPatcher!.probe(node, 'move')?.events ?? []).map((e) => ({ x: e.x as number, channel: e.channel, coalesced: e.coalesced === true, ago: e.ago as number | undefined })), id);
+  const moves = (id: string) => page.evaluate((node) => (window.flowPatcher!.probe(node, 'move')?.events ?? []).map((e) => ({ x: e.x as number, channel: e.channel, coalesced: e.coalesced === true, interval: e.interval as number | undefined, time: e.time })), id);
 
-  // Five moves, each with four coalesced samples, the last of them the move itself.
+  // Five moves, each with four coalesced samples, the last of them the move itself. Counted as soon as
+  // they show up: the probe keeps only 2 s.
   const pushesBefore = await page.evaluate(() => window.flowPatcher!.stats.pushes);
   for (let f = 0; f < 5; f++) {
     await page.evaluate((frame) => {
@@ -172,23 +174,68 @@ test('coalesced samples reach Pointer (high rate), and only the plain move reach
   await expect.poll(async () => (await moves('h')).length).toBe(20);
   await expect.poll(async () => (await moves('p')).length).toBe(5);
   const high = await moves('h'), plain = await moves('p');
-  expect(high.every((e) => e.coalesced && e.channel === 1 && e.ago! >= 0)).toBe(true);
-  expect(plain.every((e) => !e.coalesced && e.channel === 1 && e.ago === undefined)).toBe(true);
+  expect(high.every((e) => e.coalesced && e.channel === 1)).toBe(true);
+  expect(plain.every((e) => !e.coalesced && e.channel === 1)).toBe(true);
+  // Every sample after the first carries its interval, from the events' timeStamps.
+  expect(high.slice(1).every((e) => e.interval !== undefined && e.interval >= 0)).toBe(true);
   // In order, and each frame's last sample at the plain move's position.
   expect(high.map((e) => e.x)).toEqual([...high.map((e) => e.x)].sort((a, b) => a - b));
   expect(plain.map((e) => e.x)).toEqual(high.filter((_, i) => i % 4 === 3).map((e) => e.x));
 
-  // Real mouse moves: Chromium may or may not coalesce them; either way high rate gets at least Pointer's samples.
+  // Real mouse moves: Chromium may or may not coalesce them; either way high rate gets at least Pointer's
+  // samples. The probe keeps 2 s, so this phase counts only what's stamped after it starts.
+  const started = await page.evaluate(() => window.flowPatcher!.clock.currentTime);
+  const since = async (id: string) => (await moves(id)).filter((e) => e.time > started).length;
   const box = (await canvas.boundingBox())!;
   for (let i = 0; i < 20; i++) await page.mouse.move(box.x + 20 + i * 8, box.y + 100);
-  await expect.poll(async () => (await moves('p')).length).toBeGreaterThan(5);
+  await expect.poll(() => since('p')).toBeGreaterThan(0);
   await page.waitForTimeout(300);
-  expect((await moves('h')).length - 20).toBeGreaterThanOrEqual((await moves('p')).length - 5);
+  expect(await since('h')).toBeGreaterThanOrEqual(await since('p'));
 
   await page.evaluate(() => (window as unknown as { unwatch: (() => void)[] }).unwatch.forEach((stop) => stop()));
   // The two cards side by side, clear of the preview pane.
   await page.locator('.react-flow__controls-zoomout').click();
   await page.locator('.react-flow__controls-zoomout').click();
   await page.screenshot({ path: 'test-results/pointer-cards.png' });
+  expect(errors).toEqual([]);
+});
+
+// Cold drops (#74, Platform rules): before the first tap, hover moves, coalesced samples, enter and
+// leave are dropped rather than held, so hovering in and out of a stopped canvas can't pile up pushes
+// that replay as a burst of rewinds when audio starts.
+test('hovering before the first tap holds no pushes, and inputAll does nothing while audio is stopped', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
+
+  const node = (id: string, type: string, typeVersion: number, x: number) => ({ id, type, typeVersion, params: {}, position: { x, y: 100 } });
+  const patch = { format: 'flowpatch', version: 1, seed: 74, nodes: [node('p', 'pointer', 2, 0), node('h', 'pointer-high-rate', 1, 260)], cables: [] };
+  await page.goto('/?patch=new');
+  await page.getByTestId('open-file').setInputFiles({ name: 'pointers.flowpatch', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(patch)) });
+  await expect(page.getByTestId('compile-status')).toHaveText('2 nodes compiled');
+  const canvas = page.getByTestId('performance-canvas');
+  await expect(page.getByTestId('audio-state')).toHaveText('tap to start');
+  const box = (await canvas.boundingBox())!;
+  for (let pass = 0; pass < 5; pass++) {
+    await page.mouse.move(box.x - 20, box.y + 30);
+    for (let i = 0; i < 10; i++) await page.mouse.move(box.x + 10 + i * 15, box.y + 30 + pass * 5);
+  }
+  await page.mouse.move(box.x - 20, box.y + 30);
+  const stats = () => page.evaluate(() => ({ deferred: window.flowPatcher!.stats.deferredPushes, pushes: window.flowPatcher!.stats.pushes }));
+  expect(await stats()).toEqual({ deferred: 0, pushes: 0 });
+  // The host's batch path while suspended: dropped, not held.
+  expect(await page.evaluate(() => window.flowPatcher!.inputAll([
+    { type: 'pointermove', channel: 1, x: 0.5, y: 0.5, coalesced: true, interval: 0.004 },
+    { type: 'pointermove', channel: 1, x: 0.5, y: 0.5, interval: 0.016 },
+  ]))).toBeNull();
+  expect(await stats()).toEqual({ deferred: 0, pushes: 0 });
+  expect(await page.evaluate(() => window.flowPatcher!.readsCoalesced)).toBe(true);
+
+  // The first tap still starts audio and reaches both nodes, on slot 1.
+  await canvas.click({ position: { x: 40, y: 40 } });
+  await expect(page.getByTestId('audio-state')).toHaveText('live');
+  await expect.poll(() => page.evaluate(() => ['p', 'h'].map((id) => ((window.flowPatcher!.stateOf(id)?.contacts ?? []) as { slot: number }[]).map((c) => c.slot)))).toEqual([[1], [1]]);
+  // At most the tap's own Down and Up were held while audio started: no burst of hover pushes behind them.
+  expect((await stats()).deferred).toBeLessThanOrEqual(2);
   expect(errors).toEqual([]);
 });

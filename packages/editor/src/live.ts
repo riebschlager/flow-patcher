@@ -73,6 +73,8 @@ export interface PointerFields {
   alt?: boolean;
   ctrl?: boolean;
   meta?: boolean;
+  /** Seconds since this pointer's previous sample, from the events' timeStamps (#74). Left out on its first. */
+  interval?: number;
 }
 
 /** One pointerdown, for the Immediate path gate check (docs/milestones.md, M1). */
@@ -419,8 +421,10 @@ export class LivePatch {
   /**
    * Several canvas events from one browser event, such as a pointermove's coalesced samples
    * and the move itself, as one push stamped once, so the samples keep their order and share
-   * a time (each carries its own `ago`). Moves only: a pointerdown goes through `input`, which
-   * starts audio. Dropped while audio is stopped, like hover moves. Returns the pushed events.
+   * a time (each carries its own `interval`). Moves only: a pointerdown goes through `input`, which
+   * starts audio. Dropped while audio is stopped, like hover moves. Returns the pushed events,
+   * flattened per target (one per source node an event reached), all at the applied stamp: an M4
+   * recorder should keep that stamp with the input events themselves (ADR 0029), not these.
    */
   inputAll(events: readonly InputFields[]): EngineEvent[] | null {
     if (this.context.state !== 'running' && events.some((event) => droppedWhileCold(event.type))) return null;

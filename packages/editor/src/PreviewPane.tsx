@@ -36,6 +36,16 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
     return () => observer.disconnect();
   }, []);
 
+  // Each pointer's latest sample time (event.timeStamp, ms), for `interval`: motion is measured on the
+  // browser's clock, since the stamps carry render quanta and handler delays (canvas-sources.md).
+  const [lastSample] = useState(() => new Map<number, number>());
+  /** Seconds since this pointer's previous sample, or nothing for its first; and `timeStamp` becomes the latest. */
+  const intervalOf = (pointerId: number, timeStamp: number): { interval?: number } => {
+    const last = lastSample.get(pointerId);
+    lastSample.set(pointerId, timeStamp);
+    return last === undefined ? {} : { interval: Math.max(0, (timeStamp - last) / 1000) };
+  };
+
   const send = (port: PointerPort) => (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (!live) return;
     const box = event.currentTarget.getBoundingClientRect();
@@ -61,6 +71,12 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
       ctrl: e.ctrlKey,
       meta: e.metaKey,
     });
+    if (port === 'enter' || port === 'leave') {
+      // Hover state only: no sample. A pointer that leaves starts afresh when it comes back.
+      if (port === 'leave') lastSample.delete(event.pointerId);
+      live.pointer(port, fields(event), event.timeStamp);
+      return;
+    }
     if (port === 'move' && live.readsCoalesced) {
       // Pointer (high rate): every sample the browser coalesced into this move, then the move itself
       // for Pointer, in one push. The list includes the dispatched move, so high rate reads only the
@@ -70,17 +86,16 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
       const native = event.nativeEvent;
       const listed = native.getCoalescedEvents?.() ?? [];
       const samples = listed.length ? listed : [native];
-      live.inputAll([
-        ...samples.map((sample) => ({
-          type: 'pointermove' as const, ...fields(sample), coalesced: true,
-          // Seconds before the dispatched move: the samples share its stamp, and motion uses their spacing.
-          ago: Math.max(0, (native.timeStamp - sample.timeStamp) / 1000),
-        })),
-        { type: 'pointermove', ...fields(event) },
-      ]);
+      // The plain move spans from the previous move (or down) to this one; each sample from the one before it.
+      const before = lastSample.get(event.pointerId);
+      const plain = { type: 'pointermove' as const, ...fields(event), ...(before === undefined ? {} : { interval: Math.max(0, (event.timeStamp - before) / 1000) }) };
+      const coalesced = samples.map((sample) => ({ type: 'pointermove' as const, ...fields(sample), coalesced: true, ...intervalOf(event.pointerId, sample.timeStamp) }));
+      lastSample.set(event.pointerId, event.timeStamp);
+      live.inputAll([...coalesced, plain]);
       return;
     }
-    live.pointer(port, fields(event), event.timeStamp);
+    live.pointer(port, { ...fields(event), ...intervalOf(event.pointerId, event.timeStamp) }, event.timeStamp);
+    if (port === 'up' || port === 'cancel') lastSample.delete(event.pointerId);
   };
 
   // Focus rules (Platform rules): while the canvas has focus its keys stay with it, so the editor's

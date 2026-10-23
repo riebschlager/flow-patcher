@@ -77,6 +77,7 @@ export const INPUT_FIELD_TYPES: Readonly<Record<string, 'number' | 'string' | 'b
   ctrl: 'boolean',
   meta: 'boolean',
   coalesced: 'boolean',
+  interval: 'number',
   key: 'string',
   code: 'string',
   repeat: 'boolean',
@@ -86,6 +87,9 @@ export const INPUT_FIELD_TYPES: Readonly<Record<string, 'number' | 'string' | 'b
   data1: 'number',
   data2: 'number',
 };
+
+/** The types whose events may carry `interval`, the seconds since the pointer's previous sample (#74). */
+const INTERVAL_TYPES: ReadonlySet<string> = new Set(['pointerdown', 'pointermove', 'pointerup', 'pointercancel']);
 
 /** Fields the source nodes compute from the sequence, so a stream never records them (ADR 0029). */
 export const DERIVED_INPUT_FIELDS: readonly string[] = ['dx', 'dy', 'speed', 'angle', 'age'];
@@ -124,6 +128,10 @@ function eventProblems(raw: unknown, where: string, previous: number | null): st
     else if (typeof status === 'number' && Number.isFinite(status) && !(Number.isInteger(status) && status >= 0x80 && status <= 0xef)) {
       errors.push(`${where}.status: expected a channel message status byte, 128–239`);
     }
+  }
+  if (raw.interval !== undefined) {
+    if (!INTERVAL_TYPES.has(type as string)) errors.push(`${where}.interval: only pointerdown, pointermove, pointerup and pointercancel carry one`);
+    else if (typeof raw.interval === 'number' && raw.interval < 0) errors.push(`${where}.interval: expected 0 or more seconds since the pointer's previous sample`);
   }
   return errors;
 }

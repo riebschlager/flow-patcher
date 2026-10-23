@@ -1,4 +1,4 @@
-import type { EngineEvent, EventField, InputSpec, NodeDefinition, NodeState, PortSpec, QueryContext, QueryResult } from '@flow-patcher/engine';
+import { limitWindowOf, NODE_EVENT_LIMIT, type EngineEvent, type EventField, type InputSpec, type NodeDefinition, type NodeState, type PortSpec, type QueryContext, type QueryResult } from '@flow-patcher/engine';
 
 /** The contact phases (ADR 0028), which are also the per-phase Event outputs. */
 export const PHASES = ['down', 'move', 'up', 'cancel'] as const;
@@ -7,8 +7,6 @@ export type Phase = (typeof PHASES)[number];
 /** What the pushes are, in tie order at one time on one pointer: enter first, leave last. */
 const KINDS = ['enter', 'down', 'move', 'up', 'cancel', 'leave'] as const;
 type Kind = (typeof KINDS)[number];
-/** Index of the first kind that only ends: up, cancel and leave come from here on. */
-const FIRST_END = KINDS.indexOf('up');
 
 /**
  * Slots 1..MAX_SLOTS. More pointers than any reference device can hold at once
@@ -20,6 +18,15 @@ const FIRST_END = KINDS.indexOf('up');
 export const MAX_SLOTS = 16;
 /** Seconds without a sample after which Speed reads 0: a pointer held still sends no moves. */
 export const STILL = 0.1;
+/** Shortest span motion is measured over, seconds: closer samples add their intervals up first, so a
+ *  burst of samples microseconds apart can't make the speed spike. */
+export const MIN_INTERVAL = 0.001;
+/**
+ * Events per limit window (ADR 0022) kept for Down, Up and Cancel: moves stop being emitted once a
+ * window's count would pass NODE_EVENT_LIMIT − RESERVE, so the runtime's cap, which drops the latest
+ * events, never takes an Up or a Cancel. 32 contacts' worth of starts and ends per 120 ms.
+ */
+export const RESERVE = 64;
 /** Pressure for a Down that carries none: the mouse's "pressed" value (docs/nodes/canvas-sources.md). */
 const DEFAULT_PRESSURE = 0.5;
 
@@ -34,10 +41,12 @@ interface Contact {
   /** Between Down and Up/Cancel: counted by Count, and `age` runs from `downAt`. */
   down: boolean;
   downAt: number;
-  /** The sample motion is measured from: its time (null before the holder's first) and position. */
+  /** The sample motion is measured from: its stamp (null before the holder's first) and position, and
+   *  the `interval`s of later samples too close to it to measure from yet (MIN_INTERVAL). */
   refAt: number | null;
   refX: number;
   refY: number;
+  gap: number;
   /** Motion at the latest sample, canvas units per second; `angle` in radians. */
   dx: number;
   dy: number;
@@ -55,8 +64,8 @@ type Contacts = Contact[];
 /** One pushed event, reduced to what the state needs. */
 interface Change {
   time: number;
-  /** When the sample was taken, for motion: `time` less its `ago` (a coalesced sample, Pointer (high rate)). */
-  at: number;
+  /** The payload's `interval`: seconds since this pointer's previous sample, by the browser's clock. Null when missing. */
+  interval: number | null;
   /** The raw pointerId. */
   id: number;
   /** Index into KINDS. */
@@ -69,7 +78,7 @@ interface Change {
 }
 
 /** Fields an event carries that Pointer neither reads nor derives: what an eviction's Cancel repeats. */
-const OWN_FIELDS = new Set(['time', 'channel', 'x', 'y', 'pressure', 'dx', 'dy', 'speed', 'angle', 'age', 'phase', 'coalesced', 'ago']);
+const OWN_FIELDS = new Set(['time', 'channel', 'x', 'y', 'pressure', 'dx', 'dy', 'speed', 'angle', 'age', 'phase', 'coalesced', 'interval']);
 function payloadOf(event: EngineEvent): Record<string, EventField> {
   const out: Record<string, EventField> = {};
   for (const [name, value] of Object.entries(event)) if (!OWN_FIELDS.has(name) && value !== undefined) out[name] = value;
@@ -95,7 +104,7 @@ function unit(value: unknown): number | null {
 }
 
 function fresh(slot: number): Contact {
-  return { slot, id: null, x: 0, y: 0, pressure: 0, down: false, downAt: 0, refAt: null, refX: 0, refY: 0, dx: 0, dy: 0, speed: 0, angle: 0, last: -Infinity, payload: {} };
+  return { slot, id: null, x: 0, y: 0, pressure: 0, down: false, downAt: 0, refAt: null, refX: 0, refY: 0, gap: 0, dx: 0, dy: 0, speed: 0, angle: 0, last: -Infinity, payload: {} };
 }
 
 /**
@@ -118,7 +127,7 @@ function bind(contacts: Contacts, id: number): { contact: Contact; evicted: Cont
     contact = contacts.find((c) => !c.down) ?? contacts[0]!;
     if (contact.down) evicted = { ...contact, payload: { ...contact.payload } };
   }
-  Object.assign(contact, { id, down: false, refAt: null, dx: 0, dy: 0, speed: 0, angle: 0 });
+  Object.assign(contact, { id, down: false, refAt: null, gap: 0, dx: 0, dy: 0, speed: 0, angle: 0 });
   return { contact, evicted };
 }
 
@@ -136,25 +145,28 @@ function step(contacts: Contacts, change: Change): Stepped | null {
   if ((kind === 'up' || kind === 'cancel') && !contact?.down) return null;
   let evicted: Contact | null = null;
   if (!contact) ({ contact, evicted } = bind(contacts, change.id));
-  const { time, at } = change;
+  const { time, interval } = change;
   const quiet = { slot: contact.slot, phase: null, dx: 0, dy: 0, speed: 0, angle: 0, age: 0, evicted };
   if (kind === 'enter') return evicted ? quiet : null;
   const phase = kind as Phase;
   const x = change.x ?? contact.x, y = change.y ?? contact.y;
-  // Motion since the previous sample, by when each was taken (`at`). Samples at one time (the same
-  // render quantum) keep the previous motion and the earlier reference, so the next sample spans the real time.
-  if (contact.refAt === null || at > contact.refAt) {
-    if (contact.refAt !== null) {
-      const dt = at - contact.refAt;
+  // Motion since the reference sample, over the browser's spacing (`interval`) when the event has it,
+  // else over the stamps. Stamps mix render quanta and handler delays, so only the fallback uses them.
+  // Under MIN_INTERVAL (samples at one stamp, or microseconds apart) a sample keeps the previous motion
+  // and the reference stays, so the next sample spans the real time.
+  const dt = contact.refAt === null ? null : interval !== null ? contact.gap + interval : time - contact.refAt;
+  if (dt === null || dt >= MIN_INTERVAL) {
+    if (dt !== null) {
       contact.dx = (x - contact.refX) / dt;
       contact.dy = (y - contact.refY) / dt;
       contact.speed = Math.hypot(contact.dx, contact.dy);
       if (contact.speed > 0) contact.angle = Math.atan2(contact.dy, contact.dx);
     }
-    contact.refAt = at;
+    contact.refAt = time;
     contact.refX = x;
     contact.refY = y;
-  }
+    contact.gap = 0;
+  } else if (interval !== null) contact.gap += interval;
   contact.x = x;
   contact.y = y;
   if (phase === 'down') {
@@ -177,6 +189,38 @@ function step(contacts: Contacts, change: Change): Stepped | null {
 }
 
 const pendingOf = (state: NodeState): Change[] => (state.pending ?? []) as Change[];
+
+/** Events emitted in one limit window (ADR 0022): `k` its index, `n` the count so far. */
+interface Cell {
+  k: number;
+  n: number;
+}
+
+/**
+ * Counts what a stepped change emits in its limit window and says whether its event is emitted:
+ * an eviction's Cancel and every Down, Up and Cancel always are, a Move only while the window has
+ * room for it below the reserve. Each event costs two (its phase port and All).
+ */
+function admit(cell: Cell, time: number, stepped: Stepped): boolean {
+  const k = limitWindowOf(time);
+  if (k !== cell.k) Object.assign(cell, { k, n: 0 });
+  if (stepped.evicted) cell.n += 2;
+  if (!stepped.phase) return false;
+  if (stepped.phase === 'move' && cell.n + 2 > NODE_EVENT_LIMIT - RESERVE) return false;
+  cell.n += 2;
+  return true;
+}
+
+/** Pushes at one time on one pointer, in the order they apply: `KINDS`, except that a hover move
+ *  (`buttons` 0) goes before a Down at that time, and after an Up or Cancel. */
+function rank(change: Change, hover: boolean, group: { down: boolean; end: boolean }): number {
+  const kind = KINDS[change.kind]!;
+  if (kind === 'move' && hover) {
+    if (group.down && !group.end) return 0.5;
+    if (group.end && !group.down) return 4.5;
+  }
+  return change.kind;
+}
 
 /** The contacts as they are at time t: the base plus this window's changes at or before t. */
 function contactsAt(state: NodeState, t: number): readonly Contact[] {
@@ -222,37 +266,54 @@ export const POINTER_PORTS: PortSpec[] = [
  */
 export function pointerQuery({ state, pushed }: Pick<QueryContext, 'state' | 'pushed'>): QueryResult {
   const contacts = (state.contacts ??= []) as Contacts;
-  for (const change of pendingOf(state)) step(contacts, change);
-  const items: { change: Change; event: EngineEvent }[] = [];
+  const cell = (state.cell ??= { k: -Infinity, n: 0 }) as Cell;
+  for (const change of pendingOf(state)) {
+    const stepped = step(contacts, change);
+    if (stepped) admit(cell, change.time, stepped);
+  }
+  const items: { change: Change; event: EngineEvent; hover: boolean; rank: number }[] = [];
   KINDS.forEach((kind, k) => {
     for (const event of pushed[kind] ?? []) {
       // Raw pointerIds are integers; anything else has no pointer to give a slot to.
       if (!Number.isFinite(event.time) || !Number.isInteger(event.channel)) continue;
-      const ago = typeof event.ago === 'number' && event.ago > 0 && Number.isFinite(event.ago) ? event.ago : 0;
-      const change = { time: event.time, at: event.time - ago, id: event.channel, kind: k, x: unit(event.x), y: unit(event.y), pressure: unit(event.pressure), payload: payloadOf(event) };
-      items.push({ change, event });
+      const interval = typeof event.interval === 'number' && event.interval >= 0 && Number.isFinite(event.interval) ? event.interval : null;
+      const change = { time: event.time, interval, id: event.channel, kind: k, x: unit(event.x), y: unit(event.y), pressure: unit(event.pressure), payload: payloadOf(event) };
+      items.push({ change, event, hover: event.buttons === 0, rank: k });
     }
   });
-  // At one time, pointers that only end (up, cancel, leave) go first, so a pointer that lifts frees
-  // its slot for one that arrives in the same quantum. Then by raw id and kind; stable, so ties keep
-  // each port's order.
-  const starts = new Set(items.filter(({ change }) => change.kind < FIRST_END).map(({ change }) => `${change.time}|${change.id}`));
-  const ending = (change: Change) => (starts.has(`${change.time}|${change.id}`) ? 1 : 0);
-  items.sort((a, b) => a.change.time - b.change.time || ending(a.change) - ending(b.change) || a.change.id - b.change.id || a.change.kind - b.change.kind);
+  // Per time and pointer: whether it starts there (enter or down) and whether it ends (up or cancel).
+  const groups = new Map<string, { down: boolean; end: boolean; starts: boolean }>();
+  const keyOf = (change: Change) => `${change.time}|${change.id}`;
+  for (const { change } of items) {
+    let group = groups.get(keyOf(change));
+    if (!group) groups.set(keyOf(change), (group = { down: false, end: false, starts: false }));
+    const kind = KINDS[change.kind]!;
+    group.down ||= kind === 'down';
+    group.end ||= kind === 'up' || kind === 'cancel';
+    group.starts ||= kind === 'enter' || kind === 'down';
+  }
+  for (const item of items) item.rank = rank(item.change, item.hover, groups.get(keyOf(item.change))!);
+  // At one time, pointers that don't start there go first, so a pointer that lifts (or drags to its
+  // Up) frees its slot for one that arrives in the same quantum. Then by raw id and rank; stable, so
+  // ties keep each port's order.
+  const starting = (change: Change) => (groups.get(keyOf(change))!.starts ? 1 : 0);
+  items.sort((a, b) => a.change.time - b.change.time || starting(a.change) - starting(b.change) || a.change.id - b.change.id || a.rank - b.rank);
   state.pending = items.map((item) => item.change);
   if (!items.length) return {};
   const out: Record<Phase | 'all', EngineEvent[]> = { down: [], move: [], up: [], cancel: [], all: [] };
   const work = contacts.map((c) => ({ ...c }));
+  const budget = { ...cell };
   for (const { change, event } of items) {
     const stepped = step(work, change);
     if (!stepped) continue;
+    const emit = admit(budget, change.time, stepped);
     const { evicted } = stepped;
     if (evicted) {
       const cancel: EngineEvent = { ...evicted.payload, time: change.time, channel: evicted.slot, x: evicted.x, y: evicted.y, pressure: 0, dx: 0, dy: 0, speed: 0, angle: evicted.angle, age: change.time - evicted.downAt };
       out.cancel.push(cancel);
       out.all.push({ ...cancel, phase: 'cancel' });
     }
-    if (!stepped.phase) continue;
+    if (!emit || !stepped.phase) continue;
     const { slot, phase, dx, dy, speed, angle, age } = stepped;
     const rewritten: EngineEvent = { ...event, channel: slot, dx, dy, speed, angle, age };
     out[phase].push(rewritten);
@@ -287,9 +348,11 @@ export function pointerSignal(state: NodeState, port: string, t: number, channel
  * with `coalesced: true` for Pointer (high rate) and the plain move for Pointer, and
  * neither node sees a sample twice. The scheduler stamps them currentTime + 5 ms.
  *
- * `ago` (seconds, optional): how long before the event's dispatched move a coalesced
- * sample was taken. The samples of one browser event share one stamp, so motion is
- * measured from time − ago; time still orders events and drives `age`.
+ * `interval` (seconds, optional): the time since this pointer's previous sample, by the
+ * browser's event clock (`timeStamp`), as the host records it. Stamps carry render quanta
+ * and handler delays, and a browser event's coalesced samples share one, so motion uses
+ * the intervals and falls back to the stamps only for events without one (hand-written
+ * streams). Stamps still order events and drive `age`.
  *
  * It rewrites its pushes (`InputSpec.rewrites`): the runtime doesn't pass them through,
  * and `query` returns each Down, Move, Up and Cancel at its own time, so it stays on the
@@ -304,15 +367,22 @@ export function pointerSignal(state: NodeState, port: string, t: number, channel
  *   slot is taken gets a Cancel (on Cancel and All) at the taking event's time first,
  *   with its last event's payload.
  * - `dx`, `dy`: motion since this slot's previous sample, in canvas units per second,
- *   from the event times (less a sample's `ago`, below); `speed` their length and `angle` their direction, atan2(dy, dx)
- *   in radians (0 to the right, π/2 down). A slot's first sample after it's taken has
- *   0 motion, and a sample at the same time as the previous one keeps its motion. When
- *   the pointer doesn't move, `angle` keeps the last direction it moved in.
+ *   over its `interval` (above); `speed` their length and `angle` their direction,
+ *   atan2(dy, dx) in radians (0 to the right, π/2 down). A slot's first sample after it's
+ *   taken has 0 motion. A sample less than MIN_INTERVAL after the reference keeps the
+ *   previous motion and the next one measures from that reference. When the pointer
+ *   doesn't move, `angle` keeps the last direction it moved in.
  * - `age`: seconds since this slot's Down; 0 on a hover move and on the Down itself.
  * The rest of the payload passes through as pushed. All carries the same events with
  * `phase` down, move, up or cancel (ADR 0028); a move with no contact open is a hover.
  * Enter and leave update the slots only: they emit nothing and have no phase. Events
  * whose channel isn't an integer have no pointer and are dropped.
+ *
+ * Event budget: in each limit window (120 ms on the absolute grid, ADR 0022) Moves stop
+ * being emitted once the node's count would pass NODE_EVENT_LIMIT − RESERVE, so Down, Up
+ * and Cancel always fit under the runtime's cap. Thinned moves still move the signals and
+ * the motion. A plain Pointer only reaches it with many fingers on a fast screen; Pointer
+ * (high rate) with three fingers at a few hundred samples a second.
  *
  * Signals, per channel (slot):
  * - X, Y: the slot's last position, clamped to 0–1, held after Up, Cancel or leave.
@@ -326,21 +396,23 @@ export function pointerSignal(state: NodeState, port: string, t: number, channel
  * recently, so a clock-driven note can follow whoever touched last. An enter alone
  * doesn't make a pointer the latest, unless no other pointer has changed yet. Before any pointer, every signal is 0.
  *
- * State (plain data): `contacts` holds every slot as the current window began, and
- * `pending` this window's pushes, sorted by time, then pointers that only end (up,
- * cancel, leave) before the rest, then pointerId, then enter, down, move, up, cancel,
- * leave. `query` folds the previous window's pending changes in first,
+ * State (plain data): `contacts` holds every slot as the current window began, `cell`
+ * the event count of the limit window it began in, and `pending` this window's pushes,
+ * sorted as below. `query` folds the previous window's pending changes in first,
  * then steps a copy through this window's for the events; `signal(t)` applies the
  * pending ones at or before t. Slots, motion and age all come from this one fold, so
  * neither events nor signals depend on the window size, and rewinds replay them.
  *
  * Same-time ties: the scheduler stamps pushes on render quanta (about 2.7 ms), so a
- * Down and an Up on one pointer can share a time. They then apply Down, Move, Up,
- * Cancel in that order, whatever the push order, and so does All. A tap shorter than a
+ * Down and an Up on one pointer can share a time. They then apply enter, Down, Move,
+ * Up, Cancel, leave in that order, whatever the push order, and so does All. A hover
+ * move (`buttons` 0) is the exception: it goes before a Down at its time (browsers
+ * flush the pending move just before pointerdown) and after an Up or Cancel. A tap shorter than a
  * quantum so ends lifted rather than stuck down, but a re-press (Up then Down) inside
  * one quantum reads lifted, and its next events are a hover (its Up then dropped)
- * until its next Down. At one time, a pointer that lifts frees its slot before another
- * takes one, and two new pointers take slots in pointerId order.
+ * until its next Down. At one time, pointers that don't start there (no enter or Down)
+ * go first, so one that lifts, or drags to its Up, frees its slot before another takes
+ * one, and two new pointers take slots in pointerId order.
  */
 export const pointer: NodeDefinition = {
   type: 'pointer',

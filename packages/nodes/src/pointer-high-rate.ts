@@ -19,12 +19,16 @@ import { POINTER_PORTS, POINTER_READS, pointerQuery, pointerSignal } from './poi
  *
  * Timing: the host pushes a browser event's samples and its plain move as one push, at
  * one stamp (currentTime + 5 ms; stamps can't go back before currentTime, and moving the
- * later samples forward would add latency). Each sample carries `ago`, how long before
- * the dispatched move it was taken, so `dx`, `dy`, `speed` and `angle` come from the
- * samples' own spacing (time − ago). The samples keep their order on every output, all
- * at the push's time. Samples whose time − ago doesn't move past the previous sample's
- * (two pushes in one render quantum, about 2.7 ms, or a sample without `ago`) keep the
- * previous motion, by Pointer's same-time rule.
+ * later samples forward would add latency). Each sample carries `interval`, the seconds
+ * since the pointer's previous sample by the browser's clock, so `dx`, `dy`, `speed` and
+ * `angle` come from the samples' real spacing, not from stamps that a late handler or a
+ * render quantum (about 2.7 ms) squeezes together. The samples keep their order on every
+ * output, all at the push's time. Samples closer than MIN_INTERVAL add up before motion
+ * is measured, so bursts can't make the speed spike.
+ *
+ * Event budget: two events per sample (Move and All), so fast multi-touch strokes reach
+ * the per-node cap; Pointer's budget (RESERVE in pointer.ts) thins the moves of a limit
+ * window that fills up and keeps every Down, Up and Cancel.
  */
 export const pointerHighRate: NodeDefinition = {
   type: 'pointer-high-rate',

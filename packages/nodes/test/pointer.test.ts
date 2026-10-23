@@ -261,9 +261,36 @@ describe('pointer', () => {
     expect(events(list, 'all').map((e) => [e.time, e.channel, e.phase])).toEqual([
       [0.1, 1, 'down'], [0.1, 2, 'down'], [0.2, 1, 'up'], [0.2, 1, 'down'], [0.3, 2, 'up'], [0.3, 2, 'move'], [0.4, 3, 'down'],
     ]);
+    // A drag whose last move and Up share a stamp frees first too.
+    const drag: Push[] = [
+      { port: 'down', event: { time: 0.1, channel: 50 } },
+      { port: 'down', event: { time: 0.1, channel: 60 } },
+      { port: 'down', event: { time: 0.2, channel: 49 } },
+      { port: 'move', event: { time: 0.2, channel: 50, x: 0.4, buttons: 1 } },
+      { port: 'up', event: { time: 0.2, channel: 50, x: 0.4 } },
+    ];
+    expect(events(drag, 'all').map((e) => [e.time, e.channel, e.phase])).toEqual([
+      [0.1, 1, 'down'], [0.1, 2, 'down'], [0.2, 1, 'move'], [0.2, 1, 'up'], [0.2, 1, 'down'],
+    ]);
     // A tap (down and up at one time) on one pointer still opens before it ends.
     const tap: Push[] = [{ port: 'up', event: { time: 0.1, channel: 5 } }, { port: 'down', event: { time: 0.1, channel: 5 } }, { port: 'down', event: { time: 0.1, channel: 4 } }];
     expect(events(tap, 'all').map((e) => [e.channel, e.phase])).toEqual([[1, 'down'], [2, 'down'], [2, 'up']]);
+  });
+
+  it('applies a hover move flushed with a Down at one stamp before it, and one after an Up after it', () => {
+    const list: Push[] = [
+      { port: 'move', event: { time: 0.1, channel: 1, x: 0.1, buttons: 0, pressure: 0 } },
+      { port: 'down', event: { time: 0.2, channel: 1, x: 0.3, buttons: 1, pressure: 0.5 } },
+      { port: 'move', event: { time: 0.2, channel: 1, x: 0.2, buttons: 0, pressure: 0 } },
+      { port: 'move', event: { time: 0.25, channel: 1, x: 0.4, buttons: 1, pressure: 0.5 } },
+      { port: 'up', event: { time: 0.3, channel: 1, x: 0.4, buttons: 0, pressure: 0 } },
+      { port: 'move', event: { time: 0.3, channel: 1, x: 0.5, buttons: 0, pressure: 0 } },
+    ];
+    expect(events(list, 'all').map((e) => [e.time, e.phase, e.x, e.age])).toEqual([
+      [0.1, 'move', 0.1, 0], [0.2, 'move', 0.2, 0], [0.2, 'down', 0.3, 0], [0.25, 'move', 0.4, expect.closeTo(0.05, 9)], [0.3, 'up', 0.4, expect.closeTo(0.1, 9)], [0.3, 'move', 0.5, 0],
+    ]);
+    // The pressure the signal reads at the Down is the Down's, not the hover's 0.
+    expect(read(list, 0.2, 1).pressure).toBe(0.5);
   });
 
   it('gives the same events on every port in one, two and three windows and in 25 ms tiles', () => {
