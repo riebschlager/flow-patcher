@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { NodeWiring, SignalSource } from '@flow-patcher/engine';
 import { math, thresholdChange } from '../src';
-import { applyOp, MATH_OPS } from '../src/math';
-import { context, query, queryTiled } from './helpers';
+import { applyOp, MATH_CONSTANT_LIMIT, MATH_OPS } from '../src/math';
+import { context, queryTiled } from './helpers';
 
 /** Math's Out as a Signal source, wired like the runtime wires it. */
 function out(params: Record<string, unknown> = {}, signals: NodeWiring['signals'] = {}, mods?: NodeWiring['mods']): SignalSource {
@@ -35,6 +35,43 @@ describe('math', () => {
     expect(at('modulo', 0.5, -2)).toBe(-1.5);
   });
 
+  it('takes Constant up to ±20000, so A + 440 and A × 1000 work', () => {
+    expect(MATH_CONSTANT_LIMIT).toBe(20_000);
+    expect(out({ constant: 440 }, { a: [constant(0.5)] })(0, 0)).toBe(440.5);
+    expect(out({ op: 'multiply', constant: 1000 }, { a: [ramp] })(0.25, 0)).toBe(250);
+    expect(out({ constant: -20_000 }, { a: [constant(0)] })(0, 0)).toBe(-20_000);
+  });
+
+  it('raises A to the power B + Constant, per channel', () => {
+    expect(out({ op: 'power', constant: 2 }, { a: [constant(3)] })(0, 0)).toBe(9);
+    expect(out({ op: 'power', constant: 0.5 }, { a: [constant(16)] })(0, 0)).toBe(4);
+    expect(out({ op: 'power', constant: -1 }, { a: [constant(4)] })(0, 0)).toBe(0.25);
+    // B on each channel: 2^1, 2^2, 2^3.
+    const f = out({ op: 'power' }, { a: [constant(2)], b: [perChannel] });
+    expect([0, 1, 2].map((c) => f(0, c))).toEqual([2, 4, 8]);
+    expect(applyOp('power', -8, 3)).toBe(-512);
+    expect(applyOp('power', 5, 0)).toBe(1);
+  });
+
+  it('gives 0 for a power with no finite real result', () => {
+    // A negative base to a fractional exponent is NaN; 0 to a negative power is Infinity; overflow too.
+    expect(applyOp('power', -8, 1 / 3)).toBe(0);
+    expect(out({ op: 'power', constant: 0.5 }, { a: [constant(-4)] })(0, 0)).toBe(0);
+    expect(applyOp('power', 0, -1)).toBe(0);
+    expect(applyOp('power', 10, 400)).toBe(0);
+  });
+
+  it('gives |A + B + Constant| for abs, so a lone A is folded positive', () => {
+    expect(out({ op: 'abs' }, { a: [constant(-3)] })(0, 0)).toBe(3);
+    expect(out({ op: 'abs' }, { a: [constant(-3)], b: [constant(1)] })(0, 0)).toBe(2);
+    // |ramp − 0.5| folds a ramp into a V.
+    const fold = out({ op: 'abs', constant: -0.5 }, { a: [ramp] });
+    expect([0, 0.25, 0.5, 1].map((t) => fold(t, 0))).toEqual([0.5, 0.25, 0, 0.5]);
+    const f = out({ op: 'abs' }, { a: [(_t, c) => -c] });
+    expect([0, 1, 3].map((c) => f(0, c))).toEqual([0, 1, 3]);
+    expect(applyOp('abs', -Number.MAX_VALUE, -Number.MAX_VALUE)).toBe(0);
+  });
+
   it('scales and wraps a ramp with Constant alone', () => {
     const scaled = out({ op: 'multiply', constant: 12 }, { a: [ramp] });
     expect([0, 0.5, 1].map((t) => scaled(t, 0))).toEqual([0, 6, 12]);
@@ -53,7 +90,7 @@ describe('math', () => {
 
   it('adds a cable into Constant scaled by its depth, clamped to the knob range', () => {
     expect(out({ constant: 1 }, { a: [constant(1)] }, { constant: [{ depth: 2, signal: perChannel }] })(0, 1)).toBe(6);
-    expect(out({}, {}, { constant: [{ depth: 1, signal: constant(1e6) }] })(0, 0)).toBe(100);
+    expect(out({}, {}, { constant: [{ depth: 1, signal: constant(1e6) }] })(0, 0)).toBe(MATH_CONSTANT_LIMIT);
   });
 
   it('gives 0 for division or modulo by zero and for non-finite results, never NaN', () => {
@@ -76,14 +113,18 @@ describe('math', () => {
     expect(math.signal!(ctx, 'nope', 0, 0)).toBe(0);
   });
 
-  it('falls back to the defaults for out-of-range params', () => {
-    expect(out({ op: 'power', constant: 1e9 }, { a: [constant(1)] })(0, 0)).toBe(1 + 100);
+  it('clamps an out-of-range Constant and falls back to Add for an unknown operation', () => {
+    expect(out({ op: 'wobble', constant: 1e9 }, { a: [constant(1)] })(0, 0)).toBe(1 + MATH_CONSTANT_LIMIT);
+    expect(out({ constant: -1e9 }, { a: [constant(1)] })(0, 0)).toBe(1 - MATH_CONSTANT_LIMIT);
     expect(out({ op: 'divide', constant: NaN }, { a: [constant(1)] })(0, 0)).toBe(0);
   });
 
-  it('is stateless: its query emits nothing and leaves state empty', () => {
+  it('is stateless: it has no query, and reading Out leaves state empty', () => {
+    expect(math.query).toBeUndefined();
     const state = {};
-    expect(query(math, 0, 1, { state })).toEqual({});
+    const ctx = context(math, { state, signals: { a: [(t: number, c: number) => t + c] } });
+    const reads = [0.25, 0.5, 0.25, 0.75].map((t) => math.signal!(ctx, 'out', t, 1));
+    expect(reads[0]).toBe(reads[2]);
     expect(state).toEqual({});
   });
 

@@ -27,8 +27,8 @@ export function rescale(x: number, inMin: number, inMax: number, outMin: number,
  * cutoff range. Several cables into In are summed, an unconnected In is 0.
  * Every bound is a knob, so a cable can move the range.
  *
- * Stateless: Out is a pure function of its inputs at t, so it can't depend on
- * windowing.
+ * Stateless, so it has no query(): Out is a pure function of its inputs at t,
+ * answered in signal(), and can't depend on windowing.
  */
 export const mapRange: NodeDefinition = {
   type: 'map-range',
@@ -47,11 +47,6 @@ export const mapRange: NodeDefinition = {
     { name: 'outMax', kind: 'number', min: -MAP_RANGE_LIMIT, max: MAP_RANGE_LIMIT, default: 1, label: 'Out max' },
     { name: 'clamp', kind: 'toggle', default: true, label: 'Clamp' },
   ],
-  // Nothing to compute per window: Out is answered in signal(). The empty query
-  // puts Map Range in the plan like any other source, with nothing to snapshot.
-  query() {
-    return {};
-  },
   signal({ params, signal, param }, port, t, channel) {
     if (port !== 'out' || !Number.isFinite(t)) return 0;
     const at = (name: string) => param(name, t, channel);

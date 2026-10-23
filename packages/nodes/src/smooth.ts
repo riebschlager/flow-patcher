@@ -17,11 +17,21 @@ const MAX_CHANNELS = 8;
 export const SMOOTH_TIME_MAX = 10;
 
 /**
- * The smoothed value on each grid point of the current chunk, per channel:
- * `v[i]` is Out at grid index `k0 + i`. The row starts at the last grid point
- * before the chunk when the channel carries on from it, else at the channel's
- * first grid point in the chunk. Plain data so a rewind snapshot can clone it
- * (ADR 0019); replaced on each query, so it never grows past one chunk.
+ * Seconds of grid values kept behind each window start, as Get Field and Sample &
+ * Hold keep: frame() reads trail the horizon by up to the lookahead (1.25 s while
+ * hidden), and should see the glide, not a staircase at the wake rate.
+ */
+export const SMOOTH_RETAIN = 2;
+
+/** SMOOTH_RETAIN in grid points. */
+const RETAIN_POINTS = SMOOTH_RETAIN * SMOOTH_RATE;
+
+/**
+ * The smoothed value on each grid point of the current chunk and up to
+ * SMOOTH_RETAIN seconds before it, per channel: `v[i]` is Out at grid index
+ * `k0 + i`, and the row runs without a gap up to the chunk's last grid point.
+ * Plain data so a rewind snapshot can clone it (ADR 0019); trimmed on each
+ * query, so it never grows past SMOOTH_RETAIN plus one chunk.
  */
 interface Row {
   k0: number;
@@ -56,7 +66,8 @@ function step(y: number, x: number, a: number): number {
  *
  * Out is a pure function of In over time, on a 2 ms grid anchored to time 0:
  * `query` steps the filter on every grid point in [t0, t1), reading In and the
- * time constants there, and keeps the chunk's grid values in `state.track`.
+ * time constants there, and keeps the grid values in `state.track`: the chunk's
+ * and SMOOTH_RETAIN (2 s) of history behind it.
  * A read at t takes the grid value at or before t and finishes the partial step
  * to t toward In at t, so Out moves smoothly between grid points. Each step eases
  * toward In at its end, so a jump in In starts the ease up to one step (2 ms)
@@ -66,10 +77,15 @@ function step(y: number, x: number, a: number): number {
  *
  * A channel starts at In on its first grid point, and again after a gap in the
  * grid (skipped windows, Channels raised), rather than easing up from 0.
- * Channels at or above Channels, and channels not queried yet, pass In through.
- * Reads outside the current chunk (frame() behind it, an audio catch-up after
- * it) hold its first value or finish the step from its last. Several cables into In are summed, a non-finite cable counts
- * as 0, and an unconnected In is 0.
+ * Channels not queried yet pass In through, and so do channels at or above
+ * Channels: only channels 0 … Channels − 1 are smoothed. Live Pointer channels
+ * are raw pointerIds (a mouse is 1 in Chrome, and touch ids keep growing), so
+ * set Channels (at most 8) above the ids you expect until Pointer maps ids to
+ * small reused slots (#74). A read behind the chunk but inside the history
+ * (frame()) gives the smoothed value there; one further back holds the oldest
+ * value kept. A read after the chunk (an audio catch-up) finishes the step
+ * from its last grid point. Several cables into In are summed, a non-finite cable counts as 0,
+ * and an unconnected In is 0.
  */
 export const smooth: NodeDefinition = {
   type: 'smooth',
@@ -101,6 +117,17 @@ export const smooth: NodeDefinition = {
     while (last / SMOOTH_RATE >= t1) last--;
     while ((last + 1) / SMOOTH_RATE < t1) last++;
 
+    // History older than SMOOTH_RETAIN before the window goes. The row always keeps
+    // the grid point just before `first`, the value a carrying channel steps on from.
+    const keepFrom = first - RETAIN_POINTS;
+    const trim = (row: Row): Row => {
+      const drop = Math.min(keepFrom - row.k0, row.v.length - 1);
+      if (drop > 0) {
+        row.v.splice(0, drop);
+        row.k0 += drop;
+      }
+      return row;
+    };
     const fresh: Track = {};
     const big = last - first + 1 > MAX_GRID_POINTS;
     for (let c = 0; c < channels; c++) {
@@ -109,21 +136,23 @@ export const smooth: NodeDefinition = {
         fresh[c] = { k0: last, v: [signal('in', last / SMOOTH_RATE, c)] };
         continue;
       }
+      const carries = before !== undefined && before.k0 + before.v.length - 1 === first - 1;
       if (first > last) {
-        // No grid point in this window: keep the carried value, if it's the one just before.
-        if (before && before.k0 + before.v.length - 1 === first - 1) fresh[c] = { k0: first - 1, v: [before.v[before.v.length - 1]!] };
+        // No grid point in this window: keep the row, if it ends just before.
+        if (carries) fresh[c] = trim(before);
         continue;
       }
-      const carries = before !== undefined && before.k0 + before.v.length - 1 === first - 1;
-      let y = carries ? before.v[before.v.length - 1]! : signal('in', first / SMOOTH_RATE, c);
-      const v = [y];
+      // After a gap (or on the first query) the channel starts again at In.
+      const row = carries ? before : { k0: first, v: [signal('in', first / SMOOTH_RATE, c)] };
+      const v = row.v;
+      let y = v[v.length - 1]!;
       for (let k = first + (carries ? 0 : 1); k <= last; k++) {
         const time = k / SMOOTH_RATE;
         const x = signal('in', time, c);
         y = step(y, x, blend(1 / SMOOTH_RATE, param(x > y ? 'rise' : 'fall', time, c)));
         v.push(y);
       }
-      fresh[c] = { k0: carries ? first - 1 : first, v };
+      fresh[c] = trim(row);
     }
     // Channels not watched any more drop out.
     state.track = fresh;
@@ -135,8 +164,8 @@ export const smooth: NodeDefinition = {
     const row = trackOf(state)[channel];
     if (!row) return x;
     const { k0, v } = row;
-    // Grid point at or before t, kept inside the stored chunk: reads after it (an audio
-    // catch-up) finish the step from its last point, reads before it (frame()) hold its first.
+    // Grid point at or before t, kept inside the stored row: reads after it (an audio
+    // catch-up) finish the step from its last point, reads before it hold its first.
     if (t < k0 / SMOOTH_RATE) return v[0]!;
     let i = Math.floor(t * SMOOTH_RATE) - k0;
     if ((k0 + i + 1) / SMOOTH_RATE <= t) i++;

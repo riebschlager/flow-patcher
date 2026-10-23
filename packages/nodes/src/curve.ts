@@ -40,8 +40,8 @@ export function shape(curve: CurveShape, x: number, amount: number): number {
  * linear and leaves the shaping here). Several cables into In are summed, an
  * unconnected In is 0, and Amount is a knob, so a cable can bend the curve.
  *
- * Stateless: Out is a pure function of its inputs at t, so it can't depend on
- * windowing.
+ * Stateless, so it has no query(): Out is a pure function of its inputs at t,
+ * answered in signal(), and can't depend on windowing.
  */
 export const curve: NodeDefinition = {
   type: 'curve',
@@ -57,11 +57,6 @@ export const curve: NodeDefinition = {
     { name: 'shape', kind: 'enum', options: CURVE_SHAPES, default: 'power', label: 'Shape' },
     { name: 'amount', kind: 'number', min: CURVE_AMOUNT_MIN, max: CURVE_AMOUNT_MAX, default: 1, label: 'Amount' },
   ],
-  // Nothing to compute per window: Out is answered in signal(). The empty query
-  // puts Curve in the plan like any other source, with nothing to snapshot.
-  query() {
-    return {};
-  },
   signal({ params, signal, param }, port, t, channel) {
     if (port !== 'out' || !Number.isFinite(t)) return 0;
     const s = (CURVE_SHAPES as readonly string[]).includes(params.shape as string) ? (params.shape as CurveShape) : 'power';

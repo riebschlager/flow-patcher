@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { NodeWiring, SignalSource } from '@flow-patcher/engine';
 import { mapRange, thresholdChange } from '../src';
 import { MAP_RANGE_LIMIT, rescale } from '../src/map-range';
-import { context, query, queryTiled } from './helpers';
+import { context, queryTiled } from './helpers';
 
 /** Map Range's Out as a Signal source, wired like the runtime wires it. */
 function out(params: Record<string, unknown> = {}, signals: NodeWiring['signals'] = {}, mods?: NodeWiring['mods']): SignalSource {
@@ -92,9 +92,12 @@ describe('map-range', () => {
     expect(out({ outMax: NaN, clamp: 'yes' }, { in: [constant(2)] })(0, 0)).toBe(1);
   });
 
-  it('is stateless: its query emits nothing and leaves state empty', () => {
+  it('is stateless: it has no query, and reading Out leaves state empty', () => {
+    expect(mapRange.query).toBeUndefined();
     const state = {};
-    expect(query(mapRange, 0, 1, { state })).toEqual({});
+    const ctx = context(mapRange, { state, signals: { in: [(t: number, c: number) => t + c] } });
+    const reads = [0.25, 0.5, 0.25, 0.75].map((t) => mapRange.signal!(ctx, 'out', t, 1));
+    expect(reads[0]).toBe(reads[2]);
     expect(state).toEqual({});
   });
 

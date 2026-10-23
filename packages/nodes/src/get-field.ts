@@ -44,6 +44,9 @@ export const FIELD_PRESETS: Readonly<Record<string, string>> = {
 /** The field name the node reads: the text without surrounding spaces. */
 export const fieldName = (text: string): string => text.trim();
 
+/** The Field param as a field name; anything but text names no field. */
+const fieldParam = (value: unknown): string => fieldName(typeof value === 'string' ? value : '');
+
 export function fieldError(text: string): string | null {
   return fieldName(text) === '' ? 'Name a payload field, such as pressure.' : null;
 }
@@ -92,7 +95,8 @@ function upperBound(times: readonly number[], t: number): number {
  * Stateful like Sample & Hold: `signal()` doesn't see event inputs, so `query`
  * records each value in `state.held`. A read at t only needs the events at or
  * before t, and every reader of Out is ordered after this node, so Out doesn't
- * depend on windowing.
+ * depend on windowing. Naming another field drops the held values, so Out
+ * doesn't keep the old field's readings until the new one arrives.
  */
 export const getField: NodeDefinition = {
   type: 'get-field',
@@ -105,6 +109,9 @@ export const getField: NodeDefinition = {
     { name: 'out', type: 'signal', direction: 'out', label: 'Out' },
   ],
   params: [{ name: 'field', kind: 'text', default: 'pressure', label: 'Field', presets: FIELD_PRESETS, check: fieldError }],
+  keepState(before, after) {
+    return fieldParam(before.field) === fieldParam(after.field);
+  },
   query({ inputs, state, params, t0 }) {
     const held = heldOf(state);
     // Forget steps before t0 − RETAIN, keeping the one in force then, so reads from there on are unchanged.
@@ -115,7 +122,7 @@ export const getField: NodeDefinition = {
         values.splice(0, drop);
       }
     }
-    const name = fieldName(typeof params.field === 'string' ? params.field : '');
+    const name = fieldParam(params.field);
     if (name === '') return {};
     for (const e of inputs.in ?? []) {
       if (!Number.isFinite(e.time) || !validChannel(e.channel)) continue;

@@ -76,6 +76,18 @@ describe('get-field', () => {
     }
   });
 
+  it('drops its held values on a hot edit that names another field, and keeps them otherwise', () => {
+    const keep = (before: unknown, after: unknown) => getField.keepState!({ field: before as ParamValue }, { field: after as ParamValue });
+    expect(keep('pressure', 'pressure')).toBe(true);
+    // Only the trimmed name counts.
+    expect(keep('pressure', ' pressure ')).toBe(true);
+    expect(keep('pressure', 'x')).toBe(false);
+    expect(keep('pitch', 'velocity')).toBe(false);
+    expect(keep('pressure', '')).toBe(false);
+    expect(keep('', '  ')).toBe(true);
+    expect(keep(undefined, 3)).toBe(true);
+  });
+
   it('keeps channels separate', () => {
     const state = {};
     const events = [...pointerEvents([0.1, 0.4], 0), ...pointerEvents([0.3], 2)].sort(compareEvents);

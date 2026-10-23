@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { NodeWiring, SignalSource } from '@flow-patcher/engine';
 import { curve, thresholdChange } from '../src';
 import { CURVE_AMOUNT_MAX, CURVE_AMOUNT_MIN, CURVE_SHAPES, shape } from '../src/curve';
-import { context, query, queryTiled } from './helpers';
+import { context, queryTiled } from './helpers';
 
 /** Curve's Out as a Signal source, wired like the runtime wires it. */
 function out(params: Record<string, unknown> = {}, signals: NodeWiring['signals'] = {}, mods?: NodeWiring['mods']): SignalSource {
@@ -110,9 +110,12 @@ describe('curve', () => {
     expect(out({ amount: 1e9 }, { in: [constant(0.5)] })(0, 0)).toBe(0.5 ** CURVE_AMOUNT_MAX);
   });
 
-  it('is stateless: its query emits nothing and leaves state empty', () => {
+  it('is stateless: it has no query, and reading Out leaves state empty', () => {
+    expect(curve.query).toBeUndefined();
     const state = {};
-    expect(query(curve, 0, 1, { state })).toEqual({});
+    const ctx = context(curve, { state, signals: { in: [(t: number, c: number) => t + c] } });
+    const reads = [0.25, 0.5, 0.25, 0.75].map((t) => curve.signal!(ctx, 'out', t, 1));
+    expect(reads[0]).toBe(reads[2]);
     expect(state).toEqual({});
   });
 

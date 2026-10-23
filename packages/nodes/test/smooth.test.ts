@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { NodeWiring, SignalSource } from '@flow-patcher/engine';
 import { smooth, thresholdChange } from '../src';
-import { blend, MAX_GRID_POINTS, SMOOTH_RATE, SMOOTH_TIME_MAX } from '../src/smooth';
+import { blend, MAX_GRID_POINTS, SMOOTH_RATE, SMOOTH_RETAIN, SMOOTH_TIME_MAX } from '../src/smooth';
 import { context, query, queryTiled } from './helpers';
 
 interface Setup {
@@ -35,6 +35,8 @@ const constant = (v: number): SignalSource => () => v;
 const stepUp: SignalSource = (t) => (t < 0.5 ? 0 : 1);
 /** 1 before 0.5 s, then 0. */
 const stepDown: SignalSource = (t) => (t < 0.5 ? 1 : 0);
+/** 0 → 4 over 4 s. */
+const ramp4: SignalSource = (t) => t;
 const readTimes = Array.from({ length: 200 }, (_, i) => i * 0.01 + 0.0037);
 
 describe('smooth', () => {
@@ -148,15 +150,86 @@ describe('smooth', () => {
     expect(JSON.parse(JSON.stringify(snapshot))).toEqual(snapshot);
   });
 
-  it('keeps only the current chunk in state', () => {
+  it('replays exactly from a snapshot when the rewind splits the window differently', () => {
+    const wave: SignalSource = (t) => Math.sin(5 * t) + (t > 0.43 ? 0.5 : 0) + (t > 0.47 ? -1 : 0);
+    const ctx = context(smooth, { params: { rise: 0.08, fall: 0.3 }, signals: { in: [wave] } });
+    const window = (t0: number, t1: number) => smooth.query!({ ...ctx, inputs: {}, pushed: {}, t0, t1 });
+    const times = [0.2, 0.33, 0.4, 0.4237, 0.43, 0.4499, 0.47, 0.499];
+    const read = () => times.map((t) => smooth.signal!(ctx, 'out', t, 0));
+    for (let t = 0; t < 0.4; t += 0.1) window(t, t + 0.1);
+    const snapshot = structuredClone(ctx.state);
+    window(0.4, 0.5);
+    const first = read();
+    window(0.5, 0.6);
+    // A live event at 0.45 s: restore the 0.4 s snapshot and re-run as two windows.
+    for (const key of Object.keys(ctx.state)) delete ctx.state[key];
+    Object.assign(ctx.state, structuredClone(snapshot));
+    window(0.4, 0.45);
+    window(0.45, 0.5);
+    expect(read()).toEqual(first);
+    // The reads aren't all one held value.
+    expect(new Set(first).size).toBe(times.length);
+  });
+
+  it('reads behind the chunk from its history, inside it from the grid, and past it by finishing the step', () => {
+    // In steps 0 → 1 at 0.3 s and 1 → 3 at 0.62 s; Rise 0.1. The ease starts one grid step before each jump.
+    const twoSteps: SignalSource = (t) => (t < 0.3 ? 0 : t < 0.62 ? 1 : 3);
+    const ctx = context(smooth, { params: { rise: 0.1 }, signals: { in: [twoSteps] } });
+    for (let w = 0; w < 6; w++) smooth.query!({ ...ctx, inputs: {}, pushed: {}, t0: w / 10, t1: (w + 1) / 10 });
+    const onset = 0.3 - 1 / SMOOTH_RATE;
+    const eased = (t: number) => 1 - Math.exp(-(t - onset) / 0.1);
+    const read = (t: number) => smooth.signal!(ctx, 'out', t, 0);
+    // Behind the chunk [0.5, 0.6), as frame() reads: the smoothed value there, between grid points too.
+    for (const t of [0.2, 0.3537, 0.4037, 0.4991]) expect(read(t), `t = ${t}`).toBeCloseTo(t < onset ? 0 : eased(t), 9);
+    // Inside the chunk: the grid value plus the partial step.
+    expect(read(0.5537)).toBeCloseTo(eased(0.5537), 9);
+    // 50 ms past the chunk: one step of 52 ms from the last grid point (0.598 s) toward In there, 3.
+    const lastGrid = eased(0.598);
+    const ahead = lastGrid + (3 - lastGrid) * (1 - Math.exp(-0.052 / 0.1));
+    expect(read(0.65)).toBeCloseTo(ahead, 9);
+    expect(read(0.65)).not.toBe(3);
+  });
+
+  it('keeps reads behind the chunk smooth, not a staircase at the window rate', () => {
+    // A slow glide read 1 s behind each 100 ms window, as a hidden tab's frame() does.
+    const ramp: SignalSource = (t) => t;
+    const setup = { params: { rise: 0.5, fall: 0.5 }, signals: { in: [ramp] } };
+    const ctx = context(smooth, setup);
+    const behind: number[] = [];
+    for (let w = 0; w < 40; w++) {
+      smooth.query!({ ...ctx, inputs: {}, pushed: {}, t0: w * 0.1, t1: (w + 1) * 0.1 });
+      if (w >= 15) for (let i = 0; i < 10; i++) behind.push(smooth.signal!(ctx, 'out', w * 0.1 - 1 + i * 0.01 + 0.0037, 0));
+    }
+    // The same times read while their window is current.
+    const times = Array.from({ length: 250 }, (_, i) => 0.5 + i * 0.01 + 0.0037);
+    const [current] = run(setup, 4, 0.1, times);
+    expect(behind).toHaveLength(250);
+    behind.forEach((v, i) => expect(v, `t = ${times[i]}`).toBeCloseTo(current![i]!, 12));
+  });
+
+  it('keeps a bounded history in state: Retain plus one chunk', () => {
     const state = {};
     for (let t = 0; t < 10; t += 0.1) query(smooth, t, t + 0.1, { state, params: { channels: 8 }, signals: { in: [constant(1)] } });
-    const track = (state as { track: Record<number, { v: number[] }> }).track;
+    const track = (state as { track: Record<number, { k0: number; v: number[] }> }).track;
     expect(Object.keys(track)).toHaveLength(8);
-    for (const row of Object.values(track)) expect(row.v.length).toBeLessThanOrEqual(0.1 * SMOOTH_RATE + 2);
+    for (const row of Object.values(track)) {
+      expect(row.v.length).toBeLessThanOrEqual((SMOOTH_RETAIN + 0.1) * SMOOTH_RATE + 2);
+      expect(row.v.length).toBeGreaterThanOrEqual(SMOOTH_RETAIN * SMOOTH_RATE);
+    }
     // Lowering Channels drops the others.
     query(smooth, 10, 10.1, { state, params: { channels: 2 }, signals: { in: [constant(1)] } });
     expect(Object.keys((state as { track: object }).track)).toEqual(['0', '1']);
+  });
+
+  it('holds the oldest kept value for reads behind the history', () => {
+    const ctx = context(smooth, { params: { rise: 0.1 }, signals: { in: [ramp4] } });
+    for (let w = 0; w < 50; w++) smooth.query!({ ...ctx, inputs: {}, pushed: {}, t0: w * 0.1, t1: (w + 1) * 0.1 });
+    const track = ctx.state.track as Record<number, { k0: number; v: number[] }>;
+    const oldest = track[0]!.v[0]!;
+    expect(track[0]!.k0).toBe(4.9 * SMOOTH_RATE - SMOOTH_RETAIN * SMOOTH_RATE);
+    expect(oldest).toBeGreaterThan(2);
+    expect(smooth.signal!(ctx, 'out', 1, 0)).toBe(oldest);
+    expect(smooth.signal!(ctx, 'out', -3, 0)).toBe(oldest);
   });
 
   it('starts again from In after a gap in the windows', () => {
@@ -187,7 +260,7 @@ describe('smooth', () => {
     expect(smooth.signal!(ctx, 'out', NaN, 0)).toBe(0);
     expect(smooth.signal!(ctx, 'out', Infinity, 0)).toBe(0);
     expect(smooth.signal!(ctx, 'nope', -0.95, 0)).toBe(0);
-    // Reads before the chunk hold its first value; reads after finish the step from its last.
+    // Reads before the history hold its first value; reads after finish the step from its last.
     expect(smooth.signal!(ctx, 'out', -5, 0)).toBe(1);
     expect(smooth.signal!(ctx, 'out', 3, 0)).toBe(1);
     expect(smooth.signal!(ctx, 'out', 0, -1)).toBe(1);

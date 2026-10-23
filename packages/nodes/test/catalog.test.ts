@@ -43,7 +43,7 @@ describe('node catalog', () => {
         expect(definition.type).toMatch(/^[a-z][a-z0-9-]*$/);
         expect(Number.isInteger(definition.version) && definition.version >= 1).toBe(true);
         expect(CATEGORIES).toContain(definition.category);
-        expect(definition.query || definition.frame || definition.audio).toBeTruthy();
+        expect(definition.query || definition.frame || definition.audio || definition.signal || definition.value).toBeTruthy();
         for (const direction of ['in', 'out'] as const) {
           const names = definition.ports.filter((p) => p.direction === direction).map((p) => p.name);
           expect(new Set(names).size, `${direction} port names`).toBe(names.length);
