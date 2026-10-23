@@ -111,8 +111,12 @@ test('hover, enter and leave reach Pointer, and All tags every event with its ph
   await page.mouse.move(box.x - 30, box.y + 10);
   await expect.poll(slots).toEqual([[1, null]]);
 
-  // Everything up to the up has sounded once the probe shows it.
-  await expect.poll(async () => (await after()).some((e) => e.phase === 'up')).toBe(true);
+  // Everything has sounded once a hover move after the up shows (it can sit in the lookahead a while).
+  await expect.poll(async () => {
+    const events = await after();
+    const u = events.findIndex((e) => e.phase === 'up');
+    return u >= 0 && events.slice(u + 1).some((e) => e.phase === 'move' && e.buttons === 0);
+  }).toBe(true);
   const all = await after();
   // Only the four phases, all on slot 1: enter and leave have none.
   expect(new Set(all.map((e) => e.phase))).toEqual(new Set(['move', 'down', 'up']));

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { compilePatch, inputRouter, NODE_EVENT_LIMIT, replayInput, Runtime, type EngineEvent, type InputEvent, type LoggedEvent, type Patch } from '@flow-patcher/engine';
 import { nodeRegistry, pointer, pointerHighRate } from '../src';
 import { RESERVE } from '../src/pointer';
-import { query, queryTiled } from './helpers';
+import { context, query, queryTiled } from './helpers';
 
 const EVENT_PORTS = ['down', 'move', 'up', 'cancel', 'all'] as const;
 const node = (id: string, type: string, params = {}) => ({ id, type, typeVersion: nodeRegistry.get(type)!.version, params, position: { x: 0, y: 0 } });
@@ -203,8 +203,10 @@ describe('pointer-high-rate', () => {
     // Three fingers at 1 kHz for 120 ms in one limit window [0.24, 0.36): 360 samples, 720 events.
     const pushed: Record<string, EngineEvent[]> = { down: [], move: [], up: [] };
     for (const id of [1, 2, 3]) pushed.down!.push({ time: 0.24, channel: id, x: 0.1 * id, y: 0.5 });
-    for (let k = 1; k < 119; k++) for (const id of [1, 2, 3]) pushed.move!.push({ time: 0.24 + k * 0.001, channel: id, x: 0.1 * id + k * 0.001, y: 0.5, coalesced: true, interval: 0.001 });
-    for (const id of [1, 2, 3]) pushed.up!.push({ time: 0.359, channel: id, x: 0.1 * id, y: 0.5 });
+    // 1 unit/s, then from k = 100 on 3 units/s, so the thinned tail moves differently from what's emitted.
+    const xAt = (id: number, k: number) => 0.1 * id + Math.min(k, 100) * 0.001 + Math.max(0, k - 100) * 0.003;
+    for (let k = 1; k < 119; k++) for (const id of [1, 2, 3]) pushed.move!.push({ time: 0.24 + k * 0.001, channel: id, x: xAt(id, k), y: 0.5, coalesced: true, interval: 0.001 });
+    for (const id of [1, 2, 3]) pushed.up!.push({ time: 0.359, channel: id, x: xAt(id, 118), y: 0.5, interval: 0.001 });
     const run = (step: number) => {
       const state = {};
       const out: Record<string, EngineEvent[]> = {};
@@ -217,14 +219,58 @@ describe('pointer-high-rate', () => {
     expect(out.down).toHaveLength(3);
     expect(out.up).toHaveLength(3);
     expect(out.move!.length).toBe((NODE_EVENT_LIMIT - RESERVE) / 2 - 3);
-    // The moves that went are the window's latest; the signals still followed them.
-    expect(out.move!.at(-1)!.time).toBeLessThan(0.36);
+    // The moves that went are the window's latest: the last emitted is early, at 1 unit/s.
+    expect(out.move!.at(-1)!.time).toBeLessThan(0.3);
+    expect(out.move!.at(-1)!.speed).toBeCloseTo(1, 6);
+    // The thinned ones still moved the state: X and Speed at the last move read its values, not the
+    // last emitted one's, and the Up measures its motion from the last thinned move.
+    const state = {};
+    query(pointerHighRate, 0, 1, { state, pushed });
+    const ctx = context(pointerHighRate, { state });
+    expect(pointerHighRate.signal!(ctx, 'x', 0.3585, 1)).toBeCloseTo(xAt(1, 118), 9);
+    expect(pointerHighRate.signal!(ctx, 'speed', 0.3585, 1)).toBeCloseTo(3, 6);
+    expect(out.up!.map((e) => e.dx)).toEqual([0, 0, 0]);
     // The same however the windows are split.
     expect(JSON.stringify(run(0.025))).toBe(JSON.stringify(out));
     expect(JSON.stringify(run(0.05))).toBe(JSON.stringify(out));
     // The next limit window starts afresh.
     const later = { ...pushed, move: [...pushed.move!, { time: 0.37, channel: 9, x: 0.5, y: 0.5, coalesced: true }] };
     expect(query(pointerHighRate, 0, 1, { pushed: later }).move!.at(-1)!.time).toBe(0.37);
+  });
+
+  it('keeps a full window under the runtime cap, ahead and when every push rewinds', () => {
+    const pushes: { port: string; event: EngineEvent }[] = [];
+    for (const id of [1, 2, 3]) pushes.push({ port: 'down', event: { time: 0.24, channel: id, x: 0.1 * id, y: 0.5 } });
+    for (let k = 1; k < 119; k++) for (const id of [1, 2, 3]) pushes.push({ port: 'move', event: { time: 0.24 + k * 0.001, channel: id, x: 0.1 * id + k * 0.001, y: 0.5, coalesced: true, interval: 0.001 } });
+    for (const id of [1, 2, 3]) pushes.push({ port: 'up', event: { time: 0.359, channel: id, x: 0.1 * id + 0.118, y: 0.5, interval: 0.001 } });
+    const step = 0.025, end = 0.6;
+    const ahead = new Runtime(plan());
+    for (const { port, event } of pushes) ahead.push('h', port, { ...event });
+    const reference: LoggedEvent[] = [];
+    for (let i = 0; i * step < end - 1e-9; i++) reference.push(...ahead.query(i * step, Math.min(end, (i + 1) * step)));
+    expect(ahead.counters.droppedNodeLimit).toBe(0);
+    expect(ahead.warnings('h').map((w) => w.kind)).not.toContain('node-event-limit');
+    expect(pick(reference, 'h', 'up')).toHaveLength(3);
+    expect(pick(reference, 'h', 'all').filter((e) => e.phase === 'up')).toHaveLength(3);
+    // Live: each push rewinds into windows already queried, restoring `state.cell` from snapshots.
+    const live = new Runtime(plan(), { history: true });
+    let log: LoggedEvent[] = [];
+    let next = 0;
+    const queryTo = (t: number) => {
+      for (; next * step < Math.min(end, t) - 1e-9; next++) log.push(...live.query(next * step, Math.min(end, (next + 1) * step)));
+    };
+    let rewinds = 0;
+    for (const { port, event } of pushes) {
+      queryTo(event.time + 0.12);
+      const report = live.push('h', port, { ...event });
+      if (!report) continue;
+      rewinds++;
+      log = [...log.filter((e) => !(report.affected.has(e.node) && e.time >= report.time)), ...report.added];
+    }
+    queryTo(end);
+    expect(rewinds).toBe(pushes.length);
+    expect(JSON.stringify(live.sortLog(log))).toBe(JSON.stringify(ahead.sortLog(reference)));
+    expect(live.counters.droppedNodeLimit).toBe(0);
   });
 
   it('keeps its own slot map: a pointer only high rate saw takes a slot there and not on Pointer', () => {

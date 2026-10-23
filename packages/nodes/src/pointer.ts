@@ -23,8 +23,8 @@ export const STILL = 0.1;
 export const MIN_INTERVAL = 0.001;
 /**
  * Events per limit window (ADR 0022) kept for Down, Up and Cancel: moves stop being emitted once a
- * window's count would pass NODE_EVENT_LIMIT − RESERVE, so the runtime's cap, which drops the latest
- * events, never takes an Up or a Cancel. 32 contacts' worth of starts and ends per 120 ms.
+ * window's count would pass NODE_EVENT_LIMIT − RESERVE, so the runtime's per-node cap, which drops the
+ * latest events, never takes an Up or a Cancel. The patch-wide cap (PATCH_EVENT_LIMIT) still can. 32 contacts' worth of starts and ends per 120 ms.
  */
 export const RESERVE = 64;
 /** Pressure for a Down that carries none: the mouse's "pressed" value (docs/nodes/canvas-sources.md). */
@@ -380,7 +380,8 @@ export function pointerSignal(state: NodeState, port: string, t: number, channel
  *
  * Event budget: in each limit window (120 ms on the absolute grid, ADR 0022) Moves stop
  * being emitted once the node's count would pass NODE_EVENT_LIMIT − RESERVE, so Down, Up
- * and Cancel always fit under the runtime's cap. Thinned moves still move the signals and
+ * and Cancel always fit under the runtime's per-node cap. The patch-wide cap
+ * (PATCH_EVENT_LIMIT, 2,048) counts every node, so a busy patch can still drop them there. Thinned moves still move the signals and
  * the motion. A plain Pointer only reaches it with many fingers on a fast screen; Pointer
  * (high rate) with three fingers at a few hundred samples a second.
  *

@@ -20,7 +20,7 @@ Replays need recorded input: M2's mode patches replay scripted input, and M4's p
 - **`time`** is in seconds from the stream's start, sorted ascending.
 - **`type`** is the canvas event: `pointerdown`, `pointermove`, `pointerup`, `pointercancel`, `pointerenter`, `pointerleave`, `click`, `dblclick`, `auxclick`, `contextmenu`, `wheel`, `keydown`, `keyup`, `gesturechange`, `resize`, `focus`, `blur`, `visibilitychange` or `midi`.
   - `pointerrawupdate` and coalesced samples are recorded as `pointermove` with `coalesced: true`. Pointer ignores those, and Pointer (high rate) reads them.
-  - Pointer events also record `interval`, the seconds since that pointer's previous sample by the browser's clock: one browser event's samples share a stamp, and stamps carry handler delays (#74). The live host doesn't listen to `pointerrawupdate` (docs/nodes/canvas-sources.md).
+  - pointerdown, pointermove (coalesced samples included), pointerup and pointercancel also record `interval` (not pointerenter or pointerleave), the seconds since that pointer's previous sample by the browser's clock: one browser event's samples share a stamp, and stamps carry handler delays (#74). The live host doesn't listen to `pointerrawupdate` (docs/nodes/canvas-sources.md).
   - `pointerenter` and `pointerleave` only update Pointer's hover state. They have no phase on All (ADR 0028).
 
 ### Payload fields
