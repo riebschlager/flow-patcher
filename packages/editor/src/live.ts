@@ -92,6 +92,10 @@ export interface Tap {
   note: number | null;
   /** The push had to start the AudioContext, so its timing includes startup. */
   cold: boolean;
+  /** currentTime right after the push: `after − at` is how far the clock moved while the push re-ran (#97). */
+  after: number;
+  /** Wall time the push took, ms (#97). */
+  pushMs: number;
   /** The tap's splash (ADR 0020), null until it is drawn, or with no Renderer:
    *  - `handed`: frames after the push until a frame handed the tap's own event to a visual node (1 = the
    *    next frame, skipping the output-latency shift);
@@ -467,12 +471,13 @@ export class LivePatch {
     try {
       pushed = this.scheduler.pushAll(targets);
     } finally {
+      const after = this.context.currentTime, pushMs = performance.now() - wall;
       this.refreshTracks();
       const starts = this.starts;
       this.starts = null;
       if (down) {
         const stamped = pushed?.[0]?.time ?? null;
-        const tap: Tap = { at, down: at - waited, stamped, note: starts.length ? Math.min(...starts) : null, cold, splash: null, splashLost: false };
+        const tap: Tap = { at, down: at - waited, stamped, note: starts.length ? Math.min(...starts) : null, cold, after, pushMs, splash: null, splashLost: false };
         if (cold && tap.note === null) this.coldTap = tap;
         if (this.renderer && this.hasFluid && stamped !== null) {
           this.splashes.push({ tap, time: stamped, downWall: wall - waited * 1000, frame: this.frameCounts.frames, carried: null });
