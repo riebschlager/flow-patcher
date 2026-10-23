@@ -47,16 +47,41 @@ export function automateParam(target: AudioParamLike, t0: number, t1: number, va
   }
 }
 
+/** A param's knob edits made in place, one ramp after another (`editRamp`). */
+export interface EditRamp {
+  /** Ramps linearly to `value` over the ramp's duration, starting at audio-clock `time`. Times must not go backwards. */
+  set(value: number, time: number): void;
+  /** Where the edits put the param at `time`. */
+  valueAt(time: number): number;
+}
+
 /**
- * A knob edit made in place: withdraws what was scheduled on `target` from
- * `time` on, holds `from` (the value it had) until `time` and ramps linearly to
- * `to` over `duration`. An earlier edit's ramp still running at `time` is cut
- * there, so keep edits on one param at least `duration` apart (swap times are
- * window boundaries, normally a wake interval apart).
+ * Knob edits made in place on `target`, which holds `initial` (ADR 0031). Each
+ * edit withdraws what was scheduled from its time on, holds the value the param
+ * has then and ramps linearly to the new one over `duration`. An edit that lands
+ * while the previous ramp is still running continues that ramp to the point it
+ * has reached, then turns towards the new value, so a quick second edit never steps.
  */
-export function rampParam(target: AudioParamLike, from: number, to: number, time: number, duration = EDIT_RAMP): void {
-  if (!Number.isFinite(from) || !Number.isFinite(to) || !Number.isFinite(time)) return;
-  target.cancelScheduledValues(time);
-  target.setValueAtTime(from, time);
-  target.linearRampToValueAtTime(to, time + Math.max(0, duration));
+export function editRamp(target: AudioParamLike, initial: number, duration = EDIT_RAMP): EditRamp {
+  const span = Math.max(0, duration);
+  let ramp = { from: initial, to: initial, start: -Infinity };
+  const valueAt = (time: number): number => {
+    if (!(time > ramp.start)) return ramp.from;
+    if (!(time < ramp.start + span)) return ramp.to;
+    return ramp.from + ((ramp.to - ramp.from) * (time - ramp.start)) / span;
+  };
+  return {
+    valueAt,
+    set(value, time) {
+      if (!Number.isFinite(value) || !Number.isFinite(time)) return;
+      const from = valueAt(time);
+      const running = time > ramp.start && time < ramp.start + span;
+      target.cancelScheduledValues(time);
+      // Mid-ramp: the cancel took the ramp's end, so ramp on to where it had got; else hold from here.
+      if (running) target.linearRampToValueAtTime(from, time);
+      else target.setValueAtTime(from, time);
+      target.linearRampToValueAtTime(value, time + span);
+      ramp = { from, to: value, start: time };
+    },
+  };
 }

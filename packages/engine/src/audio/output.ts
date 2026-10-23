@@ -7,7 +7,7 @@
 // and a fixed gain of 1/makeup cancels the compressor's automatic makeup. The
 // guard is exactly linear up to OUTPUT_KNEE and bends smoothly towards
 // OUTPUT_CEILING above it, so no sample leaves the stage above the ceiling.
-import { EDIT_RAMP, rampParam } from './automation';
+import { editRamp } from './automation';
 import type { AudioContextLike, AudioNodeLike } from './types';
 
 export const DEFAULT_MASTER_LEVEL = 0.7;
@@ -121,8 +121,7 @@ export function createOutputStage(context: AudioContextLike, level = DEFAULT_MAS
   guard.oversample = 'none';
   const master = context.createGain();
   master.gain.value = masterLevel(level);
-  /** The latest level edit's ramp (EDIT_RAMP long), so the next edit starts from where the gain is. */
-  let ramp = { from: masterLevel(level), to: masterLevel(level), start: -Infinity };
+  const levelRamp = editRamp(master.gain, masterLevel(level));
   limiter.connect(compensation);
   compensation.connect(guard);
   guard.connect(master);
@@ -130,11 +129,7 @@ export function createOutputStage(context: AudioContextLike, level = DEFAULT_MAS
     input: limiter,
     output: master,
     setLevel(next, time = context.currentTime) {
-      // Where the level is at `time`, partway along an earlier edit's ramp if that is still running.
-      const along = Math.min(1, Math.max(0, (time - ramp.start) / EDIT_RAMP));
-      const from = ramp.from + (ramp.to - ramp.from) * along;
-      ramp = { from, to: masterLevel(next), start: time };
-      rampParam(master.gain, from, ramp.to, time);
+      levelRamp.set(masterLevel(next), time);
     },
   };
 }

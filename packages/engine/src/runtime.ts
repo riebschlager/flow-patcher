@@ -921,8 +921,8 @@ export class Runtime {
    * the old one, like a removed node's, has its events from the swap on
    * cancelled and is disposed once its sounding notes have finished
    * (`AudioInstance.idleAt`, checked in `retain`). The exception (ADR 0031):
-   * when only params in the definition's `liveParams` changed and the
-   * instance has `update`, it keeps the instance and calls `update` with the
+   * when only params in the definition's `liveParams` changed, the node keeps
+   * its state, and the instance has `update`, it keeps the instance and calls `update` with the
    * new params at the swap time (never before the clock). Audio cables are rewired
    * now, not at the swap time: Web Audio can't schedule connect/disconnect.
    */
@@ -943,15 +943,16 @@ export class Runtime {
       const links = plan.incoming.get(node.id), linksBefore = prev.plan.incoming.get(node.id);
       const sameNode = sameType && sameParams && !seedChanged && before.definition === node.definition;
       if (!sameNode || !sameJson(links, linksBefore)) changed.push(node.id);
-      const sameParamLinks = sameJson(links?.params, linksBefore?.params);
-      // A knob edit the definition takes in place (ADR 0031): same type, version, definition,
-      // seed and cables into params, and only liveParams changed.
-      const live = node.definition.liveParams;
-      if (sameType && !sameParams && !seedChanged && before.definition === node.definition && sameParamLinks && live
-        && changedKeys(before.params, node.params).every((key) => live.includes(key))) inPlace.add(node.id);
-      if (!sameNode || !sameParamLinks) rebuild.add(node.id);
       if (sameType && (sameParams || node.definition.keepState?.(before.params, node.params) !== false)) kept.add(node.id);
       else reset.push(node.id);
+      const sameParamLinks = sameJson(links?.params, linksBefore?.params);
+      // A knob edit the definition takes in place (ADR 0031): same type, version, definition,
+      // seed and cables into params, the state kept (the instance holds the state object it was
+      // built with), and only liveParams changed.
+      const live = node.definition.liveParams;
+      if (sameType && !sameParams && !seedChanged && before.definition === node.definition && sameParamLinks && kept.has(node.id) && live
+        && changedKeys(before.params, node.params).every((key) => live.includes(key))) inPlace.add(node.id);
+      if (!sameNode || !sameParamLinks) rebuild.add(node.id);
     }
     const ids = new Set(plan.order.map((n) => n.id));
     const removed = prev.plan.order.map((n) => n.id).filter((id) => !ids.has(id));
@@ -1604,7 +1605,10 @@ export class Runtime {
    * The chunk's automation call (ADR 0031), on the audio clock the way `send`
    * hands over events: a chunk starting in a catch-up's missed stretch moves by
    * its shift, and t0 is never before the clock at hand-over. A chunk wholly
-   * behind the clock has nothing left to automate.
+   * behind the clock has nothing left to automate. The shift goes by the
+   * chunk's start, where `send` goes by each event's time, so in a chunk that
+   * straddles the stretch's end the two disagree by up to the shift; the next
+   * chunk's cancel at its t0 takes over from there.
    */
   private automate(id: string, c0: number, c1: number, timing: DeliveryTiming | undefined): void {
     const instance = this.active.audio.get(id);

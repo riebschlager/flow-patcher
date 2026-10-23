@@ -247,8 +247,8 @@ export interface AudioInstance {
    * in the definition's `liveParams` keeps this instance and calls this instead
    * of building a new one. `params` are the new resolved params; `time` is when
    * the swap takes effect, on the audio clock and never before it. Ramp each
-   * unmodulated param that changed to its new value from `time` (`rampParam`),
-   * never jump. Modulated ones need nothing here: the swap re-runs the windows
+   * unmodulated param that changed to its new value from `time` (an `editRamp`
+   * per param), never jump. Modulated ones need nothing here: the swap re-runs the windows
    * from `time`, and `automate` (whose `param()` sees the new base) covers them.
    * Without it, the runtime builds a new instance as for any other edit.
    */
@@ -265,8 +265,10 @@ export interface AudioSetupContext {
    *  automation grid inside `automate`. It reads the plan running the chunk, so after
    *  an in-place edit it adds modulation to the new base. */
   param(name: string, t: number, channel?: number): number;
-  /** True when a cable feeds this param or input port. Fixed for the instance's life:
-   *  a change to the cables into params builds a new instance. */
+  /** True when a cable feeds this param or input port (Event, Note, Signal, Value or
+   *  Field; Audio ports always answer false). For params it is fixed for the instance's
+   *  life, since a change to the cables into params builds a new instance; for ports it
+   *  answers for the plan running the chunk, so a swap or a rewind across one can change it. */
   connected(name: string): boolean;
   /** The runtime's voice pool, shared by every audio node on this context, as this
    *  node sees it (its steals count toward it). Claim a voice per note in
@@ -375,7 +377,8 @@ export interface NodeDefinition {
   /** Audio nodes: the params (usually knobs) an edit changes in place
    *  through `AudioInstance.update`, without a new instance (ADR 0031). A swap
    *  that changes anything else (another param, such as a menu that changes the
-   *  graph, the version, the seed or the cables into params) still rebuilds. */
+   *  graph, the version, the seed or the cables into params), or whose
+   *  `keepState` resets the node, still rebuilds. */
   liveParams?: readonly string[];
   /** Visual nodes: the current picture, for the renderer and headless runs. */
   image?(state: NodeState, params: ParamValues): NodeImage | null;

@@ -10,7 +10,7 @@ import {
   AUTOMATION_RATE,
   compilePatch,
   ManualClock,
-  rampParam,
+  editRamp,
   Runtime,
   Scheduler,
   type AudioContextLike,
@@ -47,6 +47,16 @@ class FakeParam implements AudioParamLike {
   cancelScheduledValues(time: number) {
     this.events = this.events.filter((e) => e.time < time);
   }
+  /** The value at `t` from `value` and the set and linear events (enough for editRamp and automateParam). */
+  at(t: number): number {
+    let prev = { time: -Infinity, value: this.value };
+    for (const e of this.events) {
+      if (e.kind === 'linear' && e.time > t) return prev.time === -Infinity ? e.value : prev.value + ((e.value - prev.value) * (t - prev.time)) / (e.time - prev.time);
+      if (e.time > t) return prev.value;
+      prev = e;
+    }
+    return prev.value;
+  }
 }
 
 /** A sine plus whatever value was last pushed onto `set`; stateful, so a rewind must restore it. */
@@ -73,8 +83,9 @@ let outside = 0;
 
 /** A Filter stand-in with only an Audio input: `cutoff` follows its cable, `gain` takes knob edits in place. */
 interface Built { id: number; cutoff: FakeParam; gain: FakeParam; calls: [number, number][]; updates: [number, number][]; connected: Record<string, boolean> }
-function filterType(built: Built[], opts: { update?: boolean } = {}): NodeDefinition {
+function filterType(built: Built[], opts: { update?: boolean; keepState?: boolean } = {}): NodeDefinition {
   return {
+    ...(opts.keepState === false ? { keepState: () => false } : {}),
     type: 'filter', version: 1, label: 'Filter', category: 'effects-mix', description: '',
     ports: [{ name: 'in', type: 'audio', direction: 'in' }, { name: 'out', type: 'audio', direction: 'out' }],
     params: [
@@ -86,6 +97,7 @@ function filterType(built: Built[], opts: { update?: boolean } = {}): NodeDefini
     audio: ({ param, connected, params }) => {
       const b: Built = { id: built.length + 1, cutoff: new FakeParam(), gain: new FakeParam(), calls: [], updates: [], connected: { cutoff: connected('cutoff'), gain: connected('gain'), in: connected('in') } };
       b.gain.value = params.gain as number;
+      const gain = editRamp(b.gain, b.gain.value);
       built.push(b);
       const node = { connect() {}, disconnect() {} };
       return {
@@ -97,8 +109,7 @@ function filterType(built: Built[], opts: { update?: boolean } = {}): NodeDefini
         ...(opts.update === false ? {} : {
           update(next: Record<string, unknown>, time: number) {
             b.updates.push([next.gain as number, time]);
-            if (!connected('gain')) rampParam(b.gain, b.gain.value, next.gain as number, time);
-            b.gain.value = next.gain as number;
+            if (!connected('gain')) gain.set(next.gain as number, time);
           },
         }),
       };
@@ -122,7 +133,7 @@ function patchOf({ cabled = true, chunked = false, filter = {} as Record<string,
   }
   return { format: 'flowpatch', version: 1, seed: 1, nodes, cables };
 }
-function setup(patch: Patch, opts: { update?: boolean } = {}) {
+function setup(patch: Patch, opts: { update?: boolean; keepState?: boolean } = {}) {
   const built: Built[] = [];
   const definitions = new Map([source, filterType(built, opts), delayEdge].map((d) => [d.type, d]));
   const compile = (p: Patch): Plan => {
@@ -232,7 +243,7 @@ describe('AudioSetupContext.connected', () => {
 });
 
 describe('in-place knob edits', () => {
-  function live(opts: { update?: boolean } = {}) {
+  function live(opts: { update?: boolean; keepState?: boolean } = {}) {
     const clock = new ManualClock();
     let patch = patchOf();
     const { runtime, built, compile } = setup(patch, opts);
@@ -295,5 +306,50 @@ describe('in-place knob edits', () => {
     bare.wakeTo(0.5);
     expect(bare.edit(0.49, { gain: 0.9 }).updated).toEqual([]);
     expect(bare.built.length).toBe(2);
+
+    // A live param whose edit resets the node's state: the instance holds the old state object, so it goes too.
+    const reset = live({ keepState: false });
+    reset.wakeTo(0.5);
+    const resetReport = reset.edit(0.49, { gain: 0.9 });
+    expect(resetReport.reset).toEqual(['f']);
+    expect(resetReport.updated).toEqual([]);
+    expect(reset.built.length).toBe(2);
+  });
+});
+
+describe('editRamp', () => {
+  it('holds, then ramps over EDIT_RAMP from the edit time', () => {
+    const p = new FakeParam();
+    p.value = 0.5;
+    const ramp = editRamp(p, 0.5);
+    ramp.set(1, 0.3);
+    expect(p.at(0.29)).toBe(0.5);
+    expect(p.at(0.3 + EDIT_RAMP / 2)).toBeCloseTo(0.75, 12);
+    expect(p.at(0.5)).toBe(1);
+    expect(ramp.valueAt(0.3 + EDIT_RAMP / 2)).toBeCloseTo(0.75, 12);
+  });
+
+  it('a second edit 10 ms into the first ramp continues from where the ramp got, with no step', () => {
+    const p = new FakeParam();
+    p.value = 0;
+    const ramp = editRamp(p, 0);
+    const T1 = 0.3, T2 = T1 + 0.01;
+    ramp.set(1, T1);
+    ramp.set(0.2, T2);
+    // Halfway up the first ramp at T2, then on to 0.2 by T2 + EDIT_RAMP.
+    expect(p.at(T2)).toBeCloseTo(0.5, 12);
+    expect(p.at(T2 + EDIT_RAMP)).toBeCloseTo(0.2, 12);
+    // Sampled every 0.1 ms across both ramps, the value never moves more than a ramp's slope allows.
+    let worst = 0;
+    for (let t = T1 - 0.005; t < T2 + EDIT_RAMP + 0.005; t += 1e-4) worst = Math.max(worst, Math.abs(p.at(t + 1e-4) - p.at(t)));
+    expect(worst).toBeLessThanOrEqual((1 / EDIT_RAMP) * 1e-4 + 1e-9);
+  });
+
+  it('two edits at the same time: the second replaces the first, which never started', () => {
+    const p = new FakeParam();
+    const ramp = editRamp(p, 0.4);
+    ramp.set(1, 0.3);
+    ramp.set(0.8, 0.3);
+    expect(p.events).toEqual([{ kind: 'set', value: 0.4, time: 0.3 }, { kind: 'linear', value: 0.8, time: 0.3 + EDIT_RAMP }]);
   });
 });
