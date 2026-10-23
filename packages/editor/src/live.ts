@@ -34,7 +34,7 @@ import {
 } from '@flow-patcher/engine';
 import { nodeRegistry, rendererImage } from '@flow-patcher/nodes';
 import { EventTrack, PROBE_HISTORY } from './event-track';
-import { browserRequesters, Permissions } from './permissions';
+import { browserRequesters, neededPermissions, Permissions } from './permissions';
 
 /** Pointer events the canvas forwards, by phase. */
 export type PointerPort = 'down' | 'move' | 'up' | 'cancel';
@@ -157,6 +157,7 @@ export class LivePatch {
   private pointers = 0;
   /** Permissions the running plan's nodes declare. */
   private needed: Permission[] = [];
+  private readonly unwatchPermissions: () => void;
   /** Oscillator starts scheduled while a push runs, collected for its Tap. */
   private starts: number[] | null = null;
   /** A cold tap still waiting for its held push to run. */
@@ -217,7 +218,7 @@ export class LivePatch {
       this.emit();
     });
     document.addEventListener('visibilitychange', this.onVisibility);
-    this.permissions.subscribe(() => this.emit());
+    this.unwatchPermissions = this.permissions.subscribe(() => this.emit());
     this.scheduler.start();
     this.frames = new FrameLoop(this.runtime, {
       clock: {
@@ -432,6 +433,7 @@ export class LivePatch {
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.runtime.dispose();
     for (const unwatch of this.unwatch) unwatch();
+    this.unwatchPermissions();
     void this.context.close();
     this.listeners.clear();
   }
@@ -459,7 +461,7 @@ export class LivePatch {
     this.pointers = plan.order.filter((node) => node.definition.input?.reads.pointerdown !== undefined).length;
     this.renderer = plan.order.find((node) => node.definition.type === 'renderer')?.id ?? null;
     this.hasFluid = plan.order.some((node) => node.definition.type === 'fluid');
-    this.needed = [...new Set(plan.order.flatMap((node) => node.definition.permission ?? []))];
+    this.needed = neededPermissions(plan.order);
     // A source added while the patch plays asks now; before the first tap, the tap asks.
     if (this.context.state === 'running') this.permissions.request(this.needed);
     if (!this.renderer || !this.hasFluid) this.splashes.length = 0;
@@ -536,8 +538,7 @@ export class LivePatch {
   }
 
   private statusContext(node: PlanNode): StatusContext {
-    const permission = node.definition.permission;
-    return { nodeId: node.id, params: node.params, audio: this.audio, services: this.services, permission: permission && this.permissions.state(permission) };
+    return { nodeId: node.id, params: node.params, audio: this.audio, services: this.services, permission: this.permissions.of(node.definition) };
   }
 
   /** Warns once per stall when the fluid Worker hasn't answered a step for a couple of seconds (it may have hung). */

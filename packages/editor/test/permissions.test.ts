@@ -1,7 +1,7 @@
 // Permission prompts on first play, and the blocked state a denial leaves on the node's card (Platform rules).
 import { describe, expect, it } from 'vitest';
 import { blockedStatus, type NodeDefinition, type StatusContext } from '@flow-patcher/engine';
-import { Permissions } from '../src/permissions';
+import { neededPermissions, Permissions } from '../src/permissions';
 
 /** A requester whose answer the test gives, counting how often it was asked. */
 function requester() {
@@ -32,7 +32,10 @@ const stub: NodeDefinition = {
 };
 
 const statusOf = (permissions: Permissions) =>
-  stub.status!({ nodeId: 'm', params: {}, audio: {} as StatusContext['audio'], services: {}, permission: permissions.state(stub.permission!) });
+  stub.status!({ nodeId: 'm', params: {}, audio: {} as StatusContext['audio'], services: {}, permission: permissions.of(stub) });
+
+/** A node with no permission, such as Clock. */
+const plain: NodeDefinition = { ...stub, type: 'stub-plain', permission: undefined, status: undefined };
 
 describe('Permissions', () => {
   it('asks once, and goes from unasked through pending to granted', async () => {
@@ -86,5 +89,20 @@ describe('Permissions', () => {
     permissions.request([]);
     expect(r.asked).toBe(0);
     expect(statusOf(permissions)).toBeNull();
+  });
+
+  it("passes a node's own permission to its status hook, and nothing for a node without one", async () => {
+    const permissions = new Permissions({ midi: () => Promise.resolve(false) });
+    expect(permissions.of(plain)).toBeUndefined();
+    expect(permissions.of(stub)).toBe('unasked');
+    permissions.request(['midi']);
+    await settle();
+    expect(permissions.of(stub)).toBe('denied');
+    expect(permissions.of(plain)).toBeUndefined();
+  });
+
+  it('lists the permissions a plan needs, each once', () => {
+    expect(neededPermissions([{ definition: plain }])).toEqual([]);
+    expect(neededPermissions([{ definition: stub }, { definition: plain }, { definition: stub }])).toEqual(['midi']);
   });
 });

@@ -41,8 +41,9 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
     const box = event.currentTarget.getBoundingClientRect();
     if (port === 'down') {
       event.currentTarget.setPointerCapture(event.pointerId);
-      // Playing the canvas gives it the keyboard (focus rules), without scrolling the page to it.
-      event.currentTarget.focus({ preventScroll: true });
+      // Playing the canvas gives it the keyboard (focus rules), without scrolling the page to it. The ring
+      // is for keyboard focus, so a tap after tabbing elsewhere doesn't light it.
+      event.currentTarget.focus({ preventScroll: true, focusVisible: false });
     }
     live.pointer(port, {
       channel: event.pointerId,
@@ -56,6 +57,8 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
 
   // Focus rules (Platform rules): while the canvas has focus its keys stay with it, so the editor's
   // shortcuts (undo, Delete, Tab for the palette) don't fire. Escape always returns to the editor.
+  // Only keydown: the shortcuts all fire on it, and React Flow tracks held keys (Space, Shift) from
+  // keyup on the document, so swallowing keyup would leave them stuck down.
   const keep = (event: ReactKeyboardEvent<HTMLCanvasElement>) => {
     if (event.key === 'Escape') event.currentTarget.blur();
     else event.stopPropagation();
@@ -101,7 +104,6 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
           tabIndex={0}
           aria-label="Performance canvas"
           onKeyDown={keep}
-          onKeyUp={keep}
           onContextMenu={contextMenu}
           onPointerDown={send('down')}
           onPointerMove={send('move')}

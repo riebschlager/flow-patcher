@@ -50,6 +50,16 @@ test('the canvas keeps touches and, once played, the keyboard; Escape returns to
   await expect(nodes).toHaveCount(4);
   await expect(page.getByTestId('node-palette')).toHaveCount(0);
 
+  // Keyup still reaches the document, where React Flow tracks held keys (Space to pan, Shift to select).
+  const keyups = await page.evaluateHandle(() => {
+    const seen: string[] = [];
+    document.addEventListener('keyup', (event) => seen.push(event.key));
+    return seen;
+  });
+  await canvas.focus();
+  await page.keyboard.press('Shift');
+  expect(await keyups.evaluate((seen) => seen)).toEqual(['Shift']);
+
   // Escape hands the keys back: the editor's delete works again.
   await canvas.focus();
   await page.keyboard.press('Escape');
