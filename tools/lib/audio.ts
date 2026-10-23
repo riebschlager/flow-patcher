@@ -131,8 +131,10 @@ async function renderOnce(
   // Let the background registrations land before rendering takes the suspend list (see SuspendRaceError).
   if (quanta.length) await new Promise((resolve) => setTimeout(resolve, 1));
   const buffer = await context.startRendering();
+  // A lost suspend first: the edits it skipped can make later ones throw (a scripted edit removing a node
+  // the skipped one would have added), and that error must not hide the race from the caller's retry.
+  if (suspendError || applied < expected) throw new SuspendRaceError(expected - applied, expected, suspendError ?? editError ?? undefined);
   if (editError) throw editError;
-  if (suspendError || applied < expected) throw new SuspendRaceError(expected - applied, expected, suspendError ?? undefined);
   return {
     sampleRate,
     channels: Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i).slice()),

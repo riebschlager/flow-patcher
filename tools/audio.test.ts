@@ -40,6 +40,17 @@ describe('renderOffline edits', () => {
     await expect(renderOffline(0.2, () => {}, { edits })).rejects.toThrow('edit broke');
   });
 
+  it('renders again when a suspend does not take and a later edit throws because of it', async () => {
+    // A later edit that depends on an earlier one (#93): it throws only on the try that loses a suspend.
+    let attempt = 0;
+    const tries: number[] = [];
+    const edits = [{ time: 0.1, apply: () => { if (attempt === 1) throw new Error('no node "prob2"'); } }];
+    await renderOffline(0.5, () => {}, { edits, attempts: 3, onAttempt: (n) => tries.push((attempt = n)), testLateSuspend: (n) => n === 1 });
+    expect(tries.length).toBeGreaterThanOrEqual(2);
+    // With no retries left, the race is what's reported, not the edit error it caused.
+    await expect(renderOffline(0.5, () => {}, { edits, onAttempt: (n) => void (attempt = n), testLateSuspend: () => true })).rejects.toThrow(SuspendRaceError);
+  });
+
   it('refuses edits outside the render', async () => {
     await expect(renderOffline(0.2, () => {}, { edits: [{ time: 0.2, apply: () => {} }] })).rejects.toThrow(RangeError);
   });
