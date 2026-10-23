@@ -3912,6 +3912,498 @@
    "index": 25
   }
  ],
+ "smooth-glide.flowpatch": [
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "bar",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 0,
+   "channel": 0,
+   "index": 0,
+   "pitch": 64,
+   "velocity": 0.1,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0.14423076923076922,
+   "channel": 0,
+   "index": 1
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 0.14423076923076922,
+   "channel": 0,
+   "index": 1,
+   "pitch": 64,
+   "velocity": 0.11174041743709866,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0.28846153846153844,
+   "channel": 0,
+   "index": 2
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 0.28846153846153844,
+   "channel": 0,
+   "index": 2,
+   "pitch": 64,
+   "velocity": 0.1404697730410594,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0.43269230769230765,
+   "channel": 0,
+   "index": 3
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 0.43269230769230765,
+   "channel": 0,
+   "index": 3,
+   "pitch": 64,
+   "velocity": 0.17970354438462144,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0.5769230769230769,
+   "channel": 0,
+   "index": 4
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 0.5769230769230769,
+   "channel": 0,
+   "index": 4,
+   "pitch": 64,
+   "velocity": 0.22543230200847525,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0.7211538461538461,
+   "channel": 0,
+   "index": 5
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 0.7211538461538461,
+   "channel": 0,
+   "index": 5,
+   "pitch": 64,
+   "velocity": 0.2751769852154743,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0.8653846153846153,
+   "channel": 0,
+   "index": 6
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 0.8653846153846153,
+   "channel": 0,
+   "index": 6,
+   "pitch": 64,
+   "velocity": 0.3274047719260002,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.0096153846153846,
+   "channel": 0,
+   "index": 7
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 1.0096153846153846,
+   "channel": 0,
+   "index": 7,
+   "pitch": 64,
+   "velocity": 0.381167906577386,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.1538461538461537,
+   "channel": 0,
+   "index": 8
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 1.1538461538461537,
+   "channel": 0,
+   "index": 8,
+   "pitch": 64,
+   "velocity": 0.43588038467369683,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.2980769230769231,
+   "channel": 0,
+   "index": 9
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 1.2980769230769231,
+   "channel": 0,
+   "index": 9,
+   "pitch": 64,
+   "velocity": 0.49117967586472167,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.4423076923076923,
+   "channel": 0,
+   "index": 10
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 1.4423076923076923,
+   "channel": 0,
+   "index": 10,
+   "pitch": 64,
+   "velocity": 0.5468415493918048,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.5865384615384615,
+   "channel": 0,
+   "index": 11
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 1.5865384615384615,
+   "channel": 0,
+   "index": 11,
+   "pitch": 64,
+   "velocity": 0.6027278833479953,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.7307692307692306,
+   "channel": 0,
+   "index": 12
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 1.7307692307692306,
+   "channel": 0,
+   "index": 12,
+   "pitch": 64,
+   "velocity": 0.6587530292427544,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.875,
+   "channel": 0,
+   "index": 13
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 1.875,
+   "channel": 0,
+   "index": 13,
+   "pitch": 64,
+   "velocity": 0.7148640299240021,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.019230769230769,
+   "channel": 0,
+   "index": 14
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 2.019230769230769,
+   "channel": 0,
+   "index": 14,
+   "pitch": 64,
+   "velocity": 0.7710281415423236,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.1634615384615383,
+   "channel": 0,
+   "index": 15
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 2.1634615384615383,
+   "channel": 0,
+   "index": 15,
+   "pitch": 64,
+   "velocity": 0.8272251182867596,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.3076923076923075,
+   "channel": 0,
+   "index": 16
+  },
+  {
+   "node": "bar",
+   "port": "tick",
+   "time": 2.3076923076923075,
+   "channel": 0,
+   "index": 1
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 2.3076923076923075,
+   "channel": 0,
+   "index": 16,
+   "pitch": 64,
+   "velocity": 0.8805783408106108,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.4519230769230766,
+   "channel": 0,
+   "index": 17
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 2.4519230769230766,
+   "channel": 0,
+   "index": 17,
+   "pitch": 64,
+   "velocity": 0.7201220609056553,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.5961538461538463,
+   "channel": 0,
+   "index": 18
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 2.5961538461538463,
+   "channel": 0,
+   "index": 18,
+   "pitch": 64,
+   "velocity": 0.6059702758269304,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.7403846153846154,
+   "channel": 0,
+   "index": 19
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 2.7403846153846154,
+   "channel": 0,
+   "index": 19,
+   "pitch": 64,
+   "velocity": 0.528228954459963,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.8846153846153846,
+   "channel": 0,
+   "index": 20
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 2.8846153846153846,
+   "channel": 0,
+   "index": 20,
+   "pitch": 64,
+   "velocity": 0.4791181903353722,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.0288461538461537,
+   "channel": 0,
+   "index": 21
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 3.0288461538461537,
+   "channel": 0,
+   "index": 21,
+   "pitch": 64,
+   "velocity": 0.45252036710218824,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.173076923076923,
+   "channel": 0,
+   "index": 22
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 3.173076923076923,
+   "channel": 0,
+   "index": 22,
+   "pitch": 64,
+   "velocity": 0.44362504781365186,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.317307692307692,
+   "channel": 0,
+   "index": 23
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 3.317307692307692,
+   "channel": 0,
+   "index": 23,
+   "pitch": 64,
+   "velocity": 0.45307089581741233,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.4615384615384612,
+   "channel": 0,
+   "index": 24
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 3.4615384615384612,
+   "channel": 0,
+   "index": 24,
+   "pitch": 64,
+   "velocity": 0.48033838655690575,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.605769230769231,
+   "channel": 0,
+   "index": 25
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 3.605769230769231,
+   "channel": 0,
+   "index": 25,
+   "pitch": 64,
+   "velocity": 0.5186683982672881,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.75,
+   "channel": 0,
+   "index": 26
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 3.75,
+   "channel": 0,
+   "index": 26,
+   "pitch": 64,
+   "velocity": 0.563838476768636,
+   "duration": 0.1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.894230769230769,
+   "channel": 0,
+   "index": 27
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 3.894230769230769,
+   "channel": 0,
+   "index": 27,
+   "pitch": 64,
+   "velocity": 0.6132372490183065,
+   "duration": 0.1
+  }
+ ],
  "tap-splash.flowpatch": [
   {
    "node": "pointer",
