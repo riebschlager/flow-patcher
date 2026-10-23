@@ -5,12 +5,12 @@ Raw source nodes turn browser events on the performance canvas into events and s
 | Node | Browser events | Outputs | Milestone |
 | --- | --- | --- | --- |
 | Pointer | pointerdown, pointermove, pointerup, pointercancel, pointerenter, pointerleave | Down, Move, Up, Cancel events per channel, and All: every event tagged with its `phase` ([ADR 0028](../decisions/0028-recognizers-pass-claim-cancel.md)); X, Y, Pressure, Speed signals per channel; Count of active pointers | M1 (basic), M2 (complete) |
-| Pointer (high rate) | `getCoalescedEvents()`, `pointerrawupdate` where supported | Every sub-frame move sample, for smooth strokes and fast flicks | M2 |
+| Pointer (high rate) | `getCoalescedEvents()`, `pointerrawupdate` where supported | Every sub-frame move sample, for smooth strokes and fast flicks, with Pointer's Down, Up and Cancel; All | M2 |
 | Click | click, dblclick, auxclick, contextmenu | Click, Double, Middle, Right events with position | M2 |
 | Wheel | wheel (including macOS trackpad pinch, sent as wheel + ctrlKey) | DeltaX, DeltaY, Zoom events; accumulated X/Y/Zoom signals with a decay knob | M2 |
-| Pen | Pointer events filtered to `pointerType: pen` | Tilt X/Y, Altitude, Azimuth, Twist, Tangential pressure, Barrel button | M2 |
+| Pen | Pointer events filtered to `pointerType: pen` | Tilt X/Y, Altitude, Azimuth, Twist, Tangential pressure, Barrel button; Down, Move, Up, Cancel and All like Pointer | M2 |
 | Touch extras | Touch contact size; Safari `gesturechange` | Contact width/height; native Scale and Rotation (Safari only) | M2 |
-| Key | keydown, keyup while the canvas has focus | Down/Up events with `key`, `code`, `repeat`; a Held signal for each chosen key; a Keyboard → Note mode (two-row piano layout) | M2 |
+| Key | keydown, keyup while the canvas has focus | Down/Up events with `key`, `code`, `repeat`, one channel per `code`; All (no repeats); a Held signal for each chosen key; a Keyboard → Note mode (two-row piano layout) | M2 |
 | Canvas | resize, focus, blur, visibilitychange | Size signals and Focus/Blur/Hidden/Visible events, so patches can fade or pause cleanly | M2 |
 | MIDI In | Web MIDI note and CC messages | Note events per MIDI channel; CC signals | M2 ([ADR 0004](../decisions/0004-web-midi-in-v1.md)) |
 
@@ -42,4 +42,4 @@ Every input event carries these base fields, so any node can read them through G
   - The first pointerdown also unlocks the AudioContext and is still delivered, so it makes a sound.
 - **Focus.** In Play view the canvas has keyboard focus. In Patch view, keys go to the editor unless the preview canvas is focused. Escape always returns to the editor.
 - **Permissions.** Sources that need permission (MIDI, later motion and mic) ask only when a patch containing them first plays. If denied, they show a blocked state on the node.
-- **Recordings.** Every event a source emits must be replayable from an input stream (the JSON format defined in M2), so recordings reproduce performances.
+- **Recordings.** Every event a source emits must be replayable from an input stream ([ADR 0029](../decisions/0029-input-stream-format.md)), so recordings reproduce performances.

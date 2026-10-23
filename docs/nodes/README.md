@@ -8,12 +8,12 @@ One file per node family. To build a node, read this file and the file for the n
 | Gesture recognizers | [gesture-recognizers.md](gesture-recognizers.md) | M2 |
 | Time and rhythm | [time-rhythm.md](time-rhythm.md) | M1 and M3 |
 | Harmony and pitch | [harmony-pitch.md](harmony-pitch.md) | M1 and M3 |
-| Control and logic | [control-logic.md](control-logic.md) | As needed, by M3 |
+| Control and logic | [control-logic.md](control-logic.md) | M1, M2, the rest by M3 |
 | Instruments | [instruments.md](instruments.md) | M1 and M3 |
-| Effects and mix | [effects-mix.md](effects-mix.md) | M1 and M3 |
-| Visual: fluid, overlays, look | [visual.md](visual.md) | M1 and M3 |
+| Effects and mix | [effects-mix.md](effects-mix.md) | M1, M2 and M3 |
+| Visual: fluid, overlays, look | [visual.md](visual.md) | M1, M2 and M3 |
 
-**Milestone column in each family file.** M1 means the node is part of the engine-core set. Nodes marked ★ are borrowed from Flow and land in M3. Unstarred nodes land in the first milestone whose gate needs them, and M3 finishes any left over (see [milestones.md](../milestones.md)). M0 builds throwaway versions of a few nodes in `spike/`; they don't count.
+**Milestone column in each family file.** M1 means the node is part of the engine-core set. Nodes marked ★ are borrowed from Flow and land in M3, except those an earlier gate needs (Reverb, Delay and Orbit Rings land in M2). Unstarred nodes land in the first milestone whose gate needs them, and M3 finishes any left over (see [milestones.md](../milestones.md)). M0 builds throwaway versions of a few nodes in `spike/`; they don't count.
 
 **★ and "Flow source".** ★ means the node's internals are borrowed from Flow. The Flow source column names the module from the Reuse-from-Flow table in `design.md`. Where it says *locate*, the table doesn't name a module and you need to find it in Flow first. Borrowed code is ours to adapt ([ADR 0001](../decisions/0001-independent-from-flow.md)).
 

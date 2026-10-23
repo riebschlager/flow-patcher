@@ -73,7 +73,7 @@ Every browser event that is useful on a performance canvas becomes a source node
 
 | Node | Browser events | Outputs |
 | --- | --- | --- |
-| Pointer | pointerdown, pointermove, pointerup, pointercancel, pointerenter, pointerleave | Down, Move, Up, Cancel events per channel; X, Y, Pressure, Speed signals per channel; Count of active pointers |
+| Pointer | pointerdown, pointermove, pointerup, pointercancel, pointerenter, pointerleave | Down, Move, Up, Cancel events per channel, and All, every event tagged with its phase; X, Y, Pressure, Speed signals per channel; Count of active pointers |
 | Pointer (high rate) | `getCoalescedEvents()`, `pointerrawupdate` where supported | Every sub-frame move sample, for smooth strokes and fast flicks |
 | Click | click, dblclick, auxclick, contextmenu | Click, Double, Middle, Right events with position |
 | Wheel | wheel (including macOS trackpad pinch, sent as wheel + ctrlKey) | DeltaX, DeltaY, Zoom events; accumulated X/Y/Zoom signals with a decay knob |
@@ -81,6 +81,8 @@ Every browser event that is useful on a performance canvas becomes a source node
 | Touch extras | Touch contact size; Safari `gesturechange` | Contact width/height; native Scale and Rotation (Safari only) |
 | Key | keydown, keyup while the canvas has focus | Down/Up events with `key`, `code`, `repeat`; a Held signal for each chosen key; a Keyboard → Note mode (two-row piano layout) |
 | Canvas | resize, focus, blur, visibilitychange | Size signals and Focus/Blur/Hidden/Visible events, so patches can fade or pause cleanly |
+
+The contact sources (Pointer, Pointer (high rate), Pen and Key) also have an All output that carries every event tagged with its phase, for recognizers to read ([ADR 0028](decisions/0028-recognizers-pass-claim-cancel.md)).
 
 Web MIDI in (notes and CCs) ships in v1, behind its own permission. Later sources in the same family, each also behind a permission: Gamepad (buttons and axes, polled each frame), Device motion and orientation (tilt as a controller on phones), and Microphone (level, onset and pitch).
 
@@ -380,7 +382,7 @@ There are six milestones, and each one starts only after the previous gate passe
 | M0 · Spike | Eight node types, one patch, throwaway code: Pointer, Clock, Euclidean, Progression, Chord Tone, Sampled Voice, Output, Fluid with Splat and Renderer | Patching feels fun, and taps sound immediately |
 | M1 · Engine core | Typed ports and channels, graph compiler, window scheduler, hot patching, probes, undo/redo | Live edits never glitch the audio |
 | M2 · Canvas event sources | Every raw source node and payload field, the recognizers with Pass and claim, Zone, Modifier Router | Flow's Paint, Conduct, Space and Orbit rebuilt from recognizers |
-| M3 · Flow as a patch | Port every starred node with its tests; ship the original Flow as the flagship example patch | The Flow patch feels like Flow |
+| M3 · Flow as a patch | Port every starred node not built yet with its tests; ship the original Flow as the flagship example patch | The Flow patch feels like Flow |
 | M4 · Play and keep | Play view, pinned knobs, local library, input recordings, WAV and video export | Someone else can open a shared file, play it and remix it |
 | M5 · Community | Publish, browse, play and remix patches, with Flow's moderation gates and quotas | — |
 
