@@ -23,7 +23,7 @@ export const HIDDEN_LOOKAHEAD = 1.25;
 export const CATCH_UP_LIMIT = 0.1;
 /** Live input is stamped at least this far after currentTime. *(tune)* */
 export const IMMEDIATE_OFFSET = 0.005;
-/** Live input is stamped at least one audio callback plus this after currentTime (ADR 0027). *(tune)* */
+/** Live input is stamped at least one audio clock step plus this after currentTime (ADR 0027, 0028). *(tune)* */
 export const IMMEDIATE_MARGIN = 0.001;
 /** While the page is hidden, a push whose rewind is estimated to take longer than this many
  *  milliseconds is applied from the horizon instead (ADR 0026). Visible pushes always rewind. *(tune)* */
@@ -44,11 +44,11 @@ export interface SchedulerClock {
   /** True while the page is hidden, for the long lookahead. Default false. The
    *  host should also call `wake()` when visibility changes. */
   hidden?(): boolean;
-  /** One audio callback in seconds: AudioContext.baseLatency. currentTime moves in steps
-   *  this long, so a push is stamped at least this plus IMMEDIATE_MARGIN ahead (ADR 0027).
-   *  Read at each push; 0, negative or non-finite (before the context runs) counts as 0.
+  /** The largest single step the audio clock takes, in seconds: currentTime can move this much
+   *  between two reads, so a push is stamped at least this plus IMMEDIATE_MARGIN ahead (ADR 0027,
+   *  0028). The host measures it. Read at each push; 0, negative or non-finite counts as 0.
    *  Without it the offset is `immediateOffset` alone (headless runs, tests). */
-  callback?(): number;
+  step?(): number;
 }
 
 export interface SchedulerTimer {
@@ -177,12 +177,12 @@ export class Scheduler {
 
   /**
    * The immediate-path offset in force: a push now is stamped currentTime + this. The larger
-   * of `immediateOffset` and one audio callback (`clock.callback`) + IMMEDIATE_MARGIN (ADR 0027).
+   * of `immediateOffset` and one clock step (`clock.step`) + IMMEDIATE_MARGIN (ADR 0027, 0028).
    */
   get offset(): number {
-    if (!this.clock.callback) return this.immediateOffset;
-    const callback = this.clock.callback();
-    return Math.max(this.immediateOffset, (Number.isFinite(callback) && callback > 0 ? callback : 0) + IMMEDIATE_MARGIN);
+    if (!this.clock.step) return this.immediateOffset;
+    const step = this.clock.step();
+    return Math.max(this.immediateOffset, (Number.isFinite(step) && step > 0 ? step : 0) + IMMEDIATE_MARGIN);
   }
 
   get stats(): SchedulerStats {

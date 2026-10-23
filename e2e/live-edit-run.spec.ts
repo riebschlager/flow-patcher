@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { LivePatch } from '../packages/editor/src/live';
+import { clockStepKnown } from './audio-clock';
 
 declare global {
   interface Window {
@@ -81,6 +82,8 @@ test('scripted edits on the playing demo hand nothing to Web Audio late', async 
   await expect(page.getByTestId('audio-state')).toHaveText('live');
   await expect(page.locator('[data-node-type="sampled-voice"] [data-testid="node-status"]')).toHaveCount(0, { timeout: 10_000 });
   await expect.poll(async () => (await stats(page)).delivered, { timeout: 6000 }).toBeGreaterThan(4);
+  // Taps are stamped with the measured clock step once it is known (ADR 0028), not baseLatency.
+  await clockStepKnown(page);
   const first = await stats(page);
 
   let edits = 0;
@@ -109,7 +112,10 @@ test('scripted edits on the playing demo hand nothing to Web Audio late', async 
 
     // Node add and remove: a Probability between the rhythm and the beat's Splat, wired, then deleted with its cables.
     before = (await stats(page)).swaps;
-    await page.mouse.dblclick(940, 470);
+    // Empty canvas between Output and Fluid, wherever fitView put them.
+    const above = (await page.locator('.react-flow__node[data-id="output"]').boundingBox())!;
+    const below = (await page.locator('.react-flow__node[data-id="fluid"]').boundingBox())!;
+    await page.mouse.dblclick(above.x + above.width / 2, (above.y + above.height + below.y) / 2);
     await expect(page.getByTestId('node-palette')).toBeVisible();
     await page.keyboard.type('probab');
     await page.getByTestId('node-palette').locator('[data-node-type="probability"]').click();

@@ -1,6 +1,6 @@
 # 0027 · The immediate-path offset covers at least one audio callback
 
-Status: Accepted · 2026-10-22 · Amends [0017](0017-immediate-offset-and-catch-up.md)
+Status: Accepted · 2026-10-22 · Amends [0017](0017-immediate-offset-and-catch-up.md) · Amended by [0028](0028-offset-from-measured-clock-step.md) (the step is measured, not baseLatency)
 
 ## Context
 ADR 0017 stamps live input at `ctx.currentTime + 5 ms`. The M1 gate's e2e edit run (#33; macOS, Chromium, 48 kHz, 256-frame callbacks) found that in about one run in two, a tap's own note reached `AudioBufferSourceNode.start()` 0.33 ms after `currentTime`, and once 2.5 ms after. The runtime hands the note over with its full 5 ms lead, but `currentTime` doesn't move smoothly: it advances once per audio callback, here 256 / 48 000 = 5.33 ms, which is more than the offset. One clock step between the stamp and the voice's `start()` call puts the note in the past. If the step comes during the push itself, the late counters catch it (`lateImmediate`). Scheduled events, 120 ms ahead, never come near this.

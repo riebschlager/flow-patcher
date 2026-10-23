@@ -27,6 +27,7 @@ import {
   type VoiceStats,
 } from '@flow-patcher/engine';
 import { nodeRegistry, rendererImage } from '@flow-patcher/nodes';
+import { ClockStep } from './clock-step';
 import { EventTrack, PROBE_HISTORY } from './event-track';
 
 /** Pointer events the canvas forwards, as Pointer node output ports. */
@@ -145,6 +146,8 @@ export class LivePatch {
   /** A cold tap still waiting for its held push to run. */
   private coldTap: Tap | null = null;
   private readonly frames: FrameLoop;
+  /** The audio clock's largest step, which the immediate offset covers (ADR 0028). */
+  private readonly clockStep: ClockStep;
   /** The fluid's host. Its Worker starts when a Fluid first sends it work, so one can be added mid-session. */
   private readonly fluid: { host: FluidHost; worker: () => Worker | null };
   private hasFluid = false;
@@ -179,14 +182,15 @@ export class LivePatch {
     this.audio = this.observeStarts(this.context);
     this.runtime.attachAudio(this.audio);
     const context = this.context;
+    this.clockStep = new ClockStep(() => context.currentTime, () => performance.now(), () => context.baseLatency);
     this.scheduler = new Scheduler(this.runtime, {
       clock: {
         audioTime: () => context.currentTime,
         wallTime: () => performance.now(),
         running: () => context.state === 'running',
         hidden: () => document.hidden,
-        // In Chromium, one audio callback's buffer: the immediate offset covers it (ADR 0027).
-        callback: () => context.baseLatency,
+        // Measured once a frame; baseLatency until enough steps are seen (ADR 0027, 0028).
+        step: () => this.clockStep.value(),
       },
       timer: {
         every(ms, tick) {
@@ -314,14 +318,20 @@ export class LivePatch {
     return this.scheduler.stats;
   }
 
-  /** The AudioContext's clock, for e2e: currentTime, and baseLatency (in Chromium, one audio callback's buffer). */
-  /** The offset live input is stamped with now (ADR 0027). */
+  /** The offset live input is stamped with now (ADR 0027, 0028). */
   get immediateOffset(): number {
     return this.scheduler.offset;
   }
 
-  get clock(): { currentTime: number; baseLatency: number } {
-    return { currentTime: this.context.currentTime, baseLatency: this.context.baseLatency };
+  /** The AudioContext's clock, for e2e: currentTime, baseLatency, and the largest step it has taken
+   *  (`step`, in use once `stepKnown`; ADR 0028). */
+  get clock(): { currentTime: number; baseLatency: number; step: number; stepKnown: boolean } {
+    return {
+      currentTime: this.context.currentTime,
+      baseLatency: this.context.baseLatency,
+      step: this.clockStep.value(),
+      stepKnown: this.clockStep.known,
+    };
   }
 
   /** A number param as the node reads it now, cables included: the knob's modulation ring. It reads the latest
@@ -400,6 +410,7 @@ export class LivePatch {
   /** One animation frame: the visual nodes on the frame clock, then the Renderer's picture onto the canvas. */
   private frame(): void {
     this.frameCounts.frames++;
+    if (this.context.state === 'running') this.clockStep.sample();
     this.frames.tick();
     this.followPorts();
     if (this.runtime.warningsVersion !== this.warningsSeen) {

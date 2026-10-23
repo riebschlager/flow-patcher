@@ -232,10 +232,10 @@ describe('Immediate path: a pushed note lands at currentTime + 5 ms, without a w
     expect(scheduler.stats).toMatchObject({ pushes: 1, rewinds: 1, lateImmediate: 0, pushFallbacks: 0 });
   });
 
-  it('stamps a push one audio callback + 1 ms ahead when that is longer than 5 ms (ADR 0027)', () => {
+  it('stamps a push one clock step + 1 ms ahead when that is longer than 5 ms (ADR 0027, 0028)', () => {
     const { scheduler, clock, deliveries, wakeEvery } = setup(p);
     // 256 frames at 48 kHz.
-    Object.assign(clock, { callback: () => 0.00533 });
+    Object.assign(clock, { step: () => 0.00533 });
     wakeEvery(0, 1);
     clock.set(1.0123);
     expect(scheduler.offset).toBeCloseTo(0.00533 + IMMEDIATE_MARGIN, 12);
@@ -245,16 +245,16 @@ describe('Immediate path: a pushed note lands at currentTime + 5 ms, without a w
     expect(scheduler.stats).toMatchObject({ pushes: 1, rewinds: 1, lateImmediate: 0 });
   });
 
-  it('keeps 5 ms when one audio callback + 1 ms is shorter, or the callback is unknown', () => {
-    for (const callback of [0.002, 0, -0.01, NaN, Infinity]) {
+  it('keeps 5 ms when one clock step + 1 ms is shorter, or the step is unknown', () => {
+    for (const step of [0.002, 0, -0.01, NaN, Infinity]) {
       const { scheduler, clock, wakeEvery } = setup(p);
-      Object.assign(clock, { callback: () => callback });
+      Object.assign(clock, { step: () => step });
       wakeEvery(0, 1);
       clock.set(1.0123);
       expect(scheduler.offset).toBe(IMMEDIATE_OFFSET);
       expect(scheduler.push('t', 'out', { channel: 0 })!.time).toBe(1.0123 + IMMEDIATE_OFFSET);
     }
-    // No callback at all: the configured offset alone, as headless runs have it.
+    // No step at all: the configured offset alone, as headless runs have it.
     expect(setup(p).scheduler.offset).toBe(IMMEDIATE_OFFSET);
   });
 
