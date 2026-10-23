@@ -1,0 +1,79 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261026,
+  "nodes": [
+    {
+      "id": "pointer",
+      "type": "pointer-high-rate",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "splat",
+      "type": "splat",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 240,
+        "y": 100
+      }
+    },
+    {
+      "id": "fluid",
+      "type": "fluid",
+      "typeVersion": 3,
+      "params": {},
+      "position": {
+        "x": 480,
+        "y": 140
+      }
+    },
+    {
+      "id": "renderer",
+      "type": "renderer",
+      "typeVersion": 2,
+      "params": {},
+      "position": {
+        "x": 720,
+        "y": 100
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "pointer",
+        "port": "move"
+      },
+      "to": {
+        "node": "splat",
+        "port": "at"
+      }
+    },
+    {
+      "from": {
+        "node": "splat",
+        "port": "write"
+      },
+      "to": {
+        "node": "fluid",
+        "port": "writers"
+      }
+    },
+    {
+      "from": {
+        "node": "fluid",
+        "port": "field"
+      },
+      "to": {
+        "node": "renderer",
+        "port": "field"
+      }
+    }
+  ]
+}

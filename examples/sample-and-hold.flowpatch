@@ -6,7 +6,7 @@
     {
       "id": "pointer",
       "type": "pointer",
-      "typeVersion": 1,
+      "typeVersion": 2,
       "params": {},
       "position": {
         "x": 0,

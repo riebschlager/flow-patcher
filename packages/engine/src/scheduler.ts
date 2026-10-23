@@ -11,6 +11,7 @@
 // The clocks and the timer are injected, so the same code runs in the
 // browser, headless and in tests that simulate stalls.
 import type { EngineEvent } from './events';
+import { pushable } from './input';
 import type { LoggedEvent, Plan, RewindReport, Runtime, RuntimeCounters, SwapReport } from './runtime';
 
 /** Seconds between wakes. */
@@ -363,10 +364,10 @@ export class Scheduler {
     return events;
   }
 
-  /** Whether the latest plan has `nodeId` with an Event or Note output `port`, so it can be pushed onto. */
+  /** Whether the latest plan has `nodeId` with an Event or Note output `port` (or a push-only port, `pushable`), so it can be pushed onto. */
   private hasEventOutput(nodeId: string, port: string): boolean {
-    const spec = this.runtime.plan.order.find((n) => n.id === nodeId)?.definition.ports.find((p) => p.name === port && p.direction === 'out');
-    return spec !== undefined && (spec.type === 'event' || spec.type === 'note');
+    const definition = this.runtime.plan.order.find((n) => n.id === nodeId)?.definition;
+    return definition !== undefined && pushable(definition, port);
   }
 
   /**

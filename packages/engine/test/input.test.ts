@@ -133,6 +133,24 @@ describe('parseInputStream', () => {
     ]);
   });
 
+  it('takes an interval of 0 or more seconds on pointer down, move, up and cancel only', () => {
+    const move = { ...down, type: 'pointermove' };
+    expect(errorsOf(stream([{ ...down, interval: 0 }, { ...move, coalesced: true, interval: 0.004 }, { ...move, interval: 0.016 }, { ...up, interval: 0.1 }]))).toEqual([]);
+    expect(errorsOf(stream([
+      { ...move, interval: -0.001 },
+      { ...move, interval: 'soon' },
+      { ...move, interval: Infinity },
+      { time: 0.4, type: 'pointerenter', channel: 1, interval: 0.01 },
+      { time: 0.4, type: 'keydown', interval: 0.01 },
+    ]))).toEqual([
+      "events[0].interval: expected 0 or more seconds since the pointer's previous sample",
+      'events[1].interval: expected a finite number',
+      'events[2].interval: expected a finite number',
+      'events[3].interval: only pointerdown, pointermove, pointerup and pointercancel carry one',
+      'events[4].interval: only pointerdown, pointermove, pointerup and pointercancel carry one',
+    ]);
+  });
+
   it('serializes one event per line, and that parses back to the same stream', () => {
     const parsed = parseInputStream(stream([down, up]));
     if (!parsed.ok) throw new Error(parsed.errors.join('\n'));

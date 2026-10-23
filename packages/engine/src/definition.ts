@@ -180,6 +180,11 @@ export interface QueryContext extends EventContext {
    * `query()` returns, so `query()` must not return them itself, or they are
    * emitted twice. Use them to update state, such as a pointer's position or
    * the set of pointers down, so `signal()` and `value()` can answer from it.
+   * A source whose `input.rewrites` is set is the exception: the runtime
+   * doesn't merge them, and `query()` returns its own versions, such as
+   * Pointer's with a slot channel and derived fields, at the pushes' times.
+   * Such a node may also be pushed on push-only ports (`InputSpec.reads`),
+   * which appear here and nowhere else.
    * A rewind (ADR 0019) re-queries the window with the same pushes, including
    * when the node is only stepped for its state as a Signal or Value source.
    */

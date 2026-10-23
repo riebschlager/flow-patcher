@@ -36,6 +36,16 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
     return () => observer.disconnect();
   }, []);
 
+  // Each pointer's latest sample time (event.timeStamp, ms), for `interval`: motion is measured on the
+  // browser's clock, since the stamps carry render quanta and handler delays (canvas-sources.md).
+  const [lastSample] = useState(() => new Map<number, number>());
+  /** Seconds since this pointer's previous sample, or nothing for its first; and `timeStamp` becomes the latest. */
+  const intervalOf = (pointerId: number, timeStamp: number): { interval?: number } => {
+    const last = lastSample.get(pointerId);
+    lastSample.set(pointerId, timeStamp);
+    return last === undefined ? {} : { interval: Math.max(0, (timeStamp - last) / 1000) };
+  };
+
   const send = (port: PointerPort) => (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (!live) return;
     const box = event.currentTarget.getBoundingClientRect();
@@ -45,14 +55,47 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
       // is for keyboard focus, so a tap after tabbing elsewhere doesn't light it.
       event.currentTarget.focus({ preventScroll: true, focusVisible: false });
     }
-    live.pointer(port, {
-      channel: event.pointerId,
-      x: clamp01((event.clientX - box.left) / box.width),
-      y: clamp01((event.clientY - box.top) / box.height),
+    const fields = (e: PointerEvent | ReactPointerEvent<HTMLCanvasElement>) => ({
+      channel: e.pointerId,
+      x: clamp01((e.clientX - box.left) / box.width),
+      y: clamp01((e.clientY - box.top) / box.height),
       // Mice report 0.5 while a button is down and 0 otherwise.
-      pressure: event.pressure,
-      pointerType: event.pointerType,
-    }, event.timeStamp);
+      pressure: e.pressure,
+      pointerType: e.pointerType,
+      width: e.width,
+      height: e.height,
+      button: e.button,
+      buttons: e.buttons,
+      shift: e.shiftKey,
+      alt: e.altKey,
+      ctrl: e.ctrlKey,
+      meta: e.metaKey,
+    });
+    if (port === 'enter' || port === 'leave') {
+      // Hover state only: no sample. A pointer that leaves starts afresh when it comes back.
+      if (port === 'leave') lastSample.delete(event.pointerId);
+      live.pointer(port, fields(event), event.timeStamp);
+      return;
+    }
+    if (port === 'move' && live.readsCoalesced) {
+      // Pointer (high rate): every sample the browser coalesced into this move, then the move itself
+      // for Pointer, in one push. The list includes the dispatched move, so high rate reads only the
+      // samples (`coalesced: true`) and Pointer only the plain move. One source in every browser:
+      // pointerrawupdate isn't used, since its samples come again in the next move's list, and a push
+      // per sample would cost a rewind each and collide on render-quantum stamps.
+      const native = event.nativeEvent;
+      const listed = native.getCoalescedEvents?.() ?? [];
+      const samples = listed.length ? listed : [native];
+      // The plain move spans from the previous move (or down) to this one; each sample from the one before it.
+      const before = lastSample.get(event.pointerId);
+      const plain = { type: 'pointermove' as const, ...fields(event), ...(before === undefined ? {} : { interval: Math.max(0, (event.timeStamp - before) / 1000) }) };
+      const coalesced = samples.map((sample) => ({ type: 'pointermove' as const, ...fields(sample), coalesced: true, ...intervalOf(event.pointerId, sample.timeStamp) }));
+      lastSample.set(event.pointerId, event.timeStamp);
+      live.inputAll([...coalesced, plain]);
+      return;
+    }
+    live.pointer(port, { ...fields(event), ...intervalOf(event.pointerId, event.timeStamp) }, event.timeStamp);
+    if (port === 'up' || port === 'cancel') lastSample.delete(event.pointerId);
   };
 
   // Focus rules (Platform rules): while the canvas has focus its keys stay with it, so the editor's
@@ -109,6 +152,8 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
           onPointerMove={send('move')}
           onPointerUp={send('up')}
           onPointerCancel={send('cancel')}
+          onPointerEnter={send('enter')}
+          onPointerLeave={send('leave')}
         />
         {live && !pointers && <span className="preview__hint">No Pointer in this patch</span>}
       </div>

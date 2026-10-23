@@ -20,12 +20,14 @@ Replays need recorded input: M2's mode patches replay scripted input, and M4's p
 - **`time`** is in seconds from the stream's start, sorted ascending.
 - **`type`** is the canvas event: `pointerdown`, `pointermove`, `pointerup`, `pointercancel`, `pointerenter`, `pointerleave`, `click`, `dblclick`, `auxclick`, `contextmenu`, `wheel`, `keydown`, `keyup`, `gesturechange`, `resize`, `focus`, `blur`, `visibilitychange` or `midi`.
   - `pointerrawupdate` and coalesced samples are recorded as `pointermove` with `coalesced: true`. Pointer ignores those, and Pointer (high rate) reads them.
+  - pointerdown, pointermove (coalesced samples included), pointerup and pointercancel also record `interval` (not pointerenter or pointerleave), the seconds since that pointer's previous sample by the browser's clock: one browser event's samples share a stamp, and stamps carry handler delays (#74). The live host doesn't listen to `pointerrawupdate` (docs/nodes/canvas-sources.md).
   - `pointerenter` and `pointerleave` only update Pointer's hover state. They have no phase on All (ADR 0028).
 
 ### Payload fields
 - The other fields are what the source nodes read, under the names their outputs use. design.md "Event payload" gives the base fields. docs/nodes/canvas-sources.md is the per-source list: pen tilt and twist, `key`, `code` and `repeat`, wheel deltas, gesture scale and rotation, canvas size, visibility, and MIDI `status`, `data1` and `data2`, the message's bytes as numbers (the MIDI channel is in `status`; a midi event has no `channel`). Only channel messages are recorded: the host drops system messages (sysex, clock, active sensing). Two-byte messages (program change, channel pressure) have no `data2`.
 - Fields a type doesn't use are left out.
 - Derived fields (`dx`, `dy`, `speed`, `angle`, `age`) are not recorded. The source nodes compute them from the sequence, on replay as live.
+- Streams record raw ids (`pointerId`). A source may rewrite its pushes (`InputSpec.rewrites`, #74), as Pointer maps pointerIds to slot channels and adds the derived fields, in node state, so replay and live give the same channels.
 - Canvas size goes in `canvasWidth` and `canvasHeight`, so it can't be confused with a contact's `width` and `height`.
 
 ### What `time` means

@@ -37,19 +37,45 @@ import { EventTrack, PROBE_HISTORY } from './event-track';
 import { MidiHost } from './midi';
 import { browserRequesters, neededPermissions, Permissions } from './permissions';
 
-/** Pointer events the canvas forwards, by phase. */
-export type PointerPort = 'down' | 'move' | 'up' | 'cancel';
+/** Pointer events the canvas forwards: the four phases, and entering and leaving the canvas (hover state). */
+export type PointerPort = 'down' | 'move' | 'up' | 'cancel' | 'enter' | 'leave';
 
-/** The input stream type (ADR 0029) of each pointer phase. */
-const POINTER_TYPES: Readonly<Record<PointerPort, InputEventType>> = { down: 'pointerdown', move: 'pointermove', up: 'pointerup', cancel: 'pointercancel' };
+/** The input stream type (ADR 0029) of each pointer event the canvas forwards. */
+const POINTER_TYPES: Readonly<Record<PointerPort, InputEventType>> = {
+  down: 'pointerdown', move: 'pointermove', up: 'pointerup', cancel: 'pointercancel', enter: 'pointerenter', leave: 'pointerleave',
+};
 
 /**
  * Input events dropped, not held, while the AudioContext isn't running. Held pushes all replay at one
  * stamp when it starts, as a burst of rewinds that the event cap can cut the important ones out of.
- * Hover moves before the first tap: the Down carries the position anyway. MIDI: it never starts audio,
- * so a suspended or interrupted context (an iOS call) would otherwise collect every CC sent meanwhile.
+ * Hover moves (coalesced samples too) before the first tap: the Down carries the position anyway.
+ * Enter and leave: they only update hover state, and pairs would pile up unbounded while hovering in and out.
+ * MIDI: it never starts audio, so a suspended or interrupted context (an iOS call) would otherwise collect
+ * every CC sent meanwhile.
  */
-export const droppedWhileCold = (type: InputEventType): boolean => type === 'pointermove' || type === 'midi';
+export const droppedWhileCold = (type: InputEventType): boolean =>
+  type === 'pointermove' || type === 'pointerenter' || type === 'pointerleave' || type === 'midi';
+
+/** The payload of one pointer event (docs/nodes/canvas-sources.md, Event payload): the raw pointerId as `channel`. */
+export interface PointerFields {
+  channel: number;
+  x: number;
+  y: number;
+  pressure: number;
+  pointerType: string;
+  /** Contact size in CSS pixels, where the hardware reports it (a mouse reports 1). */
+  width?: number;
+  height?: number;
+  /** The button that changed (−1 on a move), and the buttons held, as the browser reports them. */
+  button?: number;
+  buttons?: number;
+  shift?: boolean;
+  alt?: boolean;
+  ctrl?: boolean;
+  meta?: boolean;
+  /** Seconds since this pointer's previous sample, from the events' timeStamps (#74). Left out on its first. */
+  interval?: number;
+}
 
 /** One pointerdown, for the Immediate path gate check (docs/milestones.md, M1). */
 export interface Tap {
@@ -375,7 +401,7 @@ export class LivePatch {
   /** Sends one pointer event to every source node that reads it. x and y are 0–1, y = 0 at the top. */
   pointer(
     port: PointerPort,
-    fields: { channel: number; x: number; y: number; pressure: number; pointerType: string },
+    fields: PointerFields,
     /** The event's timeStamp (performance.now() time), when it came from a real input event. */
     timeStamp?: number,
   ): void {
@@ -385,6 +411,30 @@ export class LivePatch {
   /** Whether a source node in the running plan reads this canvas event type, such as `contextmenu` (Platform rules). */
   reads(type: InputEventType): boolean {
     return this.router.reads(type);
+  }
+
+  /** Whether a source in the running plan reads coalesced move samples (Pointer (high rate)), so the canvas sends them. */
+  get readsCoalesced(): boolean {
+    return this.router.route({ type: 'pointermove', channel: 0, coalesced: true }).length > 0;
+  }
+
+  /**
+   * Several canvas events from one browser event, such as a pointermove's coalesced samples
+   * and the move itself, as one push stamped once, so the samples keep their order and share
+   * a time (each carries its own `interval`). Moves only: a pointerdown goes through `input`, which
+   * starts audio. Dropped while audio is stopped, like hover moves. Returns the pushed events,
+   * flattened per target (one per source node an event reached), all at the applied stamp: an M4
+   * recorder should keep that stamp with the input events themselves (ADR 0029), not these.
+   */
+  inputAll(events: readonly InputFields[]): EngineEvent[] | null {
+    if (this.context.state !== 'running' && events.some((event) => droppedWhileCold(event.type))) return null;
+    const targets = events.flatMap((event) => this.router.route(event));
+    if (!targets.length) return null;
+    try {
+      return this.scheduler.pushAll(targets);
+    } finally {
+      this.refreshTracks();
+    }
   }
 
   /** Every canvas event type a source node in the running plan reads. */
