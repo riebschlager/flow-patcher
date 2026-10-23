@@ -30,7 +30,7 @@ function writerOf(state: NodeState, options: Parameters<typeof context>[1] = {})
 /** Calls `write` once and returns what it splatted. */
 function written(writer: FluidWriter): Call[] {
   const calls: Call[] = [];
-  writer.write({ splat: (...call) => void calls.push(call) });
+  writer.write({ splat: (...call) => void calls.push(call), force() {}, pulse() {} });
   return calls;
 }
 

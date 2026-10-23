@@ -1,0 +1,131 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261023,
+  "nodes": [
+    {
+      "id": "clock",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 30,
+        "division": "1/4"
+      },
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "drops",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 120,
+        "division": "1/8"
+      },
+      "position": {
+        "x": 0,
+        "y": 300
+      }
+    },
+    {
+      "id": "splat",
+      "type": "splat",
+      "typeVersion": 1,
+      "params": {
+        "size": 0.06
+      },
+      "position": {
+        "x": 240,
+        "y": 300
+      }
+    },
+    {
+      "id": "force",
+      "type": "force",
+      "typeVersion": 1,
+      "params": {
+        "mode": "push",
+        "radius": 0.15,
+        "strength": 1
+      },
+      "position": {
+        "x": 240,
+        "y": 100
+      }
+    },
+    {
+      "id": "fluid",
+      "type": "fluid",
+      "typeVersion": 3,
+      "params": {},
+      "position": {
+        "x": 480,
+        "y": 200
+      }
+    },
+    {
+      "id": "renderer",
+      "type": "renderer",
+      "typeVersion": 2,
+      "params": {},
+      "position": {
+        "x": 720,
+        "y": 200
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "clock",
+        "port": "phase"
+      },
+      "to": {
+        "node": "force",
+        "port": "x"
+      }
+    },
+    {
+      "from": {
+        "node": "drops",
+        "port": "tick"
+      },
+      "to": {
+        "node": "splat",
+        "port": "at"
+      }
+    },
+    {
+      "from": {
+        "node": "force",
+        "port": "write"
+      },
+      "to": {
+        "node": "fluid",
+        "port": "writers"
+      }
+    },
+    {
+      "from": {
+        "node": "splat",
+        "port": "write"
+      },
+      "to": {
+        "node": "fluid",
+        "port": "writers"
+      }
+    },
+    {
+      "from": {
+        "node": "fluid",
+        "port": "field"
+      },
+      "to": {
+        "node": "renderer",
+        "port": "field"
+      }
+    }
+  ]
+}

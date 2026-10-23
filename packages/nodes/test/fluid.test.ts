@@ -86,6 +86,38 @@ describe('fluid node', () => {
     expect(backend.work[0]!.splats[1]).toEqual([0.8, 0.7, ...canonicalDyes[2]!, 0.06, 0, 19]);
   });
 
+  it('passes forces and pulses on in cable order, sanitised so nothing non-finite reaches the solver', () => {
+    const backend = spy();
+    const pushes: FluidWriter = {
+      write(target) {
+        target.force(0.3, 0.4, 50, -20, 0.1);
+        target.force(NaN, Infinity, 1e9, -1e9, -1);
+        target.force(-2, 0.5, NaN, Infinity, NaN);
+        target.force(0.5, 0.5, 1, 1);
+        target.pulse(0.6, 0.2, 0.7, 0.12, -1);
+        target.pulse(NaN, -Infinity, 1e9, -0.3, NaN);
+        target.pulse(0.5, 0.5, -1e9, 1e9, 0);
+        target.pulse(0.5, 0.5);
+      },
+    };
+    const dyes = writer([[0.1, 0.1, canonicalDyes[1]!]]);
+    frame(fluid, 0, DT, { fields: { writers: [() => dyes, () => pushes] }, services: { fluid: backend } });
+    expect(backend.work[0]!.splats).toEqual([
+      [0.1, 0.1, ...canonicalDyes[1]!, 0.05, 0, 0],
+      ['force', 0.3, 0.4, 50, -20, 0.1],
+      // Positions clamp to 0–1 (non-finite ones go to the middle), pushes to ±180, radii to 0.005–1.
+      ['force', 0.5, 0.5, 180, -180, 0.005],
+      ['force', 0, 0.5, 0, 0, 0.04],
+      ['force', 0.5, 0.5, 1, 1, 0.04],
+      ['pulse', 0.6, 0.2, 0.7, 0.12, -1],
+      // Pulse strength clamps to 0–4; a direction that isn't negative turns clockwise.
+      ['pulse', 0.5, 0.5, 4, 0.005, 1],
+      ['pulse', 0.5, 0.5, 0, 1, 1],
+      ['pulse', 0.5, 0.5, 0.5, 0.08, 1],
+    ]);
+    for (const write of backend.work[0]!.splats) for (const v of write) if (typeof v === 'number') expect(Number.isFinite(v)).toBe(true);
+  });
+
   it('maps its knobs onto the solver and sends the palette, grid, dt and frame time', () => {
     const backend = spy();
     frame(fluid, 1, 1 + DT, { dt: DT, params: { vorticity: 0.4, dissipation: 0.25, viscosity: 0.5, palette: 'ember' }, services: { fluid: backend } });

@@ -1,7 +1,8 @@
 // The objects behind Field cables (design.md, "The fluid field"). A Field
 // cable carries an object shared by reference: `NodeDefinition.field()`
 // returns it, and the node at the other end reads it in `frame()` through
-// `ctx.fields(port)`. Two kinds of Field port exist (PortSpec.fieldKind):
+// `ctx.fields(port)`. Three kinds of Field port exist (PortSpec.fieldKind);
+// the third, an overlay's Overlay output ('overlay'), is in render/overlay.ts.
 //
 // - Fluid's Field output ('fluid'): a `FluidField`. Readers (Renderer, later
 //   Probe) get the step latched at the start of the frame, never the one the
@@ -24,6 +25,8 @@
 //   4. Coordinates are 0–1 with y down; dye is in the canonical basis
 //      (`canonicalDyes`), so the palette recolors it. Clamp positions and
 //      drop non-finite values: a NaN in the dye spreads through every cell.
+//   5. Splats, forces and pulses reach the solver in the order they were
+//      written, across writers too (FluidWrite in backend.ts).
 import type { Dye } from './fluid';
 import type { FluidImage } from './backend';
 
@@ -31,6 +34,10 @@ import type { FluidImage } from './backend';
 export interface FluidTarget {
   /** Dye plus an impulse at (x, y), as `Fluid.splat`. */
   splat(x: number, y: number, color: Dye, size?: number, dx?: number, dy?: number): void;
+  /** A dye-free push of (dx, dy) around (x, y), as `Fluid.force` (Force). */
+  force(x: number, y: number, dx: number, dy: number, radius?: number): void;
+  /** A dye-free vortex around (x, y), as `Fluid.pulse`: direction 1 turns clockwise on screen, -1 the other way (Force's whirlpools). */
+  pulse(x: number, y: number, strength?: number, radius?: number, direction?: number): void;
 }
 
 /** A writer's Write output. */

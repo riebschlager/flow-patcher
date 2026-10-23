@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { compilePatch, createInProcessFluid, Runtime, type FluidField, type FluidHost, type NodeState, type Patch } from '@flow-patcher/engine';
+import {
+  compilePatch,
+  createInProcessFluid,
+  FLUID_BACKGROUND,
+  OVERLAY_SIZE,
+  Runtime,
+  type FluidField,
+  type FluidHost,
+  type NodeState,
+  type OverlayDrawer,
+  type OverlayTarget,
+  type Patch,
+} from '@flow-patcher/engine';
 import { nodeRegistry, renderer, rendererImage } from '../src';
 import { frame } from './helpers';
 
@@ -10,10 +22,22 @@ const params = {};
 const fieldOf = (image: unknown): FluidField => ({ kind: 'fluid', image: () => image as ReturnType<FluidField['image']> });
 const pixels = (w: number, h: number, fill: number) => new Uint8ClampedArray(w * h * 4).fill(fill);
 
-/** Runs one Renderer frame over the given Field cables and returns its image. */
-function show(fields: unknown[], state: NodeState = {}) {
-  frame(renderer, 0, DT, { state, fields: { field: fields.map((f) => () => f) } });
+/** Runs one Renderer frame over the given Field and Overlay cables and returns its image. */
+function show(fields: unknown[], state: NodeState = {}, overlays: unknown[] = []) {
+  frame(renderer, 0, DT, { state, fields: { field: fields.map((f) => () => f), overlays: overlays.map((o) => () => o) } });
   return renderer.image!(state, params);
+}
+
+/** An overlay that records its targets and paints its first pixel `value`. */
+function painter(value: number): OverlayDrawer & { targets: OverlayTarget[] } {
+  return {
+    kind: 'overlay',
+    targets: [],
+    draw(target) {
+      this.targets.push(target);
+      target.pixels.fill(value, 0, 3);
+    },
+  };
 }
 
 const node = (id: string, type: string, x = 0) => ({ id, type, typeVersion: nodeRegistry.get(type)!.version, params: {}, position: { x, y: 0 } });
@@ -32,8 +56,11 @@ function runtime(fluid: FluidHost): Runtime {
 }
 
 describe('renderer', () => {
-  it('has one Fluid Field input, no outputs, no params and no query', () => {
-    expect(renderer.ports).toEqual([{ name: 'field', type: 'field', direction: 'in', label: 'Field', fieldKind: 'fluid' }]);
+  it('has a Fluid Field input and an Overlays input, no outputs, no params and no query', () => {
+    expect(renderer.ports).toEqual([
+      { name: 'field', type: 'field', direction: 'in', label: 'Field', fieldKind: 'fluid' },
+      { name: 'overlays', type: 'field', direction: 'in', label: 'Overlays', fieldKind: 'overlay' },
+    ]);
     expect(renderer.params).toEqual([]);
     expect(renderer.query).toBeUndefined();
     expect(renderer.frame).toBeTypeOf('function');
@@ -125,5 +152,73 @@ describe('renderer', () => {
     expect(show([fieldOf({ width: 1, height: 1, pixels: pixels(1, 1, 50) })], state)).not.toBeNull();
     expect(show([fieldOf(null)], state)).toBeNull();
     expect(show([], state)).toBeNull();
+  });
+
+  it('with overlays, draws them in cable order over the fluid scaled up four times', () => {
+    // A 2 × 1 fluid picture: a dark pixel and a bright one.
+    const fluidImage = { width: 2, height: 1, pixels: new Uint8ClampedArray([0, 0, 0, 255, 200, 100, 40, 255]) };
+    const first = painter(10), second = painter(20);
+    const state: NodeState = {};
+    const image = show([fieldOf(fluidImage)], state, [first, 'nope', second]);
+    // overlayScale(2, 1) is far past 4, so the picture is as big as OVERLAY_PIXELS allows.
+    expect(image!.width / 2).toBe(image!.height);
+    expect(Number.isInteger(image!.width / 2)).toBe(true);
+    expect(first.targets[0]).toBe(second.targets[0]);
+    expect(first.targets[0]).toBe(rendererImage(state));
+    // The second overlay drew last; past the first pixel, the fluid is there, scaled with smoothing.
+    expect([...image!.pixels.slice(0, 4)]).toEqual([20, 20, 20, 255]);
+    const row = image!.pixels.subarray(0, image!.width * 4);
+    expect([...row.slice(-4)]).toEqual([200, 100, 40, 255]);
+    const middle = (image!.width / 2) * 4;
+    expect(row[middle]! > 0 && row[middle]! < 200).toBe(true);
+    // The fluid's own buffer is untouched.
+    expect([...fluidImage.pixels]).toEqual([0, 0, 0, 255, 200, 100, 40, 255]);
+  });
+
+  it('scales M1’s 128 × 72 grid by four, and draws overlays on the background with no fluid', () => {
+    const overlay = painter(30);
+    expect([show([fieldOf({ width: 128, height: 72, pixels: pixels(128, 72, 255) })], {}, [overlay])].map((i) => [i!.width, i!.height])).toEqual([[512, 288]]);
+    const image = show([], {}, [overlay])!;
+    expect([image.width, image.height]).toEqual([OVERLAY_SIZE.width, OVERLAY_SIZE.height]);
+    expect([...image.pixels.slice(4, 8)]).toEqual([...FLUID_BACKGROUND, 255]);
+    expect([...image.pixels.slice(0, 4)]).toEqual([30, 30, 30, 255]);
+  });
+
+  it('reuses its overlay buffer between frames and repaints it from the fluid each time', () => {
+    const state: NodeState = {};
+    const fluidImage = { width: 2, height: 1, pixels: pixels(2, 1, 90) };
+    const a = show([fieldOf(fluidImage)], state, [painter(1)]);
+    const buffer = rendererImage(state);
+    show([fieldOf(fluidImage)], state, [{ kind: 'overlay', draw() {} }]);
+    expect(rendererImage(state)).toBe(buffer);
+    // Last frame's overlay is gone.
+    expect([...rendererImage(state)!.pixels.slice(0, 4)]).toEqual([90, 90, 90, 90]);
+    expect([...a!.pixels.slice(0, 4)]).toEqual([1, 1, 1, 90]);
+    // With the overlays unplugged it shows the fluid's buffer again, uncopied.
+    show([fieldOf(fluidImage)], state);
+    expect(rendererImage(state)).toBe(fluidImage);
+  });
+
+  it('passes the fluid through uncomposed while every overlay is idle, and draws only visible ones', () => {
+    const state: NodeState = {};
+    const fluidImage = { width: 2, height: 1, pixels: pixels(2, 1, 90) };
+    let shown = false;
+    const drawn: string[] = [];
+    const idle = { kind: 'overlay', visible: () => shown, draw: () => void drawn.push('idle') };
+    const always = { kind: 'overlay', draw: () => void drawn.push('always') };
+    show([fieldOf(fluidImage)], state, [idle]);
+    expect(rendererImage(state)).toBe(fluidImage);
+    expect(drawn).toEqual([]);
+    // With no fluid and nothing visible there's nothing to show.
+    expect(show([], {}, [idle])).toBeNull();
+    // A drawer without visible() counts as visible; the idle one isn't drawn.
+    show([fieldOf(fluidImage)], state, [idle, always]);
+    expect(rendererImage(state)).not.toBe(fluidImage);
+    expect(drawn).toEqual(['always']);
+    shown = true;
+    drawn.length = 0;
+    show([fieldOf(fluidImage)], state, [idle]);
+    expect(drawn).toEqual(['idle']);
+    expect(rendererImage(state)!.width).toBeGreaterThan(2);
   });
 });

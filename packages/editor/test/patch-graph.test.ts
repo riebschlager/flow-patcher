@@ -115,4 +115,9 @@ describe('unwired hints', () => {
     const unwired = { ...doc, cables: doc.cables.filter((c) => !(c.to.node === 'prog' && c.to.port === 'transport')) };
     expect(hints(unwired)).toEqual(['No transport: holding the first chord']);
   });
+
+  it('says a hint shared by several unwired inputs once', () => {
+    const hints = patchToGraph(example('orbit-rings'), nodeRegistry).nodes.find((n) => n.id === 'rings')!.data.hints;
+    expect(hints.filter((h) => h === 'Rings in the middle (0.5).')).toHaveLength(1);
+  });
 });

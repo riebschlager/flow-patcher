@@ -81,9 +81,10 @@ export function patchToGraph(patch: Patch, registry: Registry, selected: Readonl
 
 function unwiredHints(patch: Patch, definition: NodeDefinition | undefined, id: string): string[] {
   if (!definition) return [];
-  return portsOf(definition, 'in')
+  // Inputs that share a default say it once (Orbit Rings' X and Y), which also keeps the card's rows uniquely keyed.
+  return [...new Set(portsOf(definition, 'in')
     .filter((p) => p.unwiredHint && !patch.cables.some((c) => c.to.node === id && c.to.port === p.name))
-    .map((p) => p.unwiredHint!);
+    .map((p) => p.unwiredHint!))];
 }
 
 /** A number param on `type` that takes a cable. */

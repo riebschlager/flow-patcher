@@ -16,16 +16,18 @@ import {
   type FluidStepReply,
   type FluidStepRequest,
   type FluidWork,
+  type FluidWrite,
   type SplatArgs,
 } from '../src';
 
 const GRID = { w: 48, h: 32 };
 const DT = 1 / 60;
 
-/** Frame k's work: a splat every third frame, knobs that move, a palette change halfway. */
+/** Frame k's work: a splat every third frame, a force or pulse every fourth, knobs that move, a palette change halfway. */
 function work(k: number): FluidWork {
   const dye = canonicalDyes[k % 4]!;
-  const splats: SplatArgs[] = k % 3 === 0 ? [[0.2 + (k % 5) * 0.15, 0.3 + (k % 4) * 0.1, dye[0], dye[1], dye[2], 0.08, Math.sin(k) * 30, 19]] : [];
+  const splats: FluidWrite[] = k % 3 === 0 ? [[0.2 + (k % 5) * 0.15, 0.3 + (k % 4) * 0.1, dye[0], dye[1], dye[2], 0.08, Math.sin(k) * 30, 19]] : [];
+  if (k % 4 === 1) splats.push(k % 8 === 1 ? ['force', 0.5, 0.4, 60, -30, 0.1] : ['pulse', 0.4, 0.6, 0.8, 0.12, -1]);
   return {
     dt: [DT, 1 / 120, 0.033][k % 3]!,
     grid: GRID,
@@ -81,7 +83,14 @@ describe('fluid stepper (the worker side)', () => {
       sim.swirl = w.params.swirl;
       sim.persistence = w.params.persistence;
       sim.drag = w.params.drag;
-      for (const [x, y, r, g, b, size, dx, dy] of w.splats) sim.splat(x, y, [r, g, b], size, dx, dy);
+      for (const write of w.splats) {
+        if (write[0] === 'force') sim.force(write[1], write[2], write[3], write[4], write[5]);
+        else if (write[0] === 'pulse') sim.pulse(write[1], write[2], write[3], write[4], write[5]);
+        else {
+          const [x, y, r, g, b, size, dx, dy] = write as SplatArgs;
+          sim.splat(x, y, [r, g, b], size, dx, dy);
+        }
+      }
       sim.step(w.dt);
       const pixels = renderFluidPixels(sim, new Uint8ClampedArray(sim.n * 4), w.time, createFluidColorizer(w.palette));
       expect([reply.w, reply.h]).toEqual([GRID.w, GRID.h]);
