@@ -1,0 +1,170 @@
+[
+  {
+    "node": "pointer",
+    "port": "down",
+    "event": {
+      "time": 0.4,
+      "channel": 1,
+      "x": 0.2,
+      "y": 0.4,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "up",
+    "event": {
+      "time": 0.48000000000000004,
+      "channel": 1,
+      "x": 0.2,
+      "y": 0.4,
+      "pressure": 0,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "down",
+    "event": {
+      "time": 1.1,
+      "channel": 2,
+      "x": 0.6,
+      "y": 0.3,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "up",
+    "event": {
+      "time": 1.1800000000000002,
+      "channel": 2,
+      "x": 0.6,
+      "y": 0.3,
+      "pressure": 0,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "down",
+    "event": {
+      "time": 1.7,
+      "channel": 3,
+      "x": 0.3,
+      "y": 0.7,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "move",
+    "event": {
+      "time": 1.75,
+      "channel": 3,
+      "x": 0.35,
+      "y": 0.67,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "move",
+    "event": {
+      "time": 1.8,
+      "channel": 3,
+      "x": 0.4,
+      "y": 0.64,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "move",
+    "event": {
+      "time": 1.85,
+      "channel": 3,
+      "x": 0.45,
+      "y": 0.61,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "move",
+    "event": {
+      "time": 1.9,
+      "channel": 3,
+      "x": 0.5,
+      "y": 0.58,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "move",
+    "event": {
+      "time": 1.95,
+      "channel": 3,
+      "x": 0.55,
+      "y": 0.55,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "move",
+    "event": {
+      "time": 2,
+      "channel": 3,
+      "x": 0.6,
+      "y": 0.52,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "up",
+    "event": {
+      "time": 2.05,
+      "channel": 3,
+      "x": 0.6,
+      "y": 0.52,
+      "pressure": 0,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "down",
+    "event": {
+      "time": 2.6,
+      "channel": 4,
+      "x": 0.85,
+      "y": 0.6,
+      "pressure": 0.6,
+      "pointerType": "touch"
+    }
+  },
+  {
+    "node": "pointer",
+    "port": "up",
+    "event": {
+      "time": 2.68,
+      "channel": 4,
+      "x": 0.85,
+      "y": 0.6,
+      "pressure": 0,
+      "pointerType": "touch"
+    }
+  }
+]

@@ -1,0 +1,315 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261024,
+  "nodes": [
+    {
+      "id": "pointer",
+      "type": "pointer",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "clock",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 96,
+        "division": "1/16"
+      },
+      "position": {
+        "x": 0,
+        "y": 380
+      }
+    },
+    {
+      "id": "progression",
+      "type": "progression",
+      "typeVersion": 1,
+      "params": {
+        "beats": 4,
+        "chords": "Cmaj7, Am7, Fmaj7, G"
+      },
+      "position": {
+        "x": 260,
+        "y": 380
+      }
+    },
+    {
+      "id": "euclidean",
+      "type": "euclidean",
+      "typeVersion": 1,
+      "params": {
+        "hits": 5,
+        "rotate": 0,
+        "steps": 8
+      },
+      "position": {
+        "x": 260,
+        "y": 620
+      }
+    },
+    {
+      "id": "tap-tone",
+      "type": "chord-tone",
+      "typeVersion": 1,
+      "params": {
+        "down": 0,
+        "up": 2
+      },
+      "position": {
+        "x": 540,
+        "y": 0
+      }
+    },
+    {
+      "id": "beat-tone",
+      "type": "chord-tone",
+      "typeVersion": 1,
+      "params": {
+        "down": 1,
+        "length": 0.35,
+        "up": 1
+      },
+      "position": {
+        "x": 540,
+        "y": 380
+      }
+    },
+    {
+      "id": "voice",
+      "type": "sampled-voice",
+      "typeVersion": 1,
+      "params": {
+        "instrument": "vibes",
+        "release": 0.8
+      },
+      "position": {
+        "x": 820,
+        "y": 100
+      }
+    },
+    {
+      "id": "output",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.8
+      },
+      "position": {
+        "x": 1100,
+        "y": 100
+      }
+    },
+    {
+      "id": "tap-splat",
+      "type": "splat",
+      "typeVersion": 1,
+      "params": {
+        "color": "dye 1"
+      },
+      "position": {
+        "x": 260,
+        "y": 200
+      }
+    },
+    {
+      "id": "beat-splat",
+      "type": "splat",
+      "typeVersion": 1,
+      "params": {
+        "color": "dye 3"
+      },
+      "position": {
+        "x": 820,
+        "y": 700
+      }
+    },
+    {
+      "id": "fluid",
+      "type": "fluid",
+      "typeVersion": 3,
+      "params": {},
+      "position": {
+        "x": 1100,
+        "y": 620
+      }
+    },
+    {
+      "id": "renderer",
+      "type": "renderer",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 1380,
+        "y": 620
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "clock",
+        "port": "tick"
+      },
+      "to": {
+        "node": "euclidean",
+        "port": "tick"
+      }
+    },
+    {
+      "from": {
+        "node": "clock",
+        "port": "transport"
+      },
+      "to": {
+        "node": "progression",
+        "port": "transport"
+      }
+    },
+    {
+      "from": {
+        "node": "euclidean",
+        "port": "hit"
+      },
+      "to": {
+        "node": "beat-tone",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "progression",
+        "port": "chord"
+      },
+      "to": {
+        "node": "beat-tone",
+        "port": "chord"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "down"
+      },
+      "to": {
+        "node": "tap-tone",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "x"
+      },
+      "to": {
+        "node": "tap-tone",
+        "port": "position"
+      }
+    },
+    {
+      "from": {
+        "node": "progression",
+        "port": "chord"
+      },
+      "to": {
+        "node": "tap-tone",
+        "port": "chord"
+      }
+    },
+    {
+      "from": {
+        "node": "beat-tone",
+        "port": "note"
+      },
+      "to": {
+        "node": "voice",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "tap-tone",
+        "port": "note"
+      },
+      "to": {
+        "node": "voice",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "voice",
+        "port": "audio"
+      },
+      "to": {
+        "node": "output",
+        "port": "audio"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "down"
+      },
+      "to": {
+        "node": "tap-splat",
+        "port": "at"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "move"
+      },
+      "to": {
+        "node": "tap-splat",
+        "port": "at"
+      }
+    },
+    {
+      "from": {
+        "node": "euclidean",
+        "port": "hit"
+      },
+      "to": {
+        "node": "beat-splat",
+        "port": "at"
+      }
+    },
+    {
+      "from": {
+        "node": "tap-splat",
+        "port": "write"
+      },
+      "to": {
+        "node": "fluid",
+        "port": "writers"
+      }
+    },
+    {
+      "from": {
+        "node": "beat-splat",
+        "port": "write"
+      },
+      "to": {
+        "node": "fluid",
+        "port": "writers"
+      }
+    },
+    {
+      "from": {
+        "node": "fluid",
+        "port": "field"
+      },
+      "to": {
+        "node": "renderer",
+        "port": "field"
+      }
+    }
+  ]
+}
