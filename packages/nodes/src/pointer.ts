@@ -1,4 +1,4 @@
-import type { EngineEvent, InputSpec, NodeDefinition, NodeState, PortSpec, QueryContext, QueryResult } from '@flow-patcher/engine';
+import type { EngineEvent, EventField, InputSpec, NodeDefinition, NodeState, PortSpec, QueryContext, QueryResult } from '@flow-patcher/engine';
 
 /** The contact phases (ADR 0028), which are also the per-phase Event outputs. */
 export const PHASES = ['down', 'move', 'up', 'cancel'] as const;
@@ -7,6 +7,8 @@ export type Phase = (typeof PHASES)[number];
 /** What the pushes are, in tie order at one time on one pointer: enter first, leave last. */
 const KINDS = ['enter', 'down', 'move', 'up', 'cancel', 'leave'] as const;
 type Kind = (typeof KINDS)[number];
+/** Index of the first kind that only ends: up, cancel and leave come from here on. */
+const FIRST_END = KINDS.indexOf('up');
 
 /**
  * Slots 1..MAX_SLOTS. More pointers than any reference device can hold at once
@@ -43,6 +45,8 @@ interface Contact {
   angle: number;
   /** Time of the latest down, move, up or cancel. */
   last: number;
+  /** The rest of the latest event's payload (pointerType, size, buttons, modifiers), for a Cancel when it's evicted. */
+  payload: Record<string, EventField>;
 }
 
 /** Slots in the order they last changed, most recent last. At most MAX_SLOTS. */
@@ -60,6 +64,16 @@ interface Change {
   x: number | null;
   y: number | null;
   pressure: number | null;
+  /** The event's other fields (`payloadOf`). */
+  payload: Record<string, EventField>;
+}
+
+/** Fields an event carries that Pointer neither reads nor derives: what an eviction's Cancel repeats. */
+const OWN_FIELDS = new Set(['time', 'channel', 'x', 'y', 'pressure', 'dx', 'dy', 'speed', 'angle', 'age', 'phase', 'coalesced', 'ago']);
+function payloadOf(event: EngineEvent): Record<string, EventField> {
+  const out: Record<string, EventField> = {};
+  for (const [name, value] of Object.entries(event)) if (!OWN_FIELDS.has(name) && value !== undefined) out[name] = value;
+  return out;
 }
 
 /** What one change emits: its event's slot, phase and derived fields, and a contact it pushed out. */
@@ -81,14 +95,15 @@ function unit(value: unknown): number | null {
 }
 
 function fresh(slot: number): Contact {
-  return { slot, id: null, x: 0, y: 0, pressure: 0, down: false, downAt: 0, refAt: null, refX: 0, refY: 0, dx: 0, dy: 0, speed: 0, angle: 0, last: -Infinity };
+  return { slot, id: null, x: 0, y: 0, pressure: 0, down: false, downAt: 0, refAt: null, refX: 0, refY: 0, dx: 0, dy: 0, speed: 0, angle: 0, last: -Infinity, payload: {} };
 }
 
 /**
  * Gives pointer `id` a slot: the lowest free one, or when all MAX_SLOTS are held, the
  * slot of the pointer that changed least recently, preferring one that isn't down.
- * A new slot's record goes first (least recent), so binding alone doesn't make it
- * the latest pointer. The holder starts with no motion history.
+ * A new slot's record goes first (least recent), so binding alone (an enter) puts it
+ * behind every pointer that has changed, though it's still the latest when it's the
+ * only one. The holder starts with no motion history.
  */
 function bind(contacts: Contacts, id: number): { contact: Contact; evicted: Contact | null } {
   const held = new Set(contacts.filter((c) => c.id !== null).map((c) => c.slot));
@@ -101,7 +116,7 @@ function bind(contacts: Contacts, id: number): { contact: Contact; evicted: Cont
     if (!contact) contacts.unshift((contact = fresh(slot)));
   } else {
     contact = contacts.find((c) => !c.down) ?? contacts[0]!;
-    if (contact.down) evicted = { ...contact };
+    if (contact.down) evicted = { ...contact, payload: { ...contact.payload } };
   }
   Object.assign(contact, { id, down: false, refAt: null, dx: 0, dy: 0, speed: 0, angle: 0 });
   return { contact, evicted };
@@ -116,6 +131,9 @@ function step(contacts: Contacts, change: Change): Stepped | null {
     if (contact && !contact.down) contact.id = null;
     return null;
   }
+  // An Up or Cancel ends a contact; with none open for this pointer (pressed outside the canvas,
+  // or its Down already ended in this quantum) there's nothing to end, so it takes no slot.
+  if ((kind === 'up' || kind === 'cancel') && !contact?.down) return null;
   let evicted: Contact | null = null;
   if (!contact) ({ contact, evicted } = bind(contacts, change.id));
   const { time, at } = change;
@@ -151,6 +169,7 @@ function step(contacts: Contacts, change: Change): Stepped | null {
     contact.id = null;
   }
   contact.last = time;
+  contact.payload = change.payload;
   // Most recent last.
   contacts.splice(contacts.indexOf(contact), 1);
   contacts.push(contact);
@@ -210,11 +229,16 @@ export function pointerQuery({ state, pushed }: Pick<QueryContext, 'state' | 'pu
       // Raw pointerIds are integers; anything else has no pointer to give a slot to.
       if (!Number.isFinite(event.time) || !Number.isInteger(event.channel)) continue;
       const ago = typeof event.ago === 'number' && event.ago > 0 && Number.isFinite(event.ago) ? event.ago : 0;
-      items.push({ change: { time: event.time, at: event.time - ago, id: event.channel, kind: k, x: unit(event.x), y: unit(event.y), pressure: unit(event.pressure) }, event });
+      const change = { time: event.time, at: event.time - ago, id: event.channel, kind: k, x: unit(event.x), y: unit(event.y), pressure: unit(event.pressure), payload: payloadOf(event) };
+      items.push({ change, event });
     }
   });
-  // Stable: ties keep each port's order (time, then raw id, then push order).
-  items.sort((a, b) => a.change.time - b.change.time || a.change.id - b.change.id || a.change.kind - b.change.kind);
+  // At one time, pointers that only end (up, cancel, leave) go first, so a pointer that lifts frees
+  // its slot for one that arrives in the same quantum. Then by raw id and kind; stable, so ties keep
+  // each port's order.
+  const starts = new Set(items.filter(({ change }) => change.kind < FIRST_END).map(({ change }) => `${change.time}|${change.id}`));
+  const ending = (change: Change) => (starts.has(`${change.time}|${change.id}`) ? 1 : 0);
+  items.sort((a, b) => a.change.time - b.change.time || ending(a.change) - ending(b.change) || a.change.id - b.change.id || a.change.kind - b.change.kind);
   state.pending = items.map((item) => item.change);
   if (!items.length) return {};
   const out: Record<Phase | 'all', EngineEvent[]> = { down: [], move: [], up: [], cancel: [], all: [] };
@@ -224,7 +248,7 @@ export function pointerQuery({ state, pushed }: Pick<QueryContext, 'state' | 'pu
     if (!stepped) continue;
     const { evicted } = stepped;
     if (evicted) {
-      const cancel: EngineEvent = { time: change.time, channel: evicted.slot, x: evicted.x, y: evicted.y, pressure: 0, dx: 0, dy: 0, speed: 0, angle: evicted.angle, age: change.time - evicted.downAt };
+      const cancel: EngineEvent = { ...evicted.payload, time: change.time, channel: evicted.slot, x: evicted.x, y: evicted.y, pressure: 0, dx: 0, dy: 0, speed: 0, angle: evicted.angle, age: change.time - evicted.downAt };
       out.cancel.push(cancel);
       out.all.push({ ...cancel, phase: 'cancel' });
     }
@@ -272,10 +296,13 @@ export function pointerSignal(state: NodeState, port: string, t: number, channel
  * immediate path (ADR 0020), with
  * - `channel`: the pointer's slot, not its pointerId. A pointer takes the lowest free
  *   slot from 1 on its first event (an enter or a hover move included) and frees it on
- *   Up, Cancel or a leave while not down; the next pointer reuses it. So touches, whose
+ *   Up, Cancel or a leave while not down; the next pointer reuses it. An Up or Cancel
+ *   with no contact down for its pointer (pressed outside the canvas, then dragged in
+ *   and released) is dropped and takes no slot. So touches, whose
  *   pointerIds keep counting up, stay on small channels, live and on replay alike
  *   (streams record raw pointerIds). Past MAX_SLOTS see `bind`; a contact down when its
- *   slot is taken gets a Cancel (on Cancel and All) at the taking event's time first.
+ *   slot is taken gets a Cancel (on Cancel and All) at the taking event's time first,
+ *   with its last event's payload.
  * - `dx`, `dy`: motion since this slot's previous sample, in canvas units per second,
  *   from the event times (less a sample's `ago`, below); `speed` their length and `angle` their direction, atan2(dy, dx)
  *   in radians (0 to the right, π/2 down). A slot's first sample after it's taken has
@@ -296,12 +323,13 @@ export function pointerSignal(state: NodeState, port: string, t: number, channel
  *   passes with no sample, or once the slot is freed.
  * - Count: the number of pointers down, the same on every channel.
  * Channel 0, or any channel no slot has had, reads the pointer that changed most
- * recently (an enter alone doesn't count), so a clock-driven note can follow whoever
- * touched last. Before any pointer, every signal is 0.
+ * recently, so a clock-driven note can follow whoever touched last. An enter alone
+ * doesn't make a pointer the latest, unless no other pointer has changed yet. Before any pointer, every signal is 0.
  *
  * State (plain data): `contacts` holds every slot as the current window began, and
- * `pending` this window's pushes, sorted by time, then pointerId, then enter, down,
- * move, up, cancel, leave. `query` folds the previous window's pending changes in first,
+ * `pending` this window's pushes, sorted by time, then pointers that only end (up,
+ * cancel, leave) before the rest, then pointerId, then enter, down, move, up, cancel,
+ * leave. `query` folds the previous window's pending changes in first,
  * then steps a copy through this window's for the events; `signal(t)` applies the
  * pending ones at or before t. Slots, motion and age all come from this one fold, so
  * neither events nor signals depend on the window size, and rewinds replay them.
@@ -310,8 +338,9 @@ export function pointerSignal(state: NodeState, port: string, t: number, channel
  * Down and an Up on one pointer can share a time. They then apply Down, Move, Up,
  * Cancel in that order, whatever the push order, and so does All. A tap shorter than a
  * quantum so ends lifted rather than stuck down, but a re-press (Up then Down) inside
- * one quantum reads lifted, and its next events are a hover until its next Down. Two new
- * pointers at one time take slots in pointerId order.
+ * one quantum reads lifted, and its next events are a hover (its Up then dropped)
+ * until its next Down. At one time, a pointer that lifts frees its slot before another
+ * takes one, and two new pointers take slots in pointerId order.
  */
 export const pointer: NodeDefinition = {
   type: 'pointer',

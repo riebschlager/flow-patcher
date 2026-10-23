@@ -167,4 +167,48 @@ describe('InputSpec.rewrites', () => {
       expect(JSON.stringify(run.sortLog(log)), `${step}`).toBe(reference);
     }
   });
+  describe('push-only ports across a swap', () => {
+    const without: Patch = { ...patch, nodes: patch.nodes.filter((n) => n.id !== 's'), cables: [] };
+    /** `s` is now a Plain: the same id, another type. */
+    const retyped: Patch = { ...patch, nodes: patch.nodes.map((n) => (n.id === 's' ? node('s', 'plain') : n)), cables: [] };
+    const compiled = (p: Patch) => {
+      const result = compilePatch(p, definitions);
+      if (!result.ok) throw new Error(result.errors.join('\n'));
+      return result.plan;
+    };
+
+    it('drops a held enter whose node a swap removed or retyped before audio resumed, and applies one whose node stayed', () => {
+      for (const [name, next, applied] of [['removed', without, false], ['retyped', retyped, false], ['kept', patch, true]] as const) {
+        const runtime = new Runtime(plan());
+        const clock = new ManualClock();
+        const scheduler = new Scheduler(runtime, { clock });
+        clock.set(0.5);
+        scheduler.wake();
+        clock.isRunning = false;
+        expect(scheduler.push('s', 'enter', { channel: 1 }), name).toBeNull();
+        expect(scheduler.stats.deferredPushes, name).toBe(1);
+        scheduler.swap(compiled(next));
+        clock.isRunning = true;
+        clock.set(0.6);
+        expect(() => scheduler.wake(), name).not.toThrow();
+        expect(scheduler.stats.pushes, name).toBe(applied ? 1 : 0);
+        if (applied) expect(runtime.stateOf('s'), name).toEqual({ seen: 1 });
+        else expect(runtime.stateOf('s') ?? {}, name).not.toHaveProperty('seen');
+      }
+    });
+
+    it('drops a live enter past the swap time from the injected events when its node is removed or retyped', () => {
+      for (const [name, next] of [['removed', without], ['retyped', retyped]] as const) {
+        const run = new Runtime(plan(), { history: true });
+        run.query(0, 0.5);
+        // Past the horizon: injected, waiting for the window that covers it.
+        expect(run.push('s', 'enter', { time: 0.8, channel: 1 }), name).toBeNull();
+        run.swap(compiled(next));
+        // A Plain doesn't rewrite, so a kept enter would pass through onto a port it doesn't have.
+        const log = run.query(0.5, 1);
+        expect(log.filter((e) => e.node === 's'), name).toEqual([]);
+        expect(run.stateOf('s') ?? {}, name).not.toHaveProperty('seen');
+      }
+    });
+  });
 });

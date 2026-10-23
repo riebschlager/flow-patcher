@@ -45,6 +45,17 @@ const POINTER_TYPES: Readonly<Record<PointerPort, InputEventType>> = {
   down: 'pointerdown', move: 'pointermove', up: 'pointerup', cancel: 'pointercancel', enter: 'pointerenter', leave: 'pointerleave',
 };
 
+/**
+ * Input events dropped, not held, while the AudioContext isn't running. Held pushes all replay at one
+ * stamp when it starts, as a burst of rewinds that the event cap can cut the important ones out of.
+ * Hover moves (coalesced samples too) before the first tap: the Down carries the position anyway.
+ * Enter and leave: they only update hover state, and pairs would pile up unbounded while hovering in and out.
+ * MIDI: it never starts audio, so a suspended or interrupted context (an iOS call) would otherwise collect
+ * every CC sent meanwhile.
+ */
+export const droppedWhileCold = (type: InputEventType): boolean =>
+  type === 'pointermove' || type === 'pointerenter' || type === 'pointerleave' || type === 'midi';
+
 /** The payload of one pointer event (docs/nodes/canvas-sources.md, Event payload): the raw pointerId as `channel`. */
 export interface PointerFields {
   channel: number;
@@ -63,14 +74,6 @@ export interface PointerFields {
   ctrl?: boolean;
   meta?: boolean;
 }
-
-/**
- * Input events dropped, not held, while the AudioContext isn't running. Held pushes all replay at one
- * stamp when it starts, as a burst of rewinds that the event cap can cut the important ones out of.
- * Hover moves before the first tap: the Down carries the position anyway. MIDI: it never starts audio,
- * so a suspended or interrupted context (an iOS call) would otherwise collect every CC sent meanwhile.
- */
-export const droppedWhileCold = (type: InputEventType): boolean => type === 'pointermove' || type === 'midi';
 
 /** One pointerdown, for the Immediate path gate check (docs/milestones.md, M1). */
 export interface Tap {
@@ -420,7 +423,7 @@ export class LivePatch {
    * starts audio. Dropped while audio is stopped, like hover moves. Returns the pushed events.
    */
   inputAll(events: readonly InputFields[]): EngineEvent[] | null {
-    if (this.context.state !== 'running') return null;
+    if (this.context.state !== 'running' && events.some((event) => droppedWhileCold(event.type))) return null;
     const targets = events.flatMap((event) => this.router.route(event));
     if (!targets.length) return null;
     try {

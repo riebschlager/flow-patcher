@@ -147,7 +147,7 @@ describe('pointer', () => {
     expect((state.contacts as { slot: number; id: number | null }[]).map((c) => [c.slot, c.id]).sort()).toEqual([[1, null], [2, null], [3, null]]);
   });
 
-  it('keeps a pointer that is down in its slot through a leave, and gives an up from nowhere a passing slot', () => {
+  it('keeps a pointer that is down in its slot through a leave, and drops an up or cancel with no contact down', () => {
     const list: Push[] = [
       { port: 'down', event: { time: 0.1, channel: 5, x: 0.1, y: 0.1 } },
       // Without pointer capture a leave can come mid-press: the contact goes on.
@@ -155,15 +155,25 @@ describe('pointer', () => {
       { port: 'move', event: { time: 0.3, channel: 5, x: 0.2, y: 0.1 } },
       { port: 'down', event: { time: 0.35, channel: 6, x: 0.5, y: 0.5 } },
       { port: 'up', event: { time: 0.4, channel: 5, x: 0.2, y: 0.1 } },
-      // An up on a pointer never seen: it takes the lowest free slot for the event and frees it.
+      // Pressed outside the canvas, dragged in and released: hover moves, then an up with no contact. It's
+      // dropped; the pointer keeps hovering on its slot.
+      { port: 'move', event: { time: 0.45, channel: 77, x: 0.9, y: 0.9 } },
       { port: 'up', event: { time: 0.5, channel: 77, x: 0.9, y: 0.9 } },
+      // An up and a cancel on pointers never seen take no slot.
+      { port: 'up', event: { time: 0.52, channel: 80, x: 0.9, y: 0.9 } },
+      { port: 'cancel', event: { time: 0.53, channel: 81, x: 0.9, y: 0.9 } },
       { port: 'down', event: { time: 0.6, channel: 78, x: 0.8, y: 0.8 } },
       // A leave from a pointer never seen changes nothing.
       { port: 'leave', event: { time: 0.65, channel: 99 } },
     ];
     expect(events(list, 'all').map((e) => [e.time, e.channel, e.phase])).toEqual([
-      [0.1, 1, 'down'], [0.3, 1, 'move'], [0.35, 2, 'down'], [0.4, 1, 'up'], [0.5, 1, 'up'], [0.6, 1, 'down'],
+      [0.1, 1, 'down'], [0.3, 1, 'move'], [0.35, 2, 'down'], [0.4, 1, 'up'], [0.45, 1, 'move'], [0.6, 3, 'down'],
     ]);
+    // With every slot held, an orphan up evicts nobody.
+    const full: Push[] = Array.from({ length: MAX_SLOTS }, (_, k) => ({ port: 'down' as const, event: { time: 0.01 * (k + 1), channel: 200 + k } }));
+    full.push({ port: 'up', event: { time: 0.5, channel: 999 } });
+    expect(events(full, 'cancel')).toEqual([]);
+    expect(events(full, 'up')).toEqual([]);
   });
 
   it('passes the payload through and adds the derived fields, per slot', () => {
@@ -236,6 +246,26 @@ describe('pointer', () => {
     expect(events(list, 'all').map((e) => [e.channel, e.phase])).toEqual([[1, 'down'], [2, 'down'], [2, 'move'], [2, 'up']]);
   });
 
+  it('frees a lifting pointer\'s slot before another takes one at the same time, whatever the pointerIds', () => {
+    const list: Push[] = [
+      { port: 'down', event: { time: 0.1, channel: 50, x: 0.1 } },
+      { port: 'down', event: { time: 0.1, channel: 60, x: 0.2 } },
+      // In one quantum: 50 lifts, 49 presses. 49 takes 50's slot.
+      { port: 'down', event: { time: 0.2, channel: 49, x: 0.3 } },
+      { port: 'up', event: { time: 0.2, channel: 50, x: 0.1 } },
+      // A leave frees first too.
+      { port: 'move', event: { time: 0.3, channel: 70, x: 0.5 } },
+      { port: 'up', event: { time: 0.3, channel: 60, x: 0.2 } },
+      { port: 'down', event: { time: 0.4, channel: 61, x: 0.6 } },
+    ];
+    expect(events(list, 'all').map((e) => [e.time, e.channel, e.phase])).toEqual([
+      [0.1, 1, 'down'], [0.1, 2, 'down'], [0.2, 1, 'up'], [0.2, 1, 'down'], [0.3, 2, 'up'], [0.3, 2, 'move'], [0.4, 3, 'down'],
+    ]);
+    // A tap (down and up at one time) on one pointer still opens before it ends.
+    const tap: Push[] = [{ port: 'up', event: { time: 0.1, channel: 5 } }, { port: 'down', event: { time: 0.1, channel: 5 } }, { port: 'down', event: { time: 0.1, channel: 4 } }];
+    expect(events(tap, 'all').map((e) => [e.channel, e.phase])).toEqual([[1, 'down'], [2, 'down'], [2, 'up']]);
+  });
+
   it('gives the same events on every port in one, two and three windows and in 25 ms tiles', () => {
     for (const port of EVENT_PORTS) {
       const reference = JSON.stringify(events(session, port));
@@ -303,6 +333,9 @@ describe('pointer', () => {
     expect(all.slice(-2).map((e) => [e.time, e.channel, e.phase])).toEqual([[0.17, 1, 'cancel'], [0.17, 1, 'down']]);
     expect(all.slice(0, MAX_SLOTS).map((e) => e.channel)).toEqual(Array.from({ length: MAX_SLOTS }, (_, k) => k + 1));
     expect(all.at(-2)!.age).toBeCloseTo(0.16, 9);
+    // The evicted contact's Cancel repeats its last payload.
+    const dressed: Push[] = many.map((p, k) => (k === 0 ? { ...p, event: { ...p.event, pointerType: 'touch', width: 20, shift: true } } : p));
+    expect(events(dressed, 'cancel')).toEqual([{ time: 0.17, channel: 1, x: 0, y: 0, pressure: 0, pointerType: 'touch', width: 20, shift: true, dx: 0, dy: 0, speed: 0, angle: 0, age: expect.closeTo(0.16, 9) }]);
     // A hovering pointer gives its slot up before any that's down.
     const hover: Push[] = [...many.slice(0, MAX_SLOTS - 1), { port: 'move', event: { time: 0.5, channel: 7, x: 0.5 } }, { port: 'down', event: { time: 0.6, channel: 8 } }];
     expect(events(hover, 'all').slice(-1).map((e) => [e.channel, e.phase])).toEqual([[MAX_SLOTS, 'down']]);
@@ -366,8 +399,14 @@ describe('pointer signals', () => {
 
   it('reads channel 0, or a channel no slot has had, as the pointer that changed last', () => {
     expect(read(session, 0, 0)).toEqual({ x: 0, y: 0, pressure: 0, speed: 0, count: 0 });
-    // An enter alone isn't a change: before the first move, slot 1 still reads 0.
+    // An enter alone isn't a change, but with no other pointer channel 0 reads the entered one: slot 1, still at 0.
     expect(read(session, 0.055, 0).x).toBe(0);
+    const entered: Push[] = [
+      { port: 'down', event: { time: 0.1, channel: 3, x: 0.7 } },
+      { port: 'enter', event: { time: 0.2, channel: 4, x: 0.2 } },
+    ];
+    // Behind a pointer that has changed: channel 0 still reads that one.
+    expect(read(entered, 0.25, 0).x).toBe(0.7);
     expect(read(session, 0.07, 0).x).toBe(0.1);
     expect(read(session, 0.11, 0).x).toBe(0.5);
     expect(read(session, 0.145, 42).y).toBe(0.3);
@@ -430,9 +469,9 @@ describe('pointer signals', () => {
     expect(read(weird, 0.15, 1)).toMatchObject({ x: 0, y: 0, pressure: 0.5, count: 1 });
     // Out of range clamps to 0–1.
     expect(read(weird, 0.25, 1)).toMatchObject({ x: 1, y: 0, pressure: 1, count: 1 });
-    // A bad channel is ignored; an up on a pointer never down passes through slot 2 and counts nothing.
+    // A bad channel is ignored; an up on a pointer never down is dropped, so slot 2 never exists and reads the latest.
     expect(read(weird, 0.35, 1)).toMatchObject({ x: 1, count: 1 });
-    expect(read(weird, 0.45, 2)).toMatchObject({ x: 0, y: 0, pressure: 0, speed: 0, count: 1 });
+    expect(read(weird, 0.45, 2)).toMatchObject({ x: 1, y: 0, pressure: 1, count: 1 });
     const state: Record<string, unknown> = {};
     const ctx = context(pointer, { state });
     for (const port of SIGNALS) expect(pointer.signal!(ctx, port, 0.5, 0)).toBe(0);

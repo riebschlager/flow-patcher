@@ -79,9 +79,26 @@ test('hover, enter and leave reach Pointer, and All tags every event with its ph
   const box = (await canvas.boundingBox())!;
   await page.mouse.move(box.x - 30, box.y + box.height / 2);
   await expect.poll(slots).toEqual([[1, null]]);
-  // Back in, hovering: enter and the hover moves take slot 1 again.
+  type Seen = { time: number; phase: string; channel: number; buttons: number; shift: boolean; speed: number; age: number; dx: number };
+  // The probe shows what has sounded over the last 2 s, so each phase is read as soon as it shows up.
+  const seen = () => page.evaluate(() => (window.flowPatcher!.probe('pointer', 'all')?.events ?? []).map((e) => ({
+    time: e.time, phase: e.phase, channel: e.channel, buttons: e.buttons, shift: e.shift, speed: e.speed, age: e.age, dx: e.dx,
+  }))) as Promise<Seen[]>;
+  // The probe may also show the tap that started audio, depending on when it began watching:
+  // only what's stamped after the leave counts.
+  const started = await page.evaluate(() => window.flowPatcher!.clock.currentTime);
+  const after = async () => (await seen()).filter((e) => e.time > started);
+  const hoverMoves = async () => (await after()).filter((e) => e.phase === 'move' && e.buttons === 0);
+
+  // Back in, hovering: enter and the hover moves take slot 1 again, and reach All as moves with no button.
   for (let i = 0; i <= 8; i++) await page.mouse.move(box.x + 10 + i * 10, box.y + box.height / 2, { steps: 1 });
   await expect.poll(slots).toEqual([[1, 1]]);
+  await expect.poll(async () => (await hoverMoves()).length).toBeGreaterThanOrEqual(5);
+  const hovers = await hoverMoves();
+  for (const e of hovers) expect([e.channel, e.age]).toEqual([1, 0]);
+  expect(hovers.some((e) => e.speed > 0 && e.dx > 0)).toBe(true);
+  const hovered = Math.max(...hovers.map((e) => e.time));
+
   // Pushes in one render quantum share a stamp, and Pointer orders them Down, Move, Up there (the
   // same-time rule), so a press right after a hover move would sort ahead of it. Real hands are
   // slower than Playwright: leave a few quanta between the phases.
@@ -96,23 +113,17 @@ test('hover, enter and leave reach Pointer, and All tags every event with its ph
   await page.mouse.move(box.x - 30, box.y + 10);
   await expect.poll(slots).toEqual([[1, null]]);
 
-  type Seen = { phase: string; channel: number; buttons: number; shift: boolean; speed: number; age: number; dx: number };
-  const seen = () => page.evaluate(() => (window.flowPatcher!.probe('pointer', 'all')?.events ?? []).map((e) => ({
-    phase: e.phase, channel: e.channel, buttons: e.buttons, shift: e.shift, speed: e.speed, age: e.age, dx: e.dx,
-  }))) as Promise<Seen[]>;
   // Everything up to the up has sounded once the probe shows it.
-  await expect.poll(async () => (await seen()).some((e) => e.phase === 'up')).toBe(true);
-  const all = await seen();
+  await expect.poll(async () => (await after()).some((e) => e.phase === 'up')).toBe(true);
+  const all = await after();
   // Only the four phases, all on slot 1: enter and leave have none.
   expect(new Set(all.map((e) => e.phase))).toEqual(new Set(['move', 'down', 'up']));
   expect(new Set(all.map((e) => e.channel))).toEqual(new Set([1]));
   const down = all.findIndex((e) => e.phase === 'down');
   const up = all.findIndex((e) => e.phase === 'up');
-  // Hover moves come first, with no button held; then the press, with Shift, a drag and the up.
-  const hovers = all.slice(0, down);
-  expect(hovers.length).toBeGreaterThanOrEqual(5);
-  for (const e of hovers) expect([e.phase, e.buttons, e.age]).toEqual(['move', 0, 0]);
-  expect(hovers.some((e) => e.speed > 0 && e.dx > 0)).toBe(true);
+  // After the hover, the press with Shift, a drag and the up.
+  expect(all[down]!.time).toBeGreaterThan(hovered);
+  expect(all.slice(0, down).every((e) => e.phase === 'move' && e.buttons === 0)).toBe(true);
   expect(all[down]).toMatchObject({ buttons: 1, shift: true, age: 0 });
   expect(all.slice(down + 1, up).every((e) => e.phase === 'move' && e.buttons === 1)).toBe(true);
   expect(all[up]!.age).toBeGreaterThan(0);
