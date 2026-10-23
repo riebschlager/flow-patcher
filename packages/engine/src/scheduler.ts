@@ -23,6 +23,11 @@ export const HIDDEN_LOOKAHEAD = 1.25;
 export const CATCH_UP_LIMIT = 0.1;
 /** Live input is stamped this far after currentTime. *(tune)* */
 export const IMMEDIATE_OFFSET = 0.005;
+/** While the page is hidden, a push whose rewind is estimated to take longer than this many
+ *  milliseconds is applied from the horizon instead (ADR 0026). Visible pushes always rewind. *(tune)* */
+export const HIDDEN_PUSH_BUDGET_MS = 16;
+/** Weight of the latest rewind in the smoothed milliseconds per query. */
+const COST_SMOOTHING = 0.2;
 
 export interface SchedulerClock {
   /** The audio clock in seconds: AudioContext.currentTime. */
@@ -53,6 +58,9 @@ export interface SchedulerOptions {
   hiddenLookahead?: number;
   catchUpLimit?: number;
   immediateOffset?: number;
+  /** Milliseconds a rewind may be estimated to take while the page is hidden before the push
+   *  falls back to the horizon. Default HIDDEN_PUSH_BUDGET_MS; Infinity never falls back. */
+  hiddenPushBudgetMs?: number;
   /** Keep a log of every event, with rewinds applied, for `events()`. Headless runs and tests. */
   record?: boolean;
   /** Called after every push with what it cost. */
@@ -63,8 +71,12 @@ export interface SchedulerOptions {
 
 /** What one push cost on the immediate path. */
 export interface PushCost {
-  /** The stamped event time. */
+  /** The event's time as applied: its stamp, or the horizon when it fell back. */
   time: number;
+  /** Set when the push fell back (ADR 0026): hidden, and its rewind over the budget, so it was
+   *  applied from the horizon. `stamped` is the time it would have had; `estimatedMs` the
+   *  rewind's estimated cost. Null when it was applied at its stamp. */
+  fallback: { stamped: number; estimatedMs: number } | null;
   /** The rewind, or null when the push ran a wake instead (nothing queried past its time yet). */
   rewind: Omit<RewindReport, 'added'> | null;
   /** Node queries the push made, wake included. */
@@ -105,6 +117,10 @@ export interface SchedulerStats extends RuntimeCounters {
   deferredPushes: number;
   /** Plans swapped in (`swap`). */
   swaps: number;
+  /** Pushes applied from the horizon because the page was hidden and their rewind was over budget (ADR 0026). */
+  pushFallbacks: number;
+  /** Smoothed wall-clock milliseconds per query of the rewinds while visible and while hidden; null before the first. */
+  msPerQuery: { visible: number | null; hidden: number | null };
 }
 
 /** The scheduler. One per running patch. */
@@ -117,6 +133,10 @@ export class Scheduler {
   private readonly hiddenLookahead: number;
   private readonly catchUpLimit: number;
   private readonly immediateOffset: number;
+  private readonly hiddenPushBudgetMs: number;
+  /** Smoothed ms per query of the rewinds made while visible and while hidden: queries cost more
+   *  hidden, where windows are wider, so one average would mispredict after a visibility change. */
+  private readonly msPerQuery: { visible: number | null; hidden: number | null } = { visible: null, hidden: null };
   private next: number | null = null;
   private last: { wall: number; audio: number } | null = null;
   /** The next running wake resumes rather than catching up or counting a stall. */
@@ -125,7 +145,7 @@ export class Scheduler {
   private readonly deferred: { nodeId: string; port: string; fields: Omit<EngineEvent, 'time'> }[] = [];
   private stop: (() => void) | null = null;
   private log: LoggedEvent[] | null;
-  private readonly own = { windows: 0, skipped: 0, stalls: 0, catchUps: 0, catchUpMaxMs: 0, pushes: 0, rewinds: 0, pushQueries: 0, pushMsMax: 0, pushMsTotal: 0, deferredPushes: 0, swaps: 0 };
+  private readonly own = { windows: 0, skipped: 0, stalls: 0, catchUps: 0, catchUpMaxMs: 0, pushes: 0, rewinds: 0, pushQueries: 0, pushMsMax: 0, pushMsTotal: 0, deferredPushes: 0, swaps: 0, pushFallbacks: 0 };
 
   constructor(runtime: Runtime, options: SchedulerOptions) {
     this.runtime = runtime;
@@ -136,6 +156,7 @@ export class Scheduler {
     this.hiddenLookahead = options.hiddenLookahead ?? HIDDEN_LOOKAHEAD;
     this.catchUpLimit = options.catchUpLimit ?? CATCH_UP_LIMIT;
     this.immediateOffset = options.immediateOffset ?? IMMEDIATE_OFFSET;
+    this.hiddenPushBudgetMs = options.hiddenPushBudgetMs ?? HIDDEN_PUSH_BUDGET_MS;
     this.log = options.record ? [] : null;
     runtime.keepHistory(() => this.clock.wallTime());
   }
@@ -146,7 +167,7 @@ export class Scheduler {
   }
 
   get stats(): SchedulerStats {
-    return { ...this.runtime.counters, ...this.own };
+    return { ...this.runtime.counters, ...this.own, msPerQuery: { ...this.msPerQuery } };
   }
 
   /** Wakes now and then every wakeInterval on the injected timer. */
@@ -243,6 +264,16 @@ export class Scheduler {
    * against, so the push is held and returns null: the first running wake
    * stamps it at its own currentTime + immediateOffset and runs it then.
    * The node and port are checked at once either way.
+   *
+   * While the page is hidden, a push whose rewind is estimated (rewindCost ×
+   * the smoothed ms per hidden query) to cost more than `hiddenPushBudgetMs`
+   * falls back (ADR 0026): it is applied at the horizon, which re-queries
+   * nothing, counted in `pushFallbacks` and warned on the node. The returned
+   * event has the applied time, and that is what is logged, so a recorded
+   * input stream replays the same. Visible pushes always rewind. If the clock
+   * hasn't moved since the horizon was set (a second push at once, or held
+   * pushes replayed by the resume wake), nothing new is queried, and the next
+   * wake delivers it.
    */
   push(nodeId: string, port: string, fields: Omit<EngineEvent, 'time'>): EngineEvent | null {
     if (this.clock.running && !this.clock.running()) {
@@ -254,10 +285,30 @@ export class Scheduler {
     }
     const started = this.clock.wallTime();
     const now = this.clock.audioTime();
-    const event = { time: now + this.immediateOffset, ...fields } as EngineEvent;
+    const hidden = this.clock.hidden?.() ?? false;
+    const stamped = now + this.immediateOffset;
+    let time = stamped, fallback: PushCost['fallback'] = null;
+    const perQuery = this.msPerQuery.hidden;
+    if (hidden && perQuery !== null) {
+      const queries = this.runtime.rewindCost(nodeId, stamped);
+      const estimatedMs = queries === null ? 0 : queries * perQuery;
+      if (estimatedMs > this.hiddenPushBudgetMs) {
+        // The horizon: nothing is queried there yet, so the push re-queries nothing.
+        time = this.runtime.horizon!;
+        fallback = { stamped, estimatedMs };
+      }
+    }
+    const event = { time, ...fields } as EngineEvent;
     const queriesBefore = this.runtime.counters.queries;
     let rewind: PushCost['rewind'] = null;
     const report = this.runtime.push(nodeId, port, event, { now, path: 'immediate' });
+    // The rewind's own cost, for the ms-per-query average: without the log update or a wake.
+    const pushed = this.clock.wallTime();
+    const pushQueries = this.runtime.counters.queries - queriesBefore;
+    if (fallback) {
+      this.own.pushFallbacks++;
+      this.runtime.pushFellBack(nodeId, time);
+    }
     if (report) {
       const { added, ...cost } = report;
       rewind = cost;
@@ -273,11 +324,15 @@ export class Scheduler {
     }
     const queries = this.runtime.counters.queries - queriesBefore;
     const ms = this.clock.wallTime() - started;
+    if (report && pushQueries > 0) {
+      const mode = hidden ? 'hidden' : 'visible', last = this.msPerQuery[mode], perQuery = (pushed - started) / pushQueries;
+      this.msPerQuery[mode] = last === null ? perQuery : last + COST_SMOOTHING * (perQuery - last);
+    }
     this.own.pushes++;
     this.own.pushQueries += queries;
     this.own.pushMsTotal += ms;
     this.own.pushMsMax = Math.max(this.own.pushMsMax, ms);
-    this.options.onPush?.({ time: event.time, rewind, queries, ms });
+    this.options.onPush?.({ time: event.time, fallback, rewind, queries, ms });
     return event;
   }
 

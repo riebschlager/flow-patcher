@@ -359,6 +359,8 @@ export interface RuntimeCounters {
   snapshotMs: number;
   /** Voices the pool stole (ADR 0024), on every context this runtime attached to. Never taken back. */
   voiceSteals: number;
+  /** Live events dropped because a node threw while their rewind re-ran it (`push`, `RewindReport.dropped`). */
+  droppedPushes: number;
 }
 
 /** The voice pool's state, for the editor's budget readout (`Runtime.voiceStats`). */
@@ -392,6 +394,11 @@ export interface RewindReport {
   removed: number;
   /** The re-run's logged events at or after `time`. */
   added: LoggedEvent[];
+  /** Set when a node threw during the re-run: the live event was dropped and the
+   *  nodes re-run again without it, so this report describes that second re-run
+   *  (`queries` counts both). `node` is the node that threw, which gets a
+   *  'rewind-error' warning. Null when the event was applied. */
+  dropped: { node: string; message: string } | null;
 }
 
 /** What the latest `Runtime.frame` handed to visual nodes. */
@@ -563,7 +570,7 @@ interface Retiring {
 }
 
 export class Runtime {
-  readonly counters: RuntimeCounters = { delivered: 0, caughtUp: 0, lateScheduled: 0, lateImmediate: 0, cancelled: 0, uncancelled: 0, outOfWindow: 0, droppedNodeLimit: 0, droppedPatchLimit: 0, queries: 0, snapshots: 0, snapshotMs: 0, voiceSteals: 0 };
+  readonly counters: RuntimeCounters = { delivered: 0, caughtUp: 0, lateScheduled: 0, lateImmediate: 0, cancelled: 0, uncancelled: 0, outOfWindow: 0, droppedNodeLimit: 0, droppedPatchLimit: 0, queries: 0, snapshots: 0, snapshotMs: 0, voiceSteals: 0, droppedPushes: 0 };
   /** The latest plan: what the next window runs. */
   private stage: Stage;
   /** The plan the chunk being run belongs to: `stage`, except while a rewind replays older windows. */
@@ -622,6 +629,8 @@ export class Runtime {
   private readonly connections = new Map<AudioNodeLike, AudioNodeLike[]>();
   private version = 0;
   private warningSeq = 0;
+  /** The node a chunk or resnapshot is working on, so a rewind that throws knows whose fault it was. */
+  private running: string | null = null;
   /**
    * Called when a node first raises a kind of warning (again after
    * `clearWarnings`), such as passing an event cap or an audio node with no
@@ -813,8 +822,46 @@ export class Runtime {
     // Time order, after any earlier event at the same time.
     let at = this.injected.length;
     while (at > 0 && this.injected[at - 1]!.event.time > t) at--;
-    this.injected.splice(at, 0, { node: nodeId, port, event, path: timing?.path ?? 'scheduled' });
-    return rewinds ? this.rewind(nodeId, t, timing) : null;
+    const entry: Injected = { node: nodeId, port, event, path: timing?.path ?? 'scheduled' };
+    this.injected.splice(at, 0, entry);
+    return rewinds ? this.rewind(entry, timing) : null;
+  }
+
+  /**
+   * The scheduler applied a live event from `nodeId` at `applied`, the horizon,
+   * instead of rewinding to its stamp, because the rewind was over budget while
+   * the page was hidden (ADR 0026). Raises or adds to the node's 'push-fallback'
+   * warning; the scheduler counts it in `SchedulerStats.pushFallbacks`.
+   */
+  pushFellBack(nodeId: string, applied: number): void {
+    const held = this.nodeWarnings.get(nodeId)?.get('push-fallback');
+    this.warn(nodeId, 'push-fallback', 1, applied, held?.message
+      ?? 'Live input came in while the page was hidden and would have cost too much to apply at once, so it played up to about a second late.');
+  }
+
+  /**
+   * The node queries a `push` of an event at `time` on `nodeId` would make to
+   * rewind, without making them: the affected and followed query nodes times
+   * the chunks from the restored snapshot to the horizon, window by window
+   * under each window's plan. Null when it wouldn't rewind (nothing queried
+   * past `time`, no history, an unknown node, or a time before the oldest
+   * retained window, which `push` refuses). A re-run that a node's throw
+   * makes `push` repeat (`RewindReport.dropped`) costs about twice this.
+   */
+  rewindCost(nodeId: string, time: number): number | null {
+    const history = this.history;
+    if (!history?.length || this.end === null || !(time < this.end) || time < history[0]!.t0 || !this.stage.byId.has(nodeId)) return null;
+    const { first, affected, followed } = this.rewindScope(nodeId, time);
+    let queries = 0;
+    for (let j = first; j < history.length; j++) {
+      const window = history[j]!;
+      let nodes = 0;
+      for (const node of window.stage.plan.order) if (node.definition.query && (affected.has(node.id) || followed.has(node.id))) nodes++;
+      const split = Math.min(Math.max(time, window.t0), window.t1), step = window.stage.plan.maxWindow;
+      const chunks = (split > window.t0 ? chunkCount(split - window.t0, step) : 0) + (window.t1 > split ? chunkCount(window.t1 - split, step) : 0);
+      queries += nodes * chunks;
+    }
+    return queries;
   }
 
   /**
@@ -1197,18 +1244,69 @@ export class Runtime {
     return [...stages];
   }
 
-  private rewind(origin: string, t: number, timing: DeliveryTiming | undefined): RewindReport {
+  /** What a rewind into `t` from `origin` re-runs: the latest window at or before `t`,
+   *  the nodes downstream of `origin` over every plan from there, and their Signal and Value sources. */
+  private rewindScope(origin: string, t: number): { first: number; affected: Set<string>; followed: Set<string> } {
     const history = this.history!;
     let first = history.length - 1;
     while (first > 0 && history[first]!.t0 > t) first--;
-    const start = history[first]!;
     // Over every plan the re-run crosses: a swap may have rewired what reads the origin.
     const stages = this.stagesFrom(first);
     const affected = new Set<string>();
     for (const stage of stages) if (stage.byId.has(origin)) for (const id of this.downstreamOf(origin, stage)) affected.add(id);
     const followed = new Set<string>();
     for (const stage of stages) for (const id of this.signalSourcesOf(affected, stage)) followed.add(id);
+    return { first, affected, followed };
+  }
+
+  /**
+   * Rewinds for the live event `entry`, already in `injected`. If a node throws
+   * while the re-run includes the event, the event is dropped: it comes out of
+   * `injected`, and the nodes are restored and re-run again without it. Node
+   * state, cap counts, the log and deliveries to audio nodes with cancel() end
+   * up as without the event. What can't be taken back stays (ADR 0026): what an
+   * audio node without cancel() was sent, voice steals, cap warnings the failed
+   * re-run already raised through onWarning, the delivered and cancelled
+   * counters, and frame-queue entries trimmed at FRAME_QUEUE_LIMIT.
+   * The node that threw gets a 'rewind-error' warning, or the pushing node
+   * when the one that threw is no longer in the plan. If the re-run without
+   * the event throws too, the node fails whatever the event, and that error
+   * propagates.
+   */
+  private rewind(entry: Injected, timing: DeliveryTiming | undefined): RewindReport {
+    const t = entry.event.time;
+    const { first, affected, followed } = this.rewindScope(entry.node, t);
+    const queriesBefore = this.counters.queries;
+    const taken = { removed: 0 };
+    try {
+      return this.rerunFrom(first, t, affected, followed, timing, taken);
+    } catch (error) {
+      // A node only an older plan has wouldn't show in warnings(): blame the pushing node then.
+      const thrower = this.running ?? entry.node;
+      const node = this.stage.byId.has(thrower) ? thrower : entry.node;
+      // What the event's re-run took back is what the log loses; the second take-back only undoes its partial output.
+      const removed = taken.removed;
+      const at = this.injected.indexOf(entry);
+      if (at >= 0) this.injected.splice(at, 1);
+      const report = this.rerunFrom(first, t, affected, followed, timing, taken);
+      this.counters.droppedPushes++;
+      const message = error instanceof Error ? error.message : String(error);
+      const held = this.nodeWarnings.get(node)?.get('rewind-error');
+      this.warn(node, 'rewind-error', 1, t, held?.message
+        ?? `Node "${thrower}" failed while re-running for a live event from "${entry.node}", so that event was dropped: ${message}`);
+      return { ...report, removed, queries: this.counters.queries - queriesBefore, dropped: { node: thrower, message } };
+    } finally {
+      this.running = null;
+    }
+  }
+
+  /** Restores the nodes to window `first`, takes back what they emitted from `t` on (adding it to `taken`), and re-runs them. */
+  private rerunFrom(first: number, t: number, affected: ReadonlySet<string>, followed: ReadonlySet<string>, timing: DeliveryTiming | undefined, taken: { removed: number }): RewindReport {
+    const history = this.history!;
+    const start = history[first]!;
     const scope: Scope = { only: affected, follow: followed };
+    // Left over from a query or swap that threw: don't blame that node for what fails here.
+    this.running = null;
 
     for (const id of [...affected, ...followed]) this.restore(id, start);
     // The re-run counts the affected nodes' events against the caps again, from the snapshot's count.
@@ -1216,13 +1314,14 @@ export class Runtime {
     // Forget what the affected nodes emitted and queued for frames from t on; the re-run replaces it.
     let removed = 0;
     for (const id of affected) removed += this.takeBack(id, t);
+    taken.removed = removed;
 
     // Re-run deliveries are all at or after t >= timing.now (push refuses earlier), so none
     // can be late; they count as scheduled, and there is no catch-up shift.
     const emit: Emit = { log: [], timing: timing && { now: timing.now, path: 'scheduled' }, rewind: true };
     const queries = this.rerun(first, t, scope, emit);
     this.settleWarnings(affected);
-    return { time: t, from: start.t0, to: history.at(-1)!.t1, affected, followed, queries, removed, added: this.sortLog(emit.log) };
+    return { time: t, from: start.t0, to: history.at(-1)!.t1, affected, followed, queries, removed, added: this.sortLog(emit.log), dropped: null };
   }
 
   /**
@@ -1321,6 +1420,7 @@ export class Runtime {
     let taps: Tap[] | undefined;
     for (const node of stage.plan.order) {
       const { id, definition } = node;
+      this.running = id;
       if (scope && !scope.only.has(id)) {
         outputs.set(id, this.emittedIn(id, c0, c1));
         if (scope.follow.has(id) && definition.query) {
@@ -1362,6 +1462,7 @@ export class Runtime {
     for (const node of stage.plan.order) {
       if (node.definition.delay && (!scope || scope.only.has(node.id) || scope.follow.has(node.id))) this.delayInputs.set(node.id, this.gatherInputs(node.id, outputs));
     }
+    this.running = null;
     return queries;
   }
 
@@ -1383,8 +1484,8 @@ export class Runtime {
     // chunk's start and leave a delayed event a chunk late. Rounding may add a
     // tiny trailing chunk, which is harmless. (One chunk is the whole window:
     // step may be Infinity, and 0 × Infinity is NaN.)
-    const width = t1 - t0, step = this.active.plan.maxWindow * (1 - 1e-6);
-    const chunks = width > step ? Math.ceil(width / step) : 1;
+    const step = this.active.plan.maxWindow * (1 - 1e-6);
+    const chunks = chunkCount(t1 - t0, this.active.plan.maxWindow);
     let queries = 0;
     for (let i = 0; i < chunks; i++) queries += run(i === 0 ? t0 : t0 + i * step, i === chunks - 1 ? t1 : t0 + (i + 1) * step);
     return queries;
@@ -1718,6 +1819,7 @@ export class Runtime {
   private resnapshot(window: WindowRecord, affected: ReadonlySet<string>): void {
     const k = limitWindowOf(window.t0);
     for (const id of affected) {
+      this.running = id;
       const count = this.countsOf(id).get(k);
       if (count) window.counts.set(id, { ...count });
       else window.counts.delete(id);
@@ -1728,6 +1830,7 @@ export class Runtime {
       if (held && Object.values(held).some((events) => events.length)) window.delayInputs.set(id, clonePlain(held));
       else window.delayInputs.delete(id);
     }
+    this.running = null;
   }
 
   private gatherInputs(id: string, outputs: Map<string, PortEvents>): PortEvents {
@@ -1852,6 +1955,13 @@ export class Runtime {
 interface Tap {
   time: number;
   reach: ReadonlySet<string>;
+}
+
+/** How many chunks `forChunks` splits a window `width` seconds wide into, for a plan's `maxWindow`. */
+function chunkCount(width: number, maxWindow: number): number {
+  // A hair under the shortest delay; see forChunks.
+  const step = maxWindow * (1 - 1e-6);
+  return width > step ? Math.ceil(width / step) : 1;
 }
 
 /** Inserts after every item that sorts at or before it, so ties keep arrival order. */

@@ -95,10 +95,10 @@ const node = (id: string, type: string, params = {}) => ({ id, type, typeVersion
 const cable = (a: string, b: string) => ({ from: { node: a, port: 'out' }, to: { node: b, port: 'in' } });
 const patch = (nodes: Patch['nodes'], cables: Patch['cables']): Patch => ({ format: 'flowpatch', version: 1, seed: 1, nodes, cables });
 
-function setup(p: Patch, options: Partial<SchedulerOptions> = {}) {
+function setup(p: Patch, options: Partial<SchedulerOptions> = {}, extra: NodeDefinition[] = []) {
   const clock = new ManualClock();
   const deliveries: Delivery[] = [];
-  const definitions = new Map([metro, tap, counter, delay, recorderType(clock, deliveries)].map((d) => [d.type, d]));
+  const definitions = new Map([metro, tap, counter, delay, recorderType(clock, deliveries), ...extra].map((d) => [d.type, d]));
   const compiled = compilePatch(p, definitions);
   if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
   const runtime = new Runtime(compiled.plan);
@@ -116,7 +116,13 @@ function setup(p: Patch, options: Partial<SchedulerOptions> = {}) {
     for (let k = Math.round(from / step); k * step < to - 1e-9; k++) wakeAt(k * step);
   };
   const live = () => deliveries.filter((d) => !d.cancelled);
-  return { clock, scheduler, runtime, deliveries, live, wakeAt, wakeEvery };
+  /** Compiles another patch over the same definitions, for swaps. */
+  const compile = (next: Patch) => {
+    const result = compilePatch(next, definitions);
+    if (!result.ok) throw new Error(result.errors.join('\n'));
+    return result.plan;
+  };
+  return { clock, scheduler, runtime, deliveries, live, wakeAt, wakeEvery, compile };
 }
 
 const metroPatch = (period = 0.025) => patch([node('m', 'metro', { period }), node('r', 'recorder')], [cable('m', 'r')]);
@@ -495,6 +501,369 @@ describe('push rules', () => {
     const { runtime, wakeAt } = setup(metroPatch());
     wakeAt(0, 0.025);
     expect(() => runtime.push('m', 'out', { time: 0.03, channel: 0 }, { now: 0.04 })).toThrow(/before currentTime/);
+  });
+});
+
+describe('a node that throws during a rewind', () => {
+  /** Passes events through. A live event marked `boom` arms it, and from 60 ms after that event
+   *  every query throws: mid-way through the re-run, after earlier windows were already re-sent.
+   *  With `broken.always`, every query throws; `broken.after` moves the 60 ms. */
+  const broken = { always: false, after: 0.06 };
+  const fragile: NodeDefinition = {
+    type: 'fragile', version: 1, label: 'Fragile', category: 'control-logic', description: '',
+    ports: [{ name: 'in', type: 'event', direction: 'in' }, { name: 'out', type: 'event', direction: 'out' }],
+    params: [],
+    query: ({ inputs, state, t1 }) => {
+      if (broken.always) throw new Error('fragile broke');
+      for (const e of inputs.in ?? []) if (e.boom) state.armedAt = e.time;
+      if (typeof state.armedAt === 'number' && t1 > state.armedAt + broken.after) throw new Error('fragile broke');
+      return { out: (inputs.in ?? []).map(({ boom: _boom, ...e }) => e) };
+    },
+  };
+  // A tap and a metro into the fragile node, then a counter (stateful) and a delay, into the recorder.
+  const p = patch(
+    [node('m', 'metro', { period: 0.02 }), node('t', 'tap'), node('f', 'fragile'), node('c', 'counter'), node('d', 'delay', { time: 0.03 }), node('r', 'recorder')],
+    [cable('m', 'f'), cable('t', 'f'), cable('f', 'c'), cable('c', 'd'), cable('d', 'r'), cable('c', 'r')],
+  );
+  /** Wakes every 25 ms to 1 s; at 0.4012 s runs `before` and pushes the `boom` event when asked, and a plain one at 0.6 s. */
+  function perform(boom: boolean, costs: PushCost[] = [], { at = p, extra = [fragile], before }: { at?: Patch; extra?: NodeDefinition[]; before?: (run: ReturnType<typeof setup>) => void } = {}) {
+    const run = setup(at, { onPush: (cost) => costs.push(cost) }, extra);
+    const heard: unknown[] = [];
+    run.runtime.onWarning = (message, warning) => heard.push({ ...warning, heard: message });
+    for (let k = 0; k * 0.025 < 1; k++) {
+      run.wakeAt(k * 0.025);
+      if (k === 16) {
+        run.clock.set(0.4012);
+        before?.(run);
+        if (boom) run.scheduler.push('t', 'out', { channel: 0, boom: true });
+      }
+      if (k === 24) {
+        run.clock.set(0.6012);
+        run.scheduler.push('t', 'out', { channel: 0 });
+      }
+    }
+    const playing = run.live().map((d) => json(d.event)).sort();
+    return { ...run, heard, playing, log: json(run.scheduler.events()) };
+  }
+
+  it('drops the live event and re-runs without it, so later queries and pushes work', () => {
+    const costs: PushCost[] = [];
+    const run = perform(true, costs);
+    const reference = perform(false);
+    // Same log and the same notes playing as a run that never had the event.
+    expect(run.log).toBe(reference.log);
+    expect(run.playing).toEqual(reference.playing);
+    expect(run.scheduler.stats).toMatchObject({ pushes: 2, rewinds: 2, droppedPushes: 1, lateImmediate: 0, lateScheduled: 0, uncancelled: 0 });
+    // The scheduler still measured the push and told onPush, with the drop on its report.
+    expect(costs).toHaveLength(2);
+    expect(costs[0]!.rewind!.dropped).toEqual({ node: 'f', message: 'fragile broke' });
+    expect(costs[0]!.queries).toBe(costs[0]!.rewind!.queries);
+    expect(costs[1]!.rewind!.dropped).toBeNull();
+  });
+
+  it('warns on the node that threw, once, and counts every drop', () => {
+    const run = perform(true);
+    const warning = { node: 'f', kind: 'rewind-error', count: 1, time: 0.4062 };
+    expect(run.runtime.warnings()).toEqual([expect.objectContaining({ ...warning, message: expect.stringMatching(/^Node "f" failed while re-running for a live event from "t", so that event was dropped: fragile broke$/) })]);
+    expect(run.heard).toEqual([expect.objectContaining(warning)]);
+    run.clock.set(1.0012);
+    run.scheduler.push('t', 'out', { channel: 0, boom: true });
+    expect(run.runtime.warnings('f')[0]).toMatchObject({ count: 2, time: 1.0062 });
+    expect(run.heard).toHaveLength(1);
+    expect(run.scheduler.stats.droppedPushes).toBe(2);
+  });
+
+  it('rolls back a re-run that crosses a swap, under each window\'s plan', () => {
+    // The swap takes effect at the next boundary, 0.42; the event is at 0.4062, and the node throws from 0.4662.
+    const swapped = patch(p.nodes.map((n) => (n.id === 'd' ? { ...n, params: { time: 0.04 } } : n)), p.cables);
+    let swapAt = NaN;
+    const before = (run: ReturnType<typeof setup>) => void (swapAt = run.scheduler.swap(run.compile(swapped)).time);
+    const costs: PushCost[] = [];
+    const run = perform(true, costs, { before });
+    expect(swapAt).toBeCloseTo(0.42, 9);
+    expect(costs[0]!.rewind!.dropped).toMatchObject({ node: 'f' });
+    // The reference pushes the same event, so its rewind splits the windows at the same time
+    // (where a delay change at a swap applies depends on the chunks, ADR 0023), but its
+    // fragile node ignores the event instead of throwing.
+    const ignoring: NodeDefinition = { ...fragile, query: ({ inputs }) => ({ out: (inputs.in ?? []).filter((e) => !e.boom) }) };
+    const reference = perform(true, [], { before, extra: [ignoring] });
+    expect(reference.scheduler.stats.droppedPushes).toBe(0);
+    const withoutTap = (log: string) => json((JSON.parse(log) as LoggedEvent[]).filter((e) => e.node !== 't'));
+    expect(withoutTap(run.log)).toBe(withoutTap(reference.log));
+    expect(run.playing).toEqual(reference.playing);
+    expect(run.runtime.stateOf('c')).toEqual(reference.runtime.stateOf('c'));
+  });
+
+  it('rolls back across a swap that chunking can\'t affect, as if the event never came', () => {
+    // The metro's period changes at the swap, 0.42; the delay keeps its time, so where the rewind splits doesn't matter.
+    const swapped = patch(p.nodes.map((n) => (n.id === 'm' ? { ...n, params: { period: 0.03 } } : n)), p.cables);
+    let swapAt = NaN;
+    const before = (run: ReturnType<typeof setup>) => void (swapAt = run.scheduler.swap(run.compile(swapped)).time);
+    const costs: PushCost[] = [];
+    const run = perform(true, costs, { before });
+    expect(swapAt).toBeCloseTo(0.42, 9);
+    expect(costs[0]!.rewind!.dropped).toMatchObject({ node: 'f' });
+    const reference = perform(false, [], { before });
+    expect(run.log).toBe(reference.log);
+    expect(run.playing).toEqual(reference.playing);
+    expect(run.runtime.stateOf('c')).toEqual(reference.runtime.stateOf('c'));
+  });
+
+  it('warns on the pushing node when the node that threw is gone from the latest plan', () => {
+    // A swap at 0.42 removes the fragile node; the push at 0.4062 makes it throw in the window before.
+    const without = patch(
+      p.nodes.filter((n) => n.id !== 'f'),
+      [cable('m', 'c'), cable('t', 'c'), cable('c', 'd'), cable('d', 'r'), cable('c', 'r')],
+    );
+    let swapAt = NaN;
+    const before = (run: ReturnType<typeof setup>) => void (swapAt = run.scheduler.swap(run.compile(without)).time);
+    const costs: PushCost[] = [];
+    broken.after = 0.005;
+    let run;
+    try {
+      run = perform(true, costs, { before });
+    } finally {
+      broken.after = 0.06;
+    }
+    expect(swapAt).toBeCloseTo(0.42, 9);
+    expect(costs[0]!.rewind!.dropped).toEqual({ node: 'f', message: 'fragile broke' });
+    expect(run.runtime.warnings()).toEqual([expect.objectContaining({ node: 't', kind: 'rewind-error', count: 1, message: expect.stringMatching(/^Node "f" failed while re-running for a live event from "t"/) })]);
+    expect(run.runtime.warnings('f')).toEqual([]);
+    expect(run.scheduler.stats.droppedPushes).toBe(1);
+  });
+
+  it('rolls back when a snapshot fails, and blames the node whose state it was', () => {
+    // Takes on state that can't be copied when it sees the live event: the next window's snapshot throws.
+    const unclonable: NodeDefinition = {
+      type: 'unclonable', version: 1, label: 'Unclonable', category: 'control-logic', description: '',
+      ports: [{ name: 'in', type: 'event', direction: 'in' }, { name: 'out', type: 'event', direction: 'out' }],
+      params: [],
+      query: ({ inputs, state }) => {
+        if ((inputs.in ?? []).some((e) => e.boom)) state.handle = () => 0;
+        state.seen = ((state.seen as number | undefined) ?? 0) + (inputs.in?.length ?? 0);
+        return { out: (inputs.in ?? []).map(({ boom: _boom, ...e }) => e) };
+      },
+    };
+    const at = patch(
+      [node('m', 'metro', { period: 0.02 }), node('t', 'tap'), node('u', 'unclonable'), node('c', 'counter'), node('r', 'recorder')],
+      [cable('m', 'u'), cable('t', 'u'), cable('u', 'c'), cable('c', 'r')],
+    );
+    const costs: PushCost[] = [];
+    const run = perform(true, costs, { at, extra: [unclonable] });
+    const reference = perform(false, [], { at, extra: [unclonable] });
+    expect(costs[0]!.rewind!.dropped).toEqual({ node: 'u', message: expect.stringMatching(/plain data/) });
+    expect(run.runtime.warnings()).toEqual([expect.objectContaining({ node: 'u', kind: 'rewind-error', count: 1 })]);
+    expect(run.log).toBe(reference.log);
+    expect(run.playing).toEqual(reference.playing);
+    expect(run.runtime.stateOf('u')).toEqual(reference.runtime.stateOf('u'));
+  });
+
+  it('keeps dismissed cap drops dismissed through the rollback', () => {
+    // Three 1 ms metros: 360 events per limit window into the fragile node, over its 256 cap.
+    const at = patch(
+      [node('m', 'metro', { period: 0.001 }), node('n', 'metro', { period: 0.001 }), node('o', 'metro', { period: 0.001 }), node('t', 'tap'), node('f', 'fragile'), node('r', 'recorder')],
+      [cable('m', 'f'), cable('n', 'f'), cable('o', 'f'), cable('t', 'f'), cable('f', 'r')],
+    );
+    const before = (run: ReturnType<typeof setup>) => run.runtime.clearWarnings();
+    const run = perform(true, [], { at, before });
+    const reference = perform(false, [], { at, before });
+    expect(reference.scheduler.stats.droppedNodeLimit).toBeGreaterThan(0);
+    expect(run.scheduler.stats.droppedPushes).toBe(1);
+    expect(run.log).toBe(reference.log);
+    expect(run.scheduler.stats.droppedNodeLimit).toBe(reference.scheduler.stats.droppedNodeLimit);
+    // The cap warning is raised again only for new drops, as in the run without the event.
+    const capHeard = (r: typeof run) => r.heard.filter((w) => (w as { kind: string }).kind !== 'rewind-error');
+    expect(capHeard(run)).toEqual(capHeard(reference));
+    expect(run.runtime.warnings().filter((w) => w.kind !== 'rewind-error')).toEqual(reference.runtime.warnings());
+    expect(run.runtime.warnings('f').map((w) => w.kind)).toEqual(['node-event-limit', 'rewind-error']);
+  });
+
+  it('lets the error through when the node fails without the event too', () => {
+    const run = setup(p, {}, [fragile]);
+    run.wakeEvery(0, 0.5);
+    run.clock.set(0.49);
+    broken.always = true;
+    try {
+      expect(() => run.scheduler.push('t', 'out', { channel: 0 })).toThrow('fragile broke');
+    } finally {
+      broken.always = false;
+    }
+    expect(run.scheduler.stats.droppedPushes).toBe(0);
+    expect(run.runtime.warnings()).toEqual([]);
+  });
+});
+
+describe('hidden push fallback (ADR 0026)', () => {
+  // The rewind patch: a stateful counter fed by a metro and the tap, into the recorder.
+  const p = patch(
+    [node('m', 'metro', { period: 0.05 }), node('t', 'tap'), node('c', 'counter'), node('r', 'recorder')],
+    [cable('m', 'c'), cable('t', 'c'), cable('c', 'r')],
+  );
+  /** A wall clock where every node query costs `perQuery` ms, so push costs are known. */
+  function costed(options: Partial<SchedulerOptions>, perQuery = 1) {
+    const run = setup(p, options);
+    run.clock.wallTime = () => run.clock.wall + run.runtime.counters.queries * perQuery;
+    const heard: string[] = [];
+    run.runtime.onWarning = (message) => heard.push(message);
+    return { ...run, heard };
+  }
+
+  it('applies a hidden push over budget from the horizon, counts it and warns', () => {
+    const costs: PushCost[] = [];
+    const run = costed({ hiddenPushBudgetMs: 1, onPush: (cost) => costs.push(cost) });
+    run.clock.isHidden = true;
+    run.wakeAt(0);
+    // The first hidden push has no measured cost to go by, so it rewinds, and seeds the average.
+    run.clock.set(0.3);
+    run.scheduler.push('t', 'out', { channel: 0 });
+    expect(run.scheduler.stats).toMatchObject({ rewinds: 1, pushFallbacks: 0 });
+    expect(run.scheduler.stats.msPerQuery.hidden).toBeCloseTo(1, 9);
+    // The next one would re-run the rest of a 1.25 s window: over 1 ms at 1 ms a query.
+    run.clock.set(0.6);
+    const horizon = run.scheduler.horizon!;
+    const predicted = run.runtime.rewindCost('t', 0.6 + IMMEDIATE_OFFSET)!;
+    expect(predicted * 1).toBeGreaterThan(1);
+    const before = run.deliveries.length, cancelled = run.scheduler.stats.cancelled;
+    const event = run.scheduler.push('t', 'out', { channel: 0 })!;
+    expect(event.time).toBe(horizon);
+    expect(run.scheduler.stats).toMatchObject({ pushes: 2, rewinds: 1, pushFallbacks: 1, cancelled });
+    expect(costs[1]!.fallback!.stamped).toBe(0.6 + IMMEDIATE_OFFSET);
+    expect(costs[1]!.fallback!.estimatedMs).toBeCloseTo(predicted * 1, 9);
+    expect(costs[1]!).toMatchObject({ time: horizon, rewind: null });
+    // Nothing already sent was withdrawn: the wake that queried past the horizon delivered it.
+    expect(run.deliveries.slice(before).some((d) => d.event.time === horizon && d.event.channel === 0)).toBe(true);
+    expect(run.scheduler.events().filter((e) => e.node === 't').map((e) => e.time)).toEqual([0.3 + IMMEDIATE_OFFSET, horizon]);
+    // On the pushed node, raised once, counted every time.
+    run.clock.set(0.9);
+    run.scheduler.push('t', 'out', { channel: 0 });
+    expect(run.scheduler.stats.pushFallbacks).toBe(2);
+    expect(run.heard).toEqual(['Live input came in while the page was hidden and would have cost too much to apply at once, so it played up to about a second late.']);
+    expect(run.runtime.warnings()).toEqual([expect.objectContaining({ node: 't', kind: 'push-fallback', count: 2, time: run.scheduler.events().filter((e) => e.node === 't').at(-1)!.time })]);
+  });
+
+  it('always rewinds a visible push, whatever its cost', () => {
+    const run = costed({ hiddenPushBudgetMs: 1 });
+    // Measure hidden costs first, then go visible with a rewind that costs more than the budget.
+    run.clock.isHidden = true;
+    run.wakeAt(0);
+    run.clock.set(0.3);
+    run.scheduler.push('t', 'out', { channel: 0 });
+    run.clock.isHidden = false;
+    run.clock.set(0.35);
+    const predicted = run.runtime.rewindCost('t', 0.35 + IMMEDIATE_OFFSET)!;
+    expect(predicted * run.scheduler.stats.msPerQuery.hidden!).toBeGreaterThan(1);
+    const event = run.scheduler.push('t', 'out', { channel: 0 })!;
+    expect(event.time).toBe(0.35 + IMMEDIATE_OFFSET);
+    expect(run.scheduler.stats).toMatchObject({ rewinds: 2, pushFallbacks: 0 });
+    expect(run.scheduler.stats.msPerQuery.visible).toBeCloseTo(1, 9);
+    expect(run.runtime.warnings()).toEqual([]);
+  });
+
+  it('lands pushes held while suspended at the horizon, and the next wake delivers them', () => {
+    const costs: PushCost[] = [];
+    const run = costed({ hiddenPushBudgetMs: 1, onPush: (cost) => costs.push(cost) });
+    run.clock.isHidden = true;
+    run.wakeAt(0);
+    run.clock.set(0.3);
+    run.scheduler.push('t', 'out', { channel: 0 });
+    // Suspended: two pushes are held, and stamped at the resume wake.
+    run.clock.isRunning = false;
+    run.clock.set(0.5);
+    expect(run.scheduler.push('t', 'out', { channel: 1 })).toBeNull();
+    expect(run.scheduler.push('t', 'out', { channel: 2 })).toBeNull();
+    run.clock.isRunning = true;
+    run.wakeAt(2);
+    // Each would rewind the window the resume just queried, over budget: both go to its end, now + 1.25 s.
+    const horizon = 2 + HIDDEN_LOOKAHEAD;
+    expect(run.scheduler.horizon).toBe(horizon);
+    const held = costs.slice(1);
+    expect(held.map((c) => [c.time, c.fallback?.stamped]).sort()).toEqual([[horizon, 2 + IMMEDIATE_OFFSET], [horizon, 2 + IMMEDIATE_OFFSET]]);
+    expect(run.scheduler.stats).toMatchObject({ deferredPushes: 2, pushFallbacks: 2 });
+    // Nothing is queried at the horizon yet, so nothing is delivered until the next wake.
+    const atHorizon = () => run.deliveries.filter((d) => d.event.time === horizon && d.event.channel > 0).map((d) => [d.at, d.event.channel]);
+    expect(atHorizon()).toEqual([]);
+    run.wakeAt(3);
+    expect(atHorizon()).toEqual([[3, 1], [3, 2]]);
+  });
+
+  it('logs the applied time, so replaying the recorded pushes gives the same events', () => {
+    const run = costed({ hiddenPushBudgetMs: 1 });
+    run.clock.isHidden = true;
+    const recorded: EngineEvent[] = [];
+    for (let k = 0; k < 4; k++) {
+      run.wakeAt(k);
+      run.clock.set(k + 0.4);
+      recorded.push(run.scheduler.push('t', 'out', { channel: 0 })!);
+    }
+    expect(run.scheduler.stats.pushFallbacks).toBeGreaterThan(0);
+    // Replay: the recorded events pushed at their recorded times, known in advance.
+    const replay = setup(p, { lookahead: 0.004 });
+    for (let k = 0; k * 0.002 < 5; k++) {
+      replay.wakeAt(k * 0.002);
+      for (const event of recorded) if (event.time >= replay.scheduler.horizon! && event.time < replay.scheduler.horizon! + 0.002) replay.runtime.push('t', 'out', event);
+    }
+    const upTo = (events: LoggedEvent[]) => json(events.filter((e) => e.time < 4.5));
+    expect(upTo(replay.scheduler.events())).toBe(upTo(run.scheduler.events()));
+  });
+});
+
+describe('rewind cost', () => {
+  it('predicts the queries a push makes, before it makes them', () => {
+    const p = patch(
+      [node('m', 'metro', { period: 0.05 }), node('t', 'tap'), node('c', 'counter'), node('d', 'delay', { time: 0.011 }), node('r', 'recorder')],
+      [cable('m', 'c'), cable('t', 'c'), cable('c', 'd'), cable('d', 'r'), cable('c', 'r')],
+    );
+    for (const hidden of [false, true]) {
+      const run = setup(p);
+      run.clock.isHidden = hidden;
+      let checked = 0;
+      for (let k = 0; k < 40; k++) {
+        run.wakeAt(k * 0.025);
+        run.clock.set(k * 0.025 + 0.0031 * (k % 8));
+        const t = run.clock.audio + IMMEDIATE_OFFSET;
+        const predicted = run.runtime.rewindCost('t', t);
+        const before = run.scheduler.stats.pushQueries;
+        const event = run.scheduler.push('t', 'out', { channel: 0 })!;
+        expect(event.time).toBe(t);
+        if (predicted === null) continue;
+        expect(run.scheduler.stats.pushQueries - before).toBe(predicted);
+        checked++;
+      }
+      expect(checked).toBeGreaterThan(30);
+    }
+  });
+
+  it('predicts it across a swap that inserts a 10 ms Delay Edge', () => {
+    const before = patch(
+      [node('m', 'metro', { period: 0.05 }), node('t', 'tap'), node('c', 'counter'), node('r', 'recorder')],
+      [cable('m', 'c'), cable('t', 'c'), cable('c', 'r')],
+    );
+    const after = patch([...before.nodes, node('d', 'delay', { time: 0.01 })], [cable('m', 'c'), cable('t', 'c'), cable('c', 'd'), cable('d', 'r')]);
+    const run = setup(before);
+    run.wakeEvery(0, 0.425);
+    run.clock.set(0.4012);
+    // Windows before the boundary run whole, those after it in 10 ms chunks.
+    expect(run.scheduler.swap(run.compile(after)).time).toBeCloseTo(0.42, 9);
+    let checked = 0;
+    for (let k = 0; k < 8; k++) {
+      if (k) run.wakeAt(0.4 + k * 0.025);
+      run.clock.set(0.4012 + k * 0.025);
+      const predicted = run.runtime.rewindCost('t', run.clock.audio + IMMEDIATE_OFFSET);
+      const queries = run.scheduler.stats.pushQueries;
+      run.scheduler.push('t', 'out', { channel: 0 });
+      expect(run.scheduler.stats.pushQueries - queries).toBe(predicted);
+      checked++;
+    }
+    expect(checked).toBe(8);
+  });
+
+  it('is null when the push would not rewind', () => {
+    const { runtime, wakeAt } = setup(metroPatch());
+    expect(runtime.rewindCost('m', 0)).toBeNull();
+    wakeAt(0);
+    expect(runtime.rewindCost('m', 0.05)).not.toBeNull();
+    expect(runtime.rewindCost('m', LOOKAHEAD)).toBeNull();
+    expect(runtime.rewindCost('nope', 0.05)).toBeNull();
   });
 });
 
