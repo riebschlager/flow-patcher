@@ -5,6 +5,7 @@ import { curve } from './curve';
 import { delayEdge } from './delay-edge';
 import { euclidean } from './euclidean';
 import { fluid } from './fluid';
+import { getField } from './get-field';
 import { makeNote } from './make-note';
 import { mapRange } from './map-range';
 import { math } from './math';
@@ -24,9 +25,9 @@ export { rendererImage } from './renderer';
 export { InstrumentCache, instrumentCache, type InstrumentListener, type InstrumentStatus } from './instruments';
 export { skippedNotes } from './sampled-voice';
 export { INSTRUMENTS, INSTRUMENT_GROUPS, INSTRUMENT_KEYS, instrumentFile } from './music';
-export { chordTone, clock, curve, delayEdge, euclidean, fluid, makeNote, mapRange, math, output, pointer, probability, progression, renderer, sampleAndHold, sampledVoice, simpleSynth, smooth, splat, thresholdChange };
+export { chordTone, clock, curve, delayEdge, euclidean, fluid, getField, makeNote, mapRange, math, output, pointer, probability, progression, renderer, sampleAndHold, sampledVoice, simpleSynth, smooth, splat, thresholdChange };
 
 /** Every node type, in palette order. Add new node files here. */
-export const nodeDefinitions: readonly NodeDefinition[] = [pointer, clock, euclidean, probability, delayEdge, sampleAndHold, thresholdChange, math, mapRange, curve, smooth, progression, chordTone, makeNote, sampledVoice, simpleSynth, output, fluid, splat, renderer];
+export const nodeDefinitions: readonly NodeDefinition[] = [pointer, clock, euclidean, probability, delayEdge, sampleAndHold, thresholdChange, math, mapRange, curve, smooth, getField, progression, chordTone, makeNote, sampledVoice, simpleSynth, output, fluid, splat, renderer];
 
 export const nodeRegistry: ReadonlyMap<string, NodeDefinition> = new Map(nodeDefinitions.map((d) => [d.type, d]));
