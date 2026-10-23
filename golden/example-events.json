@@ -1755,6 +1755,134 @@
    "index": 27
   }
  ],
+ "force-sweep.flowpatch": [
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 0.25,
+   "channel": 0,
+   "index": 1
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 0.5,
+   "channel": 0,
+   "index": 2
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 0.75,
+   "channel": 0,
+   "index": 3
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 1,
+   "channel": 0,
+   "index": 4
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 1.25,
+   "channel": 0,
+   "index": 5
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 1.5,
+   "channel": 0,
+   "index": 6
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 1.75,
+   "channel": 0,
+   "index": 7
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2,
+   "channel": 0,
+   "index": 1
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 2,
+   "channel": 0,
+   "index": 8
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 2.25,
+   "channel": 0,
+   "index": 9
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 2.5,
+   "channel": 0,
+   "index": 10
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 2.75,
+   "channel": 0,
+   "index": 11
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 3,
+   "channel": 0,
+   "index": 12
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 3.25,
+   "channel": 0,
+   "index": 13
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 3.5,
+   "channel": 0,
+   "index": 14
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 3.75,
+   "channel": 0,
+   "index": 15
+  }
+ ],
  "get-field-echo.flowpatch": [
   {
    "node": "beat",
@@ -3453,6 +3581,57 @@
    "pitch": 62,
    "velocity": 0.7,
    "duration": 0.15
+  }
+ ],
+ "orbit-rings.flowpatch": [
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 0.6666666666666666,
+   "channel": 0,
+   "index": 1
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 1.3333333333333333,
+   "channel": 0,
+   "index": 2
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 2,
+   "channel": 0,
+   "index": 3
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 2.6666666666666665,
+   "channel": 0,
+   "index": 4
+  },
+  {
+   "node": "drops",
+   "port": "tick",
+   "time": 3.3333333333333335,
+   "channel": 0,
+   "index": 5
   }
  ],
  "pointer-notes.flowpatch": [
