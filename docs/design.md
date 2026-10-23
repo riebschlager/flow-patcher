@@ -119,7 +119,7 @@ Recognizers consume raw events and emit higher-level ones. They are ordinary nod
 
 ### Who owns a pointer
 
-In the original Flow, a pinch shouldn't also paint and a right-drag shouldn't drop notes. In a graph, every recognizer has two outputs: its gesture events, and a **Pass** output carrying the raw events it did not claim. A recognizer claims a channel once it is confident, for example when a pinch passes its threshold. From then on, that channel's events stop flowing out of Pass, and a Cancel goes to everything downstream of Pass. Chaining recognizers through Pass outputs sets priority: Pinch → Circle → Paint means pinch wins, circle next, and painting gets what's left. Flow's tool modes (Paint, Conduct, Space, Orbit) become a Switch node fed by a menu, a key or a Modifier Router.
+In the original Flow, a pinch shouldn't also paint and a right-drag shouldn't drop notes. In a graph, every recognizer has two outputs: its gesture events, and a **Pass** output carrying the raw events it did not claim. Both a recognizer's input and its Pass are one stream of events tagged with their `phase` (down, move, up, cancel). A recognizer claims a channel once it is confident, for example when a pinch passes its threshold. From then on, that channel's events stop flowing out of Pass, and a single `cancel` event for the channel goes out on Pass to everything downstream ([ADR 0028](decisions/0028-recognizers-pass-claim-cancel.md)). Chaining recognizers through Pass outputs sets priority: Pinch → Circle → Paint means pinch wins, circle next, and painting gets what's left. Flow's tool modes (Paint, Conduct, Space, Orbit) become a Switch node fed by a menu, a key or a Modifier Router.
 
 ### Platform rules the runtime handles
 
@@ -302,7 +302,7 @@ Every node type has its own version number and, from M4 on, a migration function
 
 ### Performance recordings
 
-All randomness is seeded and all generators are pure window queries. So a performance can be recorded as the patch plus its **input event streams**: pointer, key and wheel events with timestamps. Replaying the inputs through the same patch reproduces the performance. This needs no note capture, unlike Flow's session format. One exception: patches that use live sources from outside the canvas (MIDI, mic, motion) also record those streams, and any fluid-feedback path is non-deterministic across machines. For those, Flow's approach of capturing emitted notes stays available as a fallback. WAV and video export render locally in real time, as Flow does today.
+All randomness is seeded and all generators are pure window queries. So a performance can be recorded as the patch plus its **input event streams**: canvas events (pointer, key, wheel and the rest) with timestamps, in a format any patch can replay ([ADR 0029](decisions/0029-input-stream-format.md)). Replaying the inputs through the same patch reproduces the performance. This needs no note capture, unlike Flow's session format. One exception: patches that use live sources from outside the canvas (MIDI, mic, motion) also record those streams, and any fluid-feedback path is non-deterministic across machines. For those, Flow's approach of capturing emitted notes stays available as a fallback. WAV and video export render locally in real time, as Flow does today.
 
 ### Storage and community
 

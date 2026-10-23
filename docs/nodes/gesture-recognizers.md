@@ -19,9 +19,12 @@ Flow's recognizers live inside a mode-based controller. Borrowing them means spl
 
 ## Pass, claim and Cancel
 
-- Every recognizer has two kinds of output: its gesture events, and a **Pass** output carrying the raw events it didn't claim.
-- A recognizer **claims** a channel once it's confident, for example when a pinch passes its threshold.
-- From then on, that channel's events stop flowing out of Pass, and one **Cancel** goes to everything downstream of Pass.
+[ADR 0028](../decisions/0028-recognizers-pass-claim-cancel.md) has the full rules.
+
+- Recognizers read one phase-tagged stream: a source's **All** output, or another recognizer's Pass. Each event's `phase` is `down`, `move`, `up` or `cancel`. The input is **In**.
+- Every recognizer has two kinds of output: its gesture events, and **Pass**, which carries the raw events it didn't claim in the same tagged shape. **Pass Down**, **Pass Move**, **Pass Up** and **Pass Cancel** split it for nodes that want one phase.
+- A recognizer **claims** a channel once it's confident, for example when a pinch passes its threshold. The claim is decided in `query()` from event times, so it rewinds and replays like any query.
+- At the claim it emits exactly one `cancel` event for that channel on Pass, and that channel's events stop flowing out of Pass until it ends. Nodes downstream treat the cancel like a pointercancel.
 - Chaining recognizers through Pass sets priority. With Pinch → Circle → Paint, pinch wins, circle comes next, and painting gets what's left.
 - Test every recognizer for: claim timing, no Pass events from a claimed channel after the claim, exactly one Cancel, and independent per-channel state.
 

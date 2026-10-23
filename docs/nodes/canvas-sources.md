@@ -4,7 +4,7 @@ Raw source nodes turn browser events on the performance canvas into events and s
 
 | Node | Browser events | Outputs | Milestone |
 | --- | --- | --- | --- |
-| Pointer | pointerdown, pointermove, pointerup, pointercancel, pointerenter, pointerleave | Down, Move, Up, Cancel events per channel; X, Y, Pressure, Speed signals per channel; Count of active pointers | M1 (basic), M2 (complete) |
+| Pointer | pointerdown, pointermove, pointerup, pointercancel, pointerenter, pointerleave | Down, Move, Up, Cancel events per channel, and All: every event tagged with its `phase` ([ADR 0028](../decisions/0028-recognizers-pass-claim-cancel.md)); X, Y, Pressure, Speed signals per channel; Count of active pointers | M1 (basic), M2 (complete) |
 | Pointer (high rate) | `getCoalescedEvents()`, `pointerrawupdate` where supported | Every sub-frame move sample, for smooth strokes and fast flicks | M2 |
 | Click | click, dblclick, auxclick, contextmenu | Click, Double, Middle, Right events with position | M2 |
 | Wheel | wheel (including macOS trackpad pinch, sent as wheel + ctrlKey) | DeltaX, DeltaY, Zoom events; accumulated X/Y/Zoom signals with a decay knob | M2 |

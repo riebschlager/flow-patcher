@@ -8,7 +8,7 @@ A fixed set of music-shaped building blocks around one fluid field, not a genera
 | --- | --- | --- | --- |
 | Fluid | Owns the solver; outputs a Field. Knobs: vorticity, dissipation (color persistence), viscosity, grid budget | `fluid.js`, `fluid-viewport.js`, ported to WebGL2 passes | M1 (CPU), M3 (GPU) |
 | Splat | Writer: dye + impulse at a point, from any Event with x/y | `fluid.js` splat | M1 |
-| Force | Writer: a continuous push following a Signal pair | `fluid.js` force | As needed |
+| Force | Writer: a continuous push following a Signal pair | `fluid.js` force | M2 (mode patches) |
 | Stir ★ | Writer: Flow's percussion roll, sweep and eddy impulses | `percussion-visuals.js` | M3 |
 | Clear / Fade | Writer: clears or fades the field | New | As needed |
 | Probe | Reader: density, speed and curl at a point, as Signals | `fluid.js` probe | As needed |
@@ -29,7 +29,7 @@ A fixed set of music-shaped building blocks around one fluid field, not a genera
 | Halo ★ | Envelope-shaped glow tied to a note's sound | `visible-sound.js` | M3 |
 | Motes ★ | Particles carried by the fluid's velocity | `visible-sound.js` | M3 |
 | Trace | A line following a pointer channel, with persistence | New | As needed |
-| Orbit Rings ★ | Flow's rotating ellipses, driven by an Angle signal | `orbit-rings.js` | M3 |
+| Orbit Rings ★ | Flow's rotating ellipses, driven by an Angle signal | `orbit-rings.js` | M2 (Orbit mode) |
 | Text ★ | Dye lettering (Flow's title card) | `dye-text.js` | M3 |
 | Palette ★ | Four-color palette as a Value; also an Index → Color node for color-by-channel or color-by-voice | `palettes.js` | M3 |
 | Lighting ★ | Chord atmosphere: color cast, light direction and energy, from a chord Value | `chord-atmosphere.js` | M3 |

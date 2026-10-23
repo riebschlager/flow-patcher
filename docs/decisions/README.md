@@ -31,6 +31,8 @@ Short records of settled calls. Read the relevant ones before changing anything 
 | [0025](0025-voice-steals-warn-and-stay-in-budget.md) | A voice steal warns on the node whose note caused it, and the pool's worst case fits the main-thread budget (amends 0024) |
 | [0026](0026-hidden-push-fallback.md) | While the page is hidden, a push whose rewind is over budget applies from the horizon; a live event whose re-run throws is dropped with a warning (amends 0019) |
 | [0027](0027-immediate-notes-within-one-clock-step.md) | A tap's own note may reach Web Audio up to one audio clock step late; scheduled events never (amends 0017) |
+| [0028](0028-recognizers-pass-claim-cancel.md) | Recognizers chain on one phase-tagged stream; a claim is one Cancel on Pass, decided in query() |
+| [0029](0029-input-stream-format.md) | Input streams record canvas events by type and replay through any patch |
 
 ## Adding a decision
 Copy the shape of an existing file: number, title, `Status: Accepted · <date>`, then Context (if needed), Decision and Consequences. Keep it under a page. If it replaces an older record, set the old one's status to `Superseded by NNNN`. If it changes only part of an older record, set the old one's status to `Amended by NNNN` and leave its text as written; the new record says what changed.
