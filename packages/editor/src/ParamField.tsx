@@ -1,13 +1,13 @@
 // A node's param rows (design system ParamField): number bars, enum menus,
 // text with presets, toggles. Every number works the same way: drag, Shift for
 // fine, double-click to type, right-click to reset, cable in to modulate.
-import { createContext, useContext, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { CUSTOM_PRESET, isModulatable, presetFor, resolveParam, type NumberParamSpec, type ParamSpec, type ParamValue, type PatchEdit, type TextParamSpec } from '@flow-patcher/engine';
 import { paramHandle } from './patch-graph';
 import { PORT_SIZE } from './ports';
 import { snapTo, startDrag } from './drag-edit';
-import { formatParam, parseTyped } from './param-format';
+import { formatParam, keyedValue, parseTyped } from './param-format';
 import type { EditorStore } from './store';
 import type { LivePatch } from './live';
 
@@ -90,19 +90,10 @@ function NumberField({ node, spec, value, modulated }: RowProps<NumberParamSpec>
     event.preventDefault();
     const width = event.currentTarget.getBoundingClientRect().width || 1;
     startDrag(store, event.nativeEvent, {
+      from: base,
       valueAt: (dx, fine) => snapTo(base + (dx / (fine ? width * FINE : width)) * (spec.max - spec.min), spec.min, spec.max, spec.step),
       edits: (v) => setParam(node, spec, v),
     });
-  };
-  const commit = (text: string) => {
-    setTyping(false);
-    const typed = parseTyped(text);
-    if (Number.isFinite(typed)) apply(resolveParam(spec, typed));
-  };
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') commit(event.currentTarget.value);
-    else if (event.key === 'Escape') setTyping(false);
-    event.stopPropagation();
   };
 
   const label = spec.label ?? spec.name;
@@ -110,15 +101,7 @@ function NumberField({ node, spec, value, modulated }: RowProps<NumberParamSpec>
     return (
       <div className="param-field param-field--editing nodrag nopan" data-testid="param-field">
         <span className="param-field__label">{label}</span>
-        <input
-          className="param-field__input"
-          aria-label={label}
-          defaultValue={formatParam(spec, base).replace(/ .*/, '')}
-          autoFocus
-          onFocus={(e) => e.currentTarget.select()}
-          onKeyDown={onKeyDown}
-          onBlur={(e) => commit(e.currentTarget.value)}
-        />
+        <TypedNumber className="param-field__input" label={label} initial={base} onCommit={(typed) => apply(resolveParam(spec, typed))} onDone={() => setTyping(false)} />
       </div>
     );
   }
@@ -133,7 +116,17 @@ function NumberField({ node, spec, value, modulated }: RowProps<NumberParamSpec>
       aria-valuemin={spec.min}
       aria-valuemax={spec.max}
       aria-valuenow={base}
+      aria-valuetext={formatParam(spec, base)}
+      tabIndex={0}
       onPointerDown={onPointerDown}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') return setTyping(true);
+        const next = keyedValue(event.key, event.shiftKey, base, spec.min, spec.max, spec.step);
+        if (next === undefined) return;
+        event.preventDefault();
+        event.stopPropagation();
+        apply(next);
+      }}
       onDoubleClick={() => setTyping(true)}
       onContextMenu={(event) => {
         event.preventDefault();
@@ -145,6 +138,36 @@ function NumberField({ node, spec, value, modulated }: RowProps<NumberParamSpec>
       <span className="param-field__label">{label}</span>
       <span className="param-field__value">{formatParam(spec, base)}</span>
     </div>
+  );
+}
+
+/**
+ * A number typed in place: Enter or leaving the field commits it, Escape throws it away. It commits once, and only
+ * when the text changed, so opening it and leaving it as it was doesn't round the value.
+ */
+export function TypedNumber({ className, label, initial, onCommit, onDone }: { className: string; label: string; initial: number; onCommit: (value: number) => void; onDone: () => void }) {
+  const done = useRef(false);
+  const finish = (text: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    const typed = text === null || text.trim() === String(initial) ? NaN : parseTyped(text);
+    if (Number.isFinite(typed)) onCommit(typed);
+    onDone();
+  };
+  return (
+    <input
+      className={className}
+      aria-label={label}
+      defaultValue={String(initial)}
+      autoFocus
+      onFocus={(e) => e.currentTarget.select()}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') finish(e.currentTarget.value);
+        else if (e.key === 'Escape') finish(null);
+        e.stopPropagation();
+      }}
+      onBlur={(e) => finish(e.currentTarget.value)}
+    />
   );
 }
 

@@ -1,11 +1,11 @@
-import { useContext, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useContext, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type Edge, type EdgeProps } from '@xyflow/react';
 import type { NumberParamSpec, PatchCable, PatchEdit, PortType } from '@flow-patcher/engine';
 import { CABLE_STYLES, PORT_COLORS } from './ports';
 import { ABOVE_NODES, cableId, type CableEdgeData } from './patch-graph';
 import { snapTo, startDrag } from './drag-edit';
-import { EditorStoreContext } from './ParamField';
-import { formatParam, parseTyped } from './param-format';
+import { EditorStoreContext, TypedNumber } from './ParamField';
+import { formatParam, keyedValue } from './param-format';
 
 /** How long a refused cable shows before it's gone, ms; its fade runs over the same time. */
 export const REFUSED_MS = 900;
@@ -120,20 +120,11 @@ function DepthChip({ cable, spec, onBusy }: { cable: PatchCable; spec: NumberPar
     event.stopPropagation();
     onBusy(true);
     startDrag(store, event.nativeEvent, {
+      from: depth,
       valueAt: (dx, fine) => clamp(depth + (dx / (fine ? DEPTH_DRAG * FINE : DEPTH_DRAG)) * range),
       edits,
       onEnd: () => onBusy(false),
     });
-  };
-  const commit = (text: string) => {
-    setTyping(false);
-    const typed = parseTyped(text);
-    if (Number.isFinite(typed)) set(clamp(typed));
-  };
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') commit(event.currentTarget.value);
-    else if (event.key === 'Escape') setTyping(false);
-    event.stopPropagation();
   };
   const text = `${depth >= 0 ? '+' : ''}${formatParam(spec, depth)}`;
   const pct = range > 0 ? Math.min(1, Math.abs(depth) / range) * 100 : 0;
@@ -147,7 +138,17 @@ function DepthChip({ cable, spec, onBusy }: { cable: PatchCable; spec: NumberPar
       aria-valuemin={-range}
       aria-valuemax={range}
       aria-valuenow={depth}
+      aria-valuetext={text}
+      tabIndex={0}
       onPointerDown={onPointerDown}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') return setTyping(true);
+        const next = keyedValue(event.key, event.shiftKey, depth, -range, range, spec.step);
+        if (next === undefined) return;
+        event.preventDefault();
+        event.stopPropagation();
+        set(next);
+      }}
       onDoubleClick={(event) => {
         event.stopPropagation();
         setTyping(true);
@@ -159,7 +160,7 @@ function DepthChip({ cable, spec, onBusy }: { cable: PatchCable; spec: NumberPar
     >
       <span className="cable-chip__bar" style={{ background: `linear-gradient(90deg, var(--fp-signal) ${pct}%, var(--fp-line-2) ${pct}%)` }} />
       {typing ? (
-        <input className="cable-chip__input" aria-label="Depth" defaultValue={String(depth)} autoFocus onFocus={(e) => e.currentTarget.select()} onKeyDown={onKeyDown} onBlur={(e) => commit(e.currentTarget.value)} />
+        <TypedNumber className="cable-chip__input" label="Depth" initial={depth} onCommit={(typed) => set(clamp(typed))} onDone={() => setTyping(false)} />
       ) : (
         text
       )}

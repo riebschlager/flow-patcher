@@ -93,11 +93,12 @@ html, body, #root { height: 100%; margin: 0; background: var(--fp-surface-canvas
 
 /* Param rows (design system ParamField): a 22px bar in a 26px row. */
 .patch-node__params { padding: var(--fp-space-2) 0 var(--fp-space-3); border-top: 1px solid var(--fp-line-1); }
-.param-row { position: relative; padding: var(--fp-space-1) var(--fp-space-4); }
+.param-row { position: relative; box-sizing: border-box; min-height: var(--fp-row-param); display: flex; flex-direction: column; justify-content: center; padding: var(--fp-space-1) var(--fp-space-4); }
 .param-field { position: relative; box-sizing: border-box; height: var(--fp-row); display: flex; align-items: center; justify-content: space-between; gap: var(--fp-space-4); padding: 0 var(--fp-space-4); overflow: hidden; border-radius: var(--fp-radius-sm); background: var(--fp-bg-1); font-size: var(--fp-text-xs); user-select: none; transition: background var(--fp-dur-fast), box-shadow var(--fp-dur-fast); }
 .param-field:hover { background: var(--fp-bg-3); box-shadow: inset 0 0 0 1px var(--fp-line-3); }
 .param-field:focus-within { box-shadow: var(--fp-ring-focus); }
 .param-field--number { cursor: ew-resize; touch-action: none; }
+.param-field--number:focus-visible, .cable-chip--depth:focus-visible { outline: none; box-shadow: var(--fp-ring-focus); }
 .param-field__fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--fp-bg-4); pointer-events: none; }
 .param-field__mod { position: absolute; top: 0; bottom: 0; width: 0; box-sizing: border-box; background: var(--fp-signal-soft); pointer-events: none; }
 .param-field__mod[data-side='above'] { border-left: 1.5px solid var(--fp-signal); }
@@ -112,7 +113,7 @@ html, body, #root { height: 100%; margin: 0; background: var(--fp-surface-canvas
 .param-field--select { cursor: pointer; }
 .param-field__select { flex: 1; min-width: 0; appearance: none; padding: 0 var(--fp-space-6) 0 0; border: 0; outline: none; background: transparent; color: var(--fp-fg-1); font: inherit; text-align: right; text-align-last: right; cursor: pointer; }
 .param-field__select option { background: var(--fp-bg-2); color: var(--fp-fg-1); }
-.param-field__chevron { position: absolute; right: var(--fp-space-3); font-size: 12px; color: var(--fp-fg-3); pointer-events: none; }
+.param-field__chevron { position: absolute; right: var(--fp-space-3); font-size: var(--fp-text-sm); color: var(--fp-fg-3); pointer-events: none; }
 .param-text { display: grid; gap: var(--fp-space-2); }
 .param-text__error { padding: 0 var(--fp-space-4); font-size: var(--fp-text-micro); line-height: 1.4; color: var(--fp-error); }
 .param-toggle { width: 100%; height: var(--fp-row); box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; padding: 0 var(--fp-space-4); border: 0; border-radius: var(--fp-radius-sm); background: var(--fp-bg-1); font-family: var(--fp-font-ui); font-size: var(--fp-text-xs); cursor: pointer; transition: background var(--fp-dur-fast); }
@@ -169,7 +170,7 @@ html, body, #root { height: 100%; margin: 0; background: var(--fp-surface-canvas
 .cable-chip--depth { border: 1px solid var(--fp-signal); font-family: var(--fp-font-mono); font-size: var(--fp-text-micro); font-variant-numeric: tabular-nums; color: var(--fp-signal); cursor: ew-resize; touch-action: none; user-select: none; }
 .cable-chip__bar { width: calc(var(--fp-space-7) + var(--fp-space-2)); height: var(--fp-space-1); border-radius: var(--fp-radius-xs); }
 .cable-chip__input { width: 6ch; padding: 0; border: 0; outline: none; background: transparent; color: var(--fp-signal); font: inherit; }
-.cable-remove { width: var(--fp-grid); height: var(--fp-grid); display: inline-grid; place-items: center; padding: 0; border: 1px solid var(--fp-line-3); border-radius: var(--fp-radius-full); background: var(--fp-bg-2); color: var(--fp-fg-2); font-size: 12px; cursor: pointer; transition: background var(--fp-dur-fast), color var(--fp-dur-fast); }
+.cable-remove { width: var(--fp-grid); height: var(--fp-grid); display: inline-grid; place-items: center; padding: 0; border: 1px solid var(--fp-line-3); border-radius: var(--fp-radius-full); background: var(--fp-bg-2); color: var(--fp-fg-2); font-size: var(--fp-text-sm); cursor: pointer; transition: background var(--fp-dur-fast), color var(--fp-dur-fast); }
 .cable-remove:hover { background: var(--fp-bg-3); color: var(--fp-fg-1); }
 .cable-remove:focus-visible { outline: none; box-shadow: var(--fp-ring-focus); }
 @media (pointer: coarse) {

@@ -68,19 +68,30 @@ test('a knob turned while playing hot-swaps, and the whole drag is one undo step
 
   const hits = field(page, 'euclid', 'hits');
   await expect(hits).toHaveAttribute('data-value', '5');
-  const swaps = (await stats(page)).swaps;
   await dragBy(page, hits, 60);
   const turned = Number(await hits.getAttribute('data-value'));
   expect(turned).toBeGreaterThan(5);
-  // The running plan has the new value, and previews were throttled: not one swap per pointer move.
+  // The running plan has the new value.
   expect(await page.evaluate(() => window.flowPatcher!.paramAt('euclid', 'hits'))).toBe(turned);
-  const during = (await stats(page)).swaps - swaps;
-  expect(during).toBeGreaterThan(0);
-  expect(during).toBeLessThanOrEqual(13);
+  await undo(page).click();
+  await expect(hits).toHaveAttribute('data-value', '5');
+
+  // Previews are throttled to one per animation frame: 50 moves in one task make at most one swap, plus the drop's.
+  const box = (await hits.boundingBox())!;
+  const swaps = (await stats(page)).swaps;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.evaluate(({ x, y }) => {
+    for (let i = 1; i <= 50; i++) window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: x + i, clientY: y }));
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: x + 50, clientY: y }));
+  }, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
+  await page.mouse.up();
+  expect((await stats(page)).swaps - swaps).toBeLessThanOrEqual(2);
+  expect(Number(await hits.getAttribute('data-value'))).toBeGreaterThan(5);
   const delivered = (await stats(page)).delivered;
   await expect.poll(async () => (await stats(page)).delivered, { timeout: 6000 }).toBeGreaterThan(delivered);
 
-  // One undo step: back to 5, and nothing left to undo.
+  // Each drag was one undo step: back to 5, and nothing left to undo.
   await undo(page).click();
   await expect(hits).toHaveAttribute('data-value', '5');
   await expect(undo(page)).toBeDisabled();
@@ -98,6 +109,16 @@ test('a knob turned while playing hot-swaps, and the whole drag is one undo step
   await expect(hits).toHaveAttribute('data-value', '9');
   await hits.click({ button: 'right' });
   await expect(hits).toHaveAttribute('data-value', '4');
+  // Escape throws typed text away; the keyboard steps the slider.
+  await hits.dblclick();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.type('20');
+  await page.keyboard.press('Escape');
+  await expect(hits).toHaveAttribute('data-value', '4');
+  await hits.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(hits).toHaveAttribute('data-value', '5');
+  await expect(hits).toHaveAttribute('aria-valuetext', '5');
 
   const final = await stats(page);
   expect(final.lateScheduled).toBe(0);
@@ -208,6 +229,8 @@ test('a param cable\'s depth chip: drag, type, right-click to reset, each one un
   await expect(chip).toHaveText(/−24 MIDI/);
 
   await dragBy(page, chip, 40);
+  // The chip shrank and re-centred under the drag: point at it again before it hides.
+  await page.mouse.move(hover.x, hover.y);
   await expect(chip).toHaveAttribute('data-depth', '8');
   await chip.dblclick();
   await page.keyboard.press('ControlOrMeta+a');

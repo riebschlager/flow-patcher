@@ -221,7 +221,8 @@ export class LivePatch {
     return { currentTime: this.context.currentTime, baseLatency: this.context.baseLatency };
   }
 
-  /** A number param as the node reads it now, cables included: the knob's modulation ring. */
+  /** A number param as the node reads it now, cables included: the knob's modulation ring. It reads the latest
+   *  plan at currentTime, so it can lead a pending swap by a window and what you hear by the output latency. */
   paramAt(nodeId: string, name: string): number | undefined {
     return this.runtime.paramAt(nodeId, name, this.context.currentTime);
   }
