@@ -185,6 +185,8 @@ export class LivePatch {
         wallTime: () => performance.now(),
         running: () => context.state === 'running',
         hidden: () => document.hidden,
+        // In Chromium, one audio callback's buffer: the immediate offset covers it (ADR 0027).
+        callback: () => context.baseLatency,
       },
       timer: {
         every(ms, tick) {
@@ -313,6 +315,11 @@ export class LivePatch {
   }
 
   /** The AudioContext's clock, for e2e: currentTime, and baseLatency (in Chromium, one audio callback's buffer). */
+  /** The offset live input is stamped with now (ADR 0027). */
+  get immediateOffset(): number {
+    return this.scheduler.offset;
+  }
+
   get clock(): { currentTime: number; baseLatency: number } {
     return { currentTime: this.context.currentTime, baseLatency: this.context.baseLatency };
   }

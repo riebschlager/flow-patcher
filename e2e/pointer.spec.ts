@@ -36,17 +36,30 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
   }
   const taps = await page.evaluate(() => window.flowPatcher!.taps.filter((tap) => !tap.cold));
   const { callback } = await audioCallback(page);
+  // The offset in force: 5 ms, or one audio callback + 1 ms if that is longer (ADR 0027). The gate's 5 ms ± 2 ms holds it.
+  const offset = await page.evaluate(() => window.flowPatcher!.immediateOffset);
+  expect(offset).toBeGreaterThanOrEqual(0.005);
+  expect(offset).toBeLessThanOrEqual(0.007);
   expect(taps).toHaveLength(10);
   for (const tap of taps) {
     // push reads currentTime again after the handler did, and an audio callback can land between the
-    // two reads. The +5 ms is the lower bound here; the gate's ±2 ms is then measured from push's read.
-    expect(tap.stamped! - tap.at).toBeGreaterThanOrEqual(0.005 - 1e-6);
-    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(0.005 + callback + 1e-6);
+    // two reads. The offset is the lower bound here; the gate's ±2 ms is then measured from push's read.
+    expect(tap.stamped! - tap.at).toBeGreaterThanOrEqual(offset - 1e-6);
+    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(offset + callback + 1e-6);
     expect(tap.note).not.toBeNull();
     expect(Math.abs(tap.note! - tap.stamped!)).toBeLessThanOrEqual(0.002);
   }
+  const ms = (s: number) => (s * 1000).toFixed(2);
+  console.log(
+    `offset ${ms(offset)} ms (audio callback ${ms(callback)} ms); note − push's read: worst ${ms(Math.max(...taps.map((t) => Math.abs(t.note! - t.stamped!))))} ms off the offset; ` +
+      `note − handler's read: ${ms(Math.min(...taps.map((t) => t.note! - t.at)))}–${ms(Math.max(...taps.map((t) => t.note! - t.at)))} ms`,
+  );
   const stats = await page.evaluate(() => window.flowPatcher!.stats);
   expect(stats.pushes).toBeGreaterThanOrEqual(11);
+  // ADR 0026: a visible push always rewinds, so none fell back to the horizon, and none was handed over late.
+  expect(await page.evaluate(() => document.visibilityState)).toBe('visible');
+  expect(stats.pushFallbacks).toBe(0);
+  expect(stats.lateImmediate).toBe(0);
 
   await page.screenshot({ path: 'test-results/pointer.png' });
   expect(errors).toEqual([]);
