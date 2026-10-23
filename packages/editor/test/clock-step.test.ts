@@ -1,7 +1,7 @@
 // The clock step is measured from currentTime's jumps, not baseLatency (ADR 0028): the fallback
-// until enough steps are seen, then the largest single jump, and no more reading after that.
+// until enough steps are seen, then the largest single jump, fixed from then on.
 import { describe, expect, it } from 'vitest';
-import { ClockStep, STEP_SLICE_MS, STEPS_SAMPLED, STEPS_TRUSTED } from '../src/clock-step';
+import { ClockStep, STEP_SLICE_MS, STEPS_SAMPLED } from '../src/clock-step';
 
 /** An audio clock that jumps by `steps` in turn every `every` reads, and a wall clock that ticks 0.01 ms a read. */
 const clocks = (steps: number[], every = 5) => {
@@ -24,7 +24,7 @@ describe('ClockStep', () => {
   it('uses the fallback until enough steps are seen, then the largest one', () => {
     const clock = clocks([0.0029, 0.0027]);
     const step = new ClockStep(clock.read, clock.now, () => 0.01);
-    for (let i = 0; i < STEPS_TRUSTED - 1; i++) step.sample();
+    for (let i = 0; i < STEPS_SAMPLED - 1; i++) step.sample();
     expect(step.known).toBe(false);
     expect(step.value()).toBe(0.01);
     step.sample();
@@ -39,6 +39,20 @@ describe('ClockStep', () => {
     // One read before the loop, then one per 0.01 ms wall tick until the slice ends.
     expect(clock.reads()).toBeLessThanOrEqual(STEP_SLICE_MS / 0.01 + 2);
     expect(step.known).toBe(false);
+  });
+
+  it('keeps the fallback while only short steps have been seen, so the value never grows once known', () => {
+    // macOS: 128-frame steps first, a 256-frame callback only late in the sample.
+    const steps = [...Array<number>(STEPS_SAMPLED - 1).fill(0.00267), 0.00533];
+    const clock = clocks(steps);
+    const step = new ClockStep(clock.read, clock.now, () => 0.00533);
+    const values: number[] = [];
+    for (let i = 0; i < STEPS_SAMPLED * 2; i++) {
+      step.sample();
+      values.push(step.value());
+    }
+    expect(step.known).toBe(true);
+    for (const value of values) expect(value).toBeCloseTo(0.00533, 9);
   });
 
   it('ignores a clock that goes back, and stops reading once it has sampled enough', () => {

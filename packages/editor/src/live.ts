@@ -43,6 +43,8 @@ export interface Tap {
   down: number;
   /** The time the push was stamped, or null when it was held for the AudioContext to start. */
   stamped: number | null;
+  /** The immediate offset in force when the push was stamped (ADR 0027, 0028). */
+  offset: number;
   /** When the first note it caused starts sounding: the earliest oscillator start scheduled during the push.
    *  A cold tap's push runs on a later wake, so it takes the next oscillator start instead (approximate). */
   note: number | null;
@@ -377,6 +379,7 @@ export class LivePatch {
     const waited = timeStamp !== undefined && timeStamp <= wall ? (wall - timeStamp) / 1000 : 0;
     this.starts = [];
     let stamped: number | null = null;
+    const offset = this.scheduler.offset;
     try {
       for (const id of this.pointers) stamped ??= this.scheduler.push(id, port, fields)?.time ?? null;
     } finally {
@@ -384,7 +387,7 @@ export class LivePatch {
       const starts = this.starts;
       this.starts = null;
       if (port === 'down') {
-        const tap: Tap = { at, down: at - waited, stamped, note: starts.length ? Math.min(...starts) : null, cold, splash: null, splashLost: false };
+        const tap: Tap = { at, down: at - waited, stamped, offset, note: starts.length ? Math.min(...starts) : null, cold, splash: null, splashLost: false };
         if (cold && tap.note === null) this.coldTap = tap;
         if (this.renderer && this.hasFluid && stamped !== null) {
           this.splashes.push({ tap, time: stamped, downWall: wall - waited * 1000, frame: this.frameCounts.frames, carried: null });

@@ -10,11 +10,11 @@ What makes a note late is how far `currentTime` can jump between the push's read
 ## Decision
 - A push is stamped `currentTime + max(5 ms, largest clock step + 1 ms)` *(tune)*. `SchedulerClock.callback()` is renamed `step()` and returns that step.
 - The editor measures it (`packages/editor/src/clock-step.ts`). Once an animation frame, while the context runs, it reads `currentTime` in a tight loop for at most 1 ms, until the value changes; that change is one step. It keeps the largest.
-- Until 8 steps are seen, the step is `baseLatency` (the safe side on every platform measured so far). After 32 steps it stops reading. The measurement takes under a second after audio starts and costs at most 1 ms a frame until then.
+- Until 32 steps are seen, the step is `baseLatency` (the safe side on every platform measured so far). Then the measurement takes over, is fixed, and reading stops. It is final before it is used because macOS mixes 2.67 and 5.33 ms steps: an early switch could see only short ones and then raise the offset after taps were already stamped with less. A 1 ms slice sees a step in about one frame in three to five, so this takes 2–3 s after audio starts, at most 1 ms a frame.
 - The gate wording is unchanged. e2e specs wait until the step is measured before timing taps, and pointer.spec asserts the gate as written: note − push's read within 5 ± 2 ms.
 
 ## Consequences
 - macOS: 6.33 ms, as under 0027. Linux CI: 5 ms. Devices whose clock steps by 6 ms or more still get a larger offset, as 0027 intended.
-- The first taps after audio starts (under a second) can use a larger, `baseLatency`-based offset.
+- Taps in the first 2–3 s after audio starts use the `baseLatency`-based offset (11 ms in CI). The editor records each tap's offset (`Tap.offset`), and the e2e specs wait for the measurement before timing taps.
 - A step larger than any of the 32 sampled (a rare two-callback burst) can still pass a note; the late counters and the e2e edit run would show it.
 - An output-device change isn't re-measured. Nothing in M1 changes the sink; revisit when something does.

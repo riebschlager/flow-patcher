@@ -49,10 +49,11 @@ test('taps stay on time with the fluid stepping and the renderer drawing', async
   const taps = await page.evaluate(() => window.flowPatcher!.taps.filter((tap) => !tap.cold));
   const stats = await page.evaluate(() => window.flowPatcher!.frameStats);
   const clock = await audioClock(page);
-  const offset = await page.evaluate(() => window.flowPatcher!.immediateOffset);
+  // Each tap against the offset it was stamped with.
+  const worstTap = taps.reduce((a, b) => (b.note! - b.down - b.offset > a.note! - a.down - a.offset ? b : a));
+  const worst = worstTap.note! - worstTap.down;
+  const offset = worstTap.offset;
   const bound = offset + 0.007;
-  const late = taps.map((tap) => tap.note! - tap.down);
-  const worst = Math.max(...late);
   const splashes = taps.map((tap) => tap.splash!);
   console.log(
     `worst tap ${(worst * 1000).toFixed(2)} ms (offset ${(offset * 1000).toFixed(2)} ms, bound ${(bound * 1000).toFixed(2)} ms); clock step ${(clock.step * 1000).toFixed(2)} ms (largest seen ${(clock.largestStep * 1000).toFixed(2)} ms, baseLatency ${(clock.baseLatency * 1000).toFixed(2)} ms); ` +
@@ -65,8 +66,8 @@ test('taps stay on time with the fluid stepping and the renderer drawing', async
   for (const tap of taps) {
     expect(tap.note).not.toBeNull();
     // push reads the clock again after the handler did, and the clock can step between the two reads.
-    expect(tap.stamped! - tap.at).toBeGreaterThanOrEqual(offset - 1e-6);
-    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(offset + clock.step + 1e-6);
+    expect(tap.stamped! - tap.at).toBeGreaterThanOrEqual(tap.offset - 1e-6);
+    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(tap.offset + clock.step + 1e-6);
   }
   expect(worst).toBeLessThanOrEqual(bound);
   // ADR 0026: a visible push always rewinds, so none fell back to the horizon, and none was handed over late.

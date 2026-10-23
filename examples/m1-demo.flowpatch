@@ -84,7 +84,7 @@
       "type": "sampled-voice",
       "typeVersion": 1,
       "params": {
-        "instrument": "vibes"
+        "instrument": "piano"
       },
       "position": {
         "x": 820,

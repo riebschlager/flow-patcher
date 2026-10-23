@@ -38,22 +38,21 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
   }
   const taps = await page.evaluate(() => window.flowPatcher!.taps.filter((tap) => !tap.cold));
   const clock = await audioClock(page);
-  // The offset in force: 5 ms, or one clock step + 1 ms if that is longer (ADR 0027, 0028).
-  const offset = await page.evaluate(() => window.flowPatcher!.immediateOffset);
+  // Each tap keeps the offset it was stamped with: 5 ms, or one clock step + 1 ms if that is longer (ADR 0027, 0028).
   expect(taps).toHaveLength(10);
   for (const tap of taps) {
     // push reads currentTime again after the handler did, and the clock can step between the two
     // reads, so the gate's currentTime is push's read: the stamp minus the offset.
-    expect(tap.stamped! - tap.at).toBeGreaterThanOrEqual(offset - 1e-6);
-    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(offset + clock.step + 1e-6);
+    expect(tap.stamped! - tap.at).toBeGreaterThanOrEqual(tap.offset - 1e-6);
+    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(tap.offset + clock.step + 1e-6);
     expect(tap.note).not.toBeNull();
     // The gate as written: the note at currentTime + 5 ms ± 2 ms.
-    expect(Math.abs(tap.note! - (tap.stamped! - offset) - 0.005)).toBeLessThanOrEqual(0.002 + 1e-9);
+    expect(Math.abs(tap.note! - (tap.stamped! - tap.offset) - 0.005)).toBeLessThanOrEqual(0.002 + 1e-9);
   }
   const ms = (s: number) => (s * 1000).toFixed(2);
   console.log(
-    `offset ${ms(offset)} ms (clock step ${ms(clock.step)} ms, largest seen ${ms(clock.largestStep)} ms, baseLatency ${ms(clock.baseLatency)} ms); ` +
-      `note − push's read: ${ms(Math.min(...taps.map((t) => t.note! - t.stamped! + offset)))}–${ms(Math.max(...taps.map((t) => t.note! - t.stamped! + offset)))} ms; ` +
+    `offset ${[...new Set(taps.map((t) => ms(t.offset)))].join('/')} ms (clock step ${ms(clock.step)} ms, largest seen ${ms(clock.largestStep)} ms, baseLatency ${ms(clock.baseLatency)} ms); ` +
+      `note − push's read: ${ms(Math.min(...taps.map((t) => t.note! - t.stamped! + t.offset)))}–${ms(Math.max(...taps.map((t) => t.note! - t.stamped! + t.offset)))} ms; ` +
       `note − handler's read: ${ms(Math.min(...taps.map((t) => t.note! - t.at)))}–${ms(Math.max(...taps.map((t) => t.note! - t.at)))} ms`,
   );
   const stats = await page.evaluate(() => window.flowPatcher!.stats);

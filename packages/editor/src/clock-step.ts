@@ -5,9 +5,9 @@
 
 /** Longest busy read per animation frame, in ms (ADR 0016 allows ~4 ms of main-thread work). *(tune)* */
 export const STEP_SLICE_MS = 1;
-/** Steps seen before the measurement replaces the fallback. *(tune)* */
-export const STEPS_TRUSTED = 8;
-/** Steps seen before sampling stops for good. *(tune)* */
+/** Steps seen before the measurement replaces the fallback and sampling stops. Until then the
+ *  fallback holds, so the offset never shrinks and then grows back: macOS mixes 2.67 and 5.33 ms
+ *  steps, and the first few can all be short. *(tune)* */
 export const STEPS_SAMPLED = 32;
 
 export class ClockStep {
@@ -17,7 +17,7 @@ export class ClockStep {
   /**
    * @param read the audio clock (currentTime), in seconds
    * @param now a wall clock in ms (performance.now)
-   * @param fallback the step to use until STEPS_TRUSTED have been seen (baseLatency)
+   * @param fallback the step to use until STEPS_SAMPLED have been seen (baseLatency)
    */
   constructor(
     private readonly read: () => number,
@@ -25,9 +25,9 @@ export class ClockStep {
     private readonly fallback: () => number,
   ) {}
 
-  /** True once the measurement is in use. */
+  /** True once the measurement is in use. It is final: sampling has stopped. */
   get known(): boolean {
-    return this.seen >= STEPS_TRUSTED;
+    return this.seen >= STEPS_SAMPLED;
   }
 
   /** The largest step, in seconds: measured once known, the fallback before that. */
@@ -37,7 +37,7 @@ export class ClockStep {
 
   /** Called once a frame while the clock runs: reads it until it steps, for at most STEP_SLICE_MS. */
   sample(): void {
-    if (this.seen >= STEPS_SAMPLED) return;
+    if (this.known) return;
     const end = this.now() + STEP_SLICE_MS;
     const last = this.read();
     while (this.now() < end) {
