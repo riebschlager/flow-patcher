@@ -63,7 +63,10 @@ test('Permissions: with MIDI denied, MIDI In shows its blocked state and the res
   await card.screenshot({ path: testInfo.outputPath('midi-in-blocked.png') });
 
   // An edit while playing brings a new plan in, which asks for what its sources need; a denial isn't asked again.
+  const swaps = await page.evaluate(() => window.flowPatcher!.stats.swaps);
   await card.getByLabel('Channel').selectOption('2');
+  // The edit reached the running patch as a new plan, so adopt() ran and could have asked.
+  await expect.poll(() => page.evaluate(() => window.flowPatcher!.stats.swaps)).toBeGreaterThan(swaps);
   await expect.poll(() => page.evaluate(() => window.flowPatcher!.nodeStatus('midi')?.kind)).toBe('blocked');
   await expect(card.getByLabel('Channel')).toHaveValue('2');
   expect(await page.evaluate(() => (window as unknown as { midiAsks: number }).midiAsks)).toBe(1);

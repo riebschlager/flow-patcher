@@ -107,14 +107,21 @@ describe('parseInputStream', () => {
     ]);
   });
 
-  it('requires status on midi events and rejects a channel on them (#77)', () => {
+  it('requires a channel message status on midi events and rejects a channel on them (#77)', () => {
     expect(errorsOf(stream([
       { time: 0.4, type: 'midi', data1: 60, data2: 100 },
       { time: 0.4, type: 'midi', channel: 3, status: 0x92, data1: 60, data2: 100 },
       { time: 0.4, type: 'midi', status: 0xc0, data1: 5 },
+      { time: 0.4, type: 'midi', status: 0xf8 },
+      { time: 0.4, type: 'midi', status: 3, data1: 60, data2: 100 },
+      { time: 0.4, type: 'midi', status: 144.5, data1: 60, data2: 100 },
+      { time: 0.4, type: 'midi', status: 0xef, data1: 0, data2: 64 },
     ]))).toEqual([
       'events[0].status: midi events need the status byte',
       'events[1].channel: midi events have none; the MIDI channel is in status',
+      'events[3].status: expected a channel message status byte, 128–239',
+      'events[4].status: expected a channel message status byte, 128–239',
+      'events[5].status: expected a channel message status byte, 128–239',
     ]);
   });
 
