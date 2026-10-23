@@ -129,12 +129,25 @@ test('builds a patch from the palette while it plays, edits, undoes, saves and o
 
   await page.goto('/?patch=new');
   await expect(page.getByTestId('patch-node')).toHaveCount(0);
-  // A file that wouldn't run is refused whole: here, the loop the editor refused above.
+  // A file that wouldn't run is refused whole.
+  const broken = JSON.parse(first);
+  broken.nodes[0].type = 'no-such-node';
+  await page.getByTestId('open-file').setInputFiles({ name: 'broken.flowpatch', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(broken)) });
+  await expect(page.getByTestId('compile-status')).toContainText("Couldn't open broken.flowpatch");
+  await expect(page.getByTestId('patch-node')).toHaveCount(0);
+  // A loop with no delay (the one the editor refused above) opens, so it can be fixed: its nodes say why it isn't running.
   const loop = JSON.parse(first);
   loop.cables.push({ from: { node: 'euclidean-1', port: 'hit' }, to: { node: 'euclidean-1', port: 'tick' } });
   await page.getByTestId('open-file').setInputFiles({ name: 'loop.flowpatch', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(loop)) });
-  await expect(page.getByTestId('compile-status')).toContainText("Couldn't open loop.flowpatch: cycle without a delay edge");
-  await expect(page.getByTestId('patch-node')).toHaveCount(0);
+  await expect(page.getByTestId('compile-status')).toHaveText('A loop has no delay: still playing the last patch that ran');
+  await expect(page.getByTestId('patch-node')).toHaveCount(5);
+  await expect(page.locator('.react-flow__node[data-id="euclidean-1"] [data-testid="node-status"]')).toContainText('In a loop with no delay');
+  await expect(page.locator('[data-testid="node-status"][data-status="error"]')).toHaveCount(1);
+  // Taking the node out of the loop fixes it.
+  await page.locator('.react-flow__node[data-id="euclidean-1"] .patch-node__header').click();
+  await page.keyboard.press('Delete');
+  await expect(page.getByTestId('compile-status')).toHaveText('4 nodes compiled');
+  await expect(page.locator('[data-testid="node-status"][data-status="error"]')).toHaveCount(0);
   await page.getByTestId('open-file').setInputFiles({ name: 'patch.flowpatch', mimeType: 'application/json', buffer: Buffer.from(first) });
   await expect(page.getByTestId('patch-node')).toHaveCount(5);
   await expect(edges(page)).toHaveCount(4);

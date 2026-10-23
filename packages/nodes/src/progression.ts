@@ -38,7 +38,7 @@ export const progression: NodeDefinition = {
   category: 'harmony-pitch',
   description: 'Steps through a chord string on the beat of its Transport, and outputs the current chord. Holds the first chord until a Transport is wired.',
   ports: [
-    { name: 'transport', type: 'value', direction: 'in', label: 'Transport' },
+    { name: 'transport', type: 'value', direction: 'in', label: 'Transport', unwiredHint: 'No transport: holding the first chord' },
     { name: 'chord', type: 'value', direction: 'out', label: 'Chord' },
   ],
   params: [

@@ -4,7 +4,7 @@ import type { NumberParamSpec, PatchCable, PatchEdit, PortType } from '@flow-pat
 import { CABLE_STYLES, PORT_COLORS } from './ports';
 import { ABOVE_NODES, cableId, type CableEdgeData } from './patch-graph';
 import { snapTo, startDrag } from './drag-edit';
-import { EditorStoreContext, TypedNumber } from './ParamField';
+import { EditorStoreContext, LivePatchContext, TypedNumber } from './ParamField';
 import { formatParam, keyedValue } from './param-format';
 
 /** How long a refused cable shows before it's gone, ms; its fade runs over the same time. */
@@ -15,6 +15,33 @@ const fade = { animationDuration: `${REFUSED_MS}ms` };
 const INTERACTION_WIDTH = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? 28 : 16;
 /** Pixels of drag on a depth chip that cross the param's whole range; Shift makes it this many times finer. */
 const DEPTH_DRAG = 160, FINE = 5;
+/** How long a cable stays lit after an event, ms (design system: --fp-dur-flash). Under reduced motion it holds
+ *  a steady tint instead, lit while events keep coming this often, so a stream doesn't strobe. */
+const FLASH_MS = 120, STEADY_MS = 1000;
+const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/** Lights a cable while its Event output fires: a class on the cable's group, so the canvas doesn't re-render per event. */
+function useFiring(node: string | undefined, port: string | undefined, carriesEvents: boolean) {
+  const live = useContext(LivePatchContext);
+  const group = useRef<SVGGElement>(null);
+  useEffect(() => {
+    const el = group.current;
+    if (!live || !el || !node || !port || !carriesEvents) return;
+    let timer = 0;
+    const off = live.watchFiring(node, port, () => {
+      el.classList.add('cable--firing');
+      clearTimeout(timer);
+      timer = window.setTimeout(() => el.classList.remove('cable--firing'), reducedMotion() ? STEADY_MS : FLASH_MS);
+    });
+    return () => {
+      off();
+      clearTimeout(timer);
+      el.classList.remove('cable--firing');
+    };
+  }, [live, node, port, carriesEvents]);
+  return group;
+}
+
 /** How long a cable's controls stay after the pointer leaves it, ms, so the pointer can cross onto them. */
 const HOVER_GRACE = 200;
 
@@ -34,6 +61,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, sourcePosition, 
   const store = useContext(EditorStoreContext);
   const type = data?.portType ?? 'signal';
   const cable = CABLE_STYLES[type];
+  const group = useFiring(data?.cable?.from.node, data?.cable?.from.port, type === 'event' || type === 'note');
   if (data?.refused) {
     return (
       <g className="cable-refused" style={fade} data-testid="cable-refused">
@@ -54,8 +82,11 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, sourcePosition, 
   const showDepth = !!(data?.param && doc && (hovered || selected || busy));
   return (
     <>
-      <g onPointerEnter={() => hover(true)} onPointerLeave={() => hover(false)}>
+      <g ref={group} className="cable" data-testid="cable" data-cable={doc ? cableId(doc) : undefined} onPointerEnter={() => hover(true)} onPointerLeave={() => hover(false)}>
+        {/* The halo shows while an event fires (design system Cable: width + 6, 0.22). */}
+        <path className="cable__halo" d={path} fill="none" stroke={PORT_COLORS[type]} strokeWidth={cable.width + 6} strokeLinecap="round" pointerEvents="none" />
         <BaseEdge
+          className="cable__stroke"
           path={path}
           interactionWidth={INTERACTION_WIDTH}
           style={{

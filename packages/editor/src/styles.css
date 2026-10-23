@@ -178,9 +178,68 @@ html, body, #root { height: 100%; margin: 0; background: var(--fp-surface-canvas
   .cable-remove { width: var(--fp-space-8); height: var(--fp-space-8); }
 }
 
+/* Node warnings (design system Node banner, in the warn color): the runtime's warnings with a dismiss, and unwired-input hints. */
+.patch-node__warning { margin: var(--fp-space-3) var(--fp-space-4) 0; padding: var(--fp-space-4) var(--fp-space-4) var(--fp-space-4) var(--fp-space-5); display: flex; gap: var(--fp-space-3); align-items: flex-start; border-radius: var(--fp-radius-sm); background: var(--fp-warn-soft); font-size: var(--fp-text-xs); line-height: 1.4; color: var(--fp-text-primary); }
+.patch-node__warning-icon { flex: none; margin-top: var(--fp-space-1); font-size: var(--fp-text-sm); color: var(--fp-warn); }
+.patch-node__warning-list { flex: 1; min-width: 0; display: grid; gap: var(--fp-space-2); margin: 0; padding: 0; list-style: none; }
+.patch-node__dismiss { flex: none; width: var(--fp-grid); height: var(--fp-grid); margin: calc(-1 * var(--fp-space-1)) 0; display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: var(--fp-radius-sm); background: transparent; color: var(--fp-fg-2); font-size: var(--fp-text-sm); cursor: pointer; }
+.patch-node__dismiss:hover { background: var(--fp-bg-3); color: var(--fp-fg-1); }
+.patch-node__dismiss:focus-visible { outline: none; box-shadow: var(--fp-ring-focus); }
+@media (pointer: coarse) { .patch-node__dismiss { width: var(--fp-space-8); height: var(--fp-space-8); margin: calc(-1 * var(--fp-space-3)) calc(-1 * var(--fp-space-2)); } }
+
+/* Cables light up while their output fires (design system Cable "firing"): solid, full strength, with a halo. */
+.cable__halo { stroke-opacity: 0; }
+.cable--firing .cable__halo { stroke-opacity: 0.22; }
+.cable--firing .cable__stroke { stroke-opacity: 1 !important; stroke-dasharray: none !important; }
+
+/* Probes (design system Probe), beside their port in graph coordinates. Literal sizes (14px padding, 40/64px bodies, 9px port) are the component's own. */
+.probe-stack { position: absolute; left: 0; top: 0; z-index: 2100; /* above ABOVE_NODES (2000) */ display: flex; flex-direction: column; gap: var(--fp-space-5); pointer-events: none; }
+.probe-stack--out { margin-left: var(--fp-space-5); align-items: flex-start; }
+/* An input's probes sit left of the node: the column's right edge on the anchor. */
+.probe-stack--in { align-items: flex-end; translate: calc(-100% - var(--fp-space-5)) 0; }
+.probe { box-sizing: border-box; display: grid; gap: 10px; padding: var(--fp-space-5) 14px; background: var(--fp-bg-2); border: 1px solid var(--fp-line-2); border-radius: var(--fp-radius-xl); box-shadow: var(--fp-shadow-pop); font-family: var(--fp-font-ui); color: var(--fp-text-primary); animation: palette-in var(--fp-dur-base) var(--fp-ease-out); }
+.probe--pinned { pointer-events: all; }
+.probe__header { display: flex; align-items: center; gap: var(--fp-space-4); min-width: 0; }
+.probe__port { width: 9px; height: 9px; box-shadow: 0 0 0 2px var(--fp-bg-2); }
+.probe__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fp-text-sm); font-weight: var(--fp-weight-medium); }
+.probe__value { margin-left: auto; flex: none; font-family: var(--fp-font-mono); font-size: var(--fp-text-micro); font-variant-numeric: tabular-nums; color: var(--fp-fg-3); white-space: nowrap; }
+.probe__pin { flex: none; width: var(--fp-grid); height: var(--fp-grid); display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: var(--fp-radius-sm); background: transparent; color: var(--fp-fg-1); font-size: var(--fp-text-md); cursor: pointer; }
+.probe__pin:hover { background: var(--fp-bg-3); }
+.probe__pin:focus-visible { outline: none; box-shadow: var(--fp-ring-focus); }
+.probe__scope { display: block; width: 100%; height: 64px; border-radius: var(--fp-radius-md); background: var(--fp-bg-1); }
+.probe__timeline { position: relative; height: 40px; overflow: hidden; border-radius: var(--fp-radius-md); background: var(--fp-bg-1); }
+.probe__tick { position: absolute; top: var(--fp-space-4); width: var(--fp-space-1); height: var(--fp-space-5); translate: -50% 0; border-radius: 1px; }
+.probe__tick--lane { top: 20px; opacity: 0.45; }
+.probe__fields, .probe__list { display: grid; grid-template-columns: auto 1fr; gap: 3px var(--fp-space-5); margin: 0; padding: 0; list-style: none; font-family: var(--fp-font-mono); font-size: var(--fp-text-micro); font-variant-numeric: tabular-nums; color: var(--fp-fg-3); }
+.probe__field, .probe__list li { display: contents; }
+.probe__field-key { color: var(--fp-fg-4); }
+.probe__footer { display: flex; justify-content: space-between; font-family: var(--fp-font-mono); font-size: var(--fp-text-micro); color: var(--fp-fg-4); }
+.probe__empty { margin: 0; font-size: var(--fp-text-xs); color: var(--fp-fg-3); }
+
+/* Adapter offer (design system AdapterPrompt), where an incompatible cable was dropped. */
+.adapter-prompt { position: absolute; z-index: 10; width: 300px; max-width: calc(100% - var(--fp-space-6)); box-sizing: border-box; display: grid; gap: var(--fp-space-5); padding: 14px; background: var(--fp-bg-2); border: 1px solid var(--fp-line-2); border-radius: var(--fp-radius-xl); box-shadow: var(--fp-shadow-pop); font-family: var(--fp-font-ui); animation: palette-in var(--fp-dur-base) var(--fp-ease-out); }
+.adapter-prompt__head { display: flex; align-items: center; gap: var(--fp-space-4); font-size: var(--fp-text-sm); }
+.adapter-prompt__head .fp-port { width: 9px; height: 9px; box-shadow: 0 0 0 2px var(--fp-bg-2); }
+.adapter-prompt__arrow { font-size: var(--fp-text-sm); color: var(--fp-fg-4); }
+.adapter-prompt__title { margin-left: var(--fp-space-2); font-weight: var(--fp-weight-medium); }
+.adapter-prompt__copy { font-size: var(--fp-text-sm); line-height: 18px; color: var(--fp-fg-3); }
+.adapter-prompt__list { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--fp-space-2); }
+.adapter-prompt__option { width: 100%; min-width: 0; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: var(--fp-space-5); padding: var(--fp-space-4) 10px; border: 0; border-radius: var(--fp-radius-md); background: transparent; color: var(--fp-fg-1); font-family: var(--fp-font-ui); font-size: var(--fp-text-sm); text-align: left; cursor: pointer; }
+.adapter-prompt__option--active { background: var(--fp-bg-3); }
+.adapter-prompt__option:focus-visible { outline: none; box-shadow: var(--fp-ring-focus); }
+.adapter-prompt__option > span:first-child { flex: none; white-space: nowrap; }
+.adapter-prompt__description { flex: 1; min-width: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fp-text-xs); color: var(--fp-fg-3); }
+
+/* Budget readout (design system BudgetMeter, compact) in the app bar. */
+.budget { height: 28px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 14px; padding: 0 var(--fp-space-5); border-radius: var(--fp-radius-md); background: var(--fp-bg-0); border: 1px solid var(--fp-line-1); font-family: var(--fp-font-mono); font-size: var(--fp-text-micro); font-variant-numeric: tabular-nums; color: var(--fp-fg-3); white-space: nowrap; }
+.budget__row { display: flex; gap: var(--fp-space-3); align-items: center; }
+.budget__row i { font-size: var(--fp-text-sm); }
+.budget__row--warn { color: var(--fp-warn); }
+
 @media (prefers-reduced-motion: reduce) {
   .patch-node, .fp-port, .icon-button, .button, .param-field, .param-toggle, .param-toggle__track, .cable-remove { transition: none; }
   .palette { animation: none; }
   .cable-refused { animation-timing-function: step-end; }
   .patch-node__spinner { animation: none; }
+  .probe, .adapter-prompt { animation: none; }
 }
