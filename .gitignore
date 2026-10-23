@@ -7,3 +7,6 @@ playwright-report/
 .DS_Store
 # vendor/ is committed (some global gitignores exclude it).
 !/vendor/
+
+# Agents' git worktrees (Claude Code)
+.claude/worktrees/

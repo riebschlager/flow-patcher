@@ -12,5 +12,5 @@
 ## Hooks and tools (.claude/settings.json)
 - Every .ts/.tsx edit is typechecked; errors come back to you. Fix them before moving on.
 - You can't finish a turn with code changes while `pnpm check` fails.
-- Edits to golden/, vendor/ and ../flow are blocked. To lift it for golden/ or vendor/, a human starts the session with `FP_ALLOW_PROTECTED=golden` (or `vendor`).
+- Edits to golden/, vendor/ and ../flow are blocked, in the main checkout and in every worktree. To lift it for golden/ or vendor/, a human starts the session with `FP_ALLOW_PROTECTED=golden` (or `vendor`). In a session that needs it, run `echo $FP_ALLOW_PROTECTED` first to confirm it's set. If it's empty, ask for a restart rather than copying files around the hook.
 - Playwright MCP (.mcp.json) opens the editor: start `pnpm dev`, go to http://localhost:5173, wire nodes, take screenshots. Use it to check UI changes.
