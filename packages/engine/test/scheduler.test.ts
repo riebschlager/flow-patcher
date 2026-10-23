@@ -95,10 +95,10 @@ const node = (id: string, type: string, params = {}) => ({ id, type, typeVersion
 const cable = (a: string, b: string) => ({ from: { node: a, port: 'out' }, to: { node: b, port: 'in' } });
 const patch = (nodes: Patch['nodes'], cables: Patch['cables']): Patch => ({ format: 'flowpatch', version: 1, seed: 1, nodes, cables });
 
-function setup(p: Patch, options: Partial<SchedulerOptions> = {}) {
+function setup(p: Patch, options: Partial<SchedulerOptions> = {}, extra: NodeDefinition[] = []) {
   const clock = new ManualClock();
   const deliveries: Delivery[] = [];
-  const definitions = new Map([metro, tap, counter, delay, recorderType(clock, deliveries)].map((d) => [d.type, d]));
+  const definitions = new Map([metro, tap, counter, delay, recorderType(clock, deliveries), ...extra].map((d) => [d.type, d]));
   const compiled = compilePatch(p, definitions);
   if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
   const runtime = new Runtime(compiled.plan);
@@ -495,6 +495,125 @@ describe('push rules', () => {
     const { runtime, wakeAt } = setup(metroPatch());
     wakeAt(0, 0.025);
     expect(() => runtime.push('m', 'out', { time: 0.03, channel: 0 }, { now: 0.04 })).toThrow(/before currentTime/);
+  });
+});
+
+describe('a node that throws during a rewind', () => {
+  /** Passes events through. A live event marked `boom` arms it, and from 60 ms after that event
+   *  every query throws: mid-way through the re-run, after earlier windows were already re-sent.
+   *  With `broken.always`, every query throws. */
+  const broken = { always: false };
+  const fragile: NodeDefinition = {
+    type: 'fragile', version: 1, label: 'Fragile', category: 'control-logic', description: '',
+    ports: [{ name: 'in', type: 'event', direction: 'in' }, { name: 'out', type: 'event', direction: 'out' }],
+    params: [],
+    query: ({ inputs, state, t1 }) => {
+      if (broken.always) throw new Error('fragile broke');
+      for (const e of inputs.in ?? []) if (e.boom) state.armedAt = e.time;
+      if (typeof state.armedAt === 'number' && t1 > state.armedAt + 0.06) throw new Error('fragile broke');
+      return { out: (inputs.in ?? []).map(({ boom: _boom, ...e }) => e) };
+    },
+  };
+  // A tap and a metro into the fragile node, then a counter (stateful) and a delay, into the recorder.
+  const p = patch(
+    [node('m', 'metro', { period: 0.02 }), node('t', 'tap'), node('f', 'fragile'), node('c', 'counter'), node('d', 'delay', { time: 0.03 }), node('r', 'recorder')],
+    [cable('m', 'f'), cable('t', 'f'), cable('f', 'c'), cable('c', 'd'), cable('d', 'r'), cable('c', 'r')],
+  );
+  /** Wakes every 25 ms to 1 s; at 0.4 s pushes the `boom` event when asked, and a plain one at 0.6 s. */
+  function perform(boom: boolean, costs: PushCost[] = []) {
+    const run = setup(p, { onPush: (cost) => costs.push(cost) }, [fragile]);
+    const heard: unknown[] = [];
+    run.runtime.onWarning = (message, warning) => heard.push({ ...warning, heard: message });
+    for (let k = 0; k * 0.025 < 1; k++) {
+      run.wakeAt(k * 0.025);
+      if (k === 16 && boom) {
+        run.clock.set(0.4012);
+        run.scheduler.push('t', 'out', { channel: 0, boom: true });
+      }
+      if (k === 24) {
+        run.clock.set(0.6012);
+        run.scheduler.push('t', 'out', { channel: 0 });
+      }
+    }
+    const playing = run.live().map((d) => json(d.event)).sort();
+    return { ...run, heard, playing, log: json(run.scheduler.events()) };
+  }
+
+  it('drops the live event and re-runs without it, so later queries and pushes work', () => {
+    const costs: PushCost[] = [];
+    const run = perform(true, costs);
+    const reference = perform(false);
+    // Same log and the same notes playing as a run that never had the event.
+    expect(run.log).toBe(reference.log);
+    expect(run.playing).toEqual(reference.playing);
+    expect(run.scheduler.stats).toMatchObject({ pushes: 2, rewinds: 2, droppedPushes: 1, lateImmediate: 0, lateScheduled: 0, uncancelled: 0 });
+    // The scheduler still measured the push and told onPush, with the drop on its report.
+    expect(costs).toHaveLength(2);
+    expect(costs[0]!.rewind!.dropped).toEqual({ node: 'f', message: 'fragile broke' });
+    expect(costs[0]!.queries).toBe(costs[0]!.rewind!.queries);
+    expect(costs[1]!.rewind!.dropped).toBeNull();
+  });
+
+  it('warns on the node that threw, once, and counts every drop', () => {
+    const run = perform(true);
+    const warning = { node: 'f', kind: 'rewind-error', count: 1, time: 0.4062 };
+    expect(run.runtime.warnings()).toEqual([expect.objectContaining({ ...warning, message: expect.stringMatching(/^Node "f" failed while re-running for a live event from "t", so that event was dropped: fragile broke$/) })]);
+    expect(run.heard).toEqual([expect.objectContaining(warning)]);
+    run.clock.set(1.0012);
+    run.scheduler.push('t', 'out', { channel: 0, boom: true });
+    expect(run.runtime.warnings('f')[0]).toMatchObject({ count: 2, time: 1.0062 });
+    expect(run.heard).toHaveLength(1);
+    expect(run.scheduler.stats.droppedPushes).toBe(2);
+  });
+
+  it('lets the error through when the node fails without the event too', () => {
+    const run = setup(p, {}, [fragile]);
+    run.wakeEvery(0, 0.5);
+    run.clock.set(0.49);
+    broken.always = true;
+    try {
+      expect(() => run.scheduler.push('t', 'out', { channel: 0 })).toThrow('fragile broke');
+    } finally {
+      broken.always = false;
+    }
+    expect(run.scheduler.stats.droppedPushes).toBe(0);
+    expect(run.runtime.warnings()).toEqual([]);
+  });
+});
+
+describe('rewind cost', () => {
+  it('predicts the queries a push makes, before it makes them', () => {
+    const p = patch(
+      [node('m', 'metro', { period: 0.05 }), node('t', 'tap'), node('c', 'counter'), node('d', 'delay', { time: 0.011 }), node('r', 'recorder')],
+      [cable('m', 'c'), cable('t', 'c'), cable('c', 'd'), cable('d', 'r'), cable('c', 'r')],
+    );
+    for (const hidden of [false, true]) {
+      const run = setup(p);
+      run.clock.isHidden = hidden;
+      let checked = 0;
+      for (let k = 0; k < 40; k++) {
+        run.wakeAt(k * 0.025);
+        run.clock.set(k * 0.025 + 0.0031 * (k % 8));
+        const t = run.clock.audio + IMMEDIATE_OFFSET;
+        const predicted = run.runtime.rewindCost('t', t);
+        const before = run.scheduler.stats.pushQueries;
+        const event = run.scheduler.push('t', 'out', { channel: 0 })!;
+        expect(event.time).toBe(t);
+        if (predicted === null) continue;
+        expect(run.scheduler.stats.pushQueries - before).toBe(predicted);
+        checked++;
+      }
+      expect(checked).toBeGreaterThan(30);
+    }
+  });
+
+  it('is null when the push would not rewind', () => {
+    const { runtime, wakeAt } = setup(metroPatch());
+    expect(runtime.rewindCost('m', 0)).toBeNull();
+    wakeAt(0);
+    expect(runtime.rewindCost('m', 0.05)).not.toBeNull();
+    expect(runtime.rewindCost('m', LOOKAHEAD)).toBeNull();
+    expect(runtime.rewindCost('nope', 0.05)).toBeNull();
   });
 });
 
