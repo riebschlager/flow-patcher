@@ -47,8 +47,11 @@ describe('renderOffline edits', () => {
     const edits = [{ time: 0.1, apply: () => { if (attempt === 1) throw new Error('no node "prob2"'); } }];
     await renderOffline(0.5, () => {}, { edits, attempts: 3, onAttempt: (n) => tries.push((attempt = n)), testLateSuspend: (n) => n === 1 });
     expect(tries.length).toBeGreaterThanOrEqual(2);
-    // With no retries left, the race is what's reported, not the edit error it caused.
-    await expect(renderOffline(0.5, () => {}, { edits, onAttempt: (n) => void (attempt = n), testLateSuspend: () => true })).rejects.toThrow(SuspendRaceError);
+    // With no retries left, the race is what's reported, with the edit's error alongside.
+    const error = await renderOffline(0.5, () => {}, { edits, onAttempt: (n) => void (attempt = n), testLateSuspend: () => true }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SuspendRaceError);
+    expect((error as SuspendRaceError).editError).toEqual(new Error('no node "prob2"'));
+    expect((error as Error).message).toContain('an edit also failed: no node "prob2"');
   });
 
   it('refuses edits outside the render', async () => {
