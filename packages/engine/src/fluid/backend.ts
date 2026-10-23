@@ -26,6 +26,22 @@ import { Fluid } from './fluid';
 
 /** One `Fluid.splat` call: x, y (0–1), dye r, g, b, size, dx, dy. */
 export type SplatArgs = readonly [x: number, y: number, r: number, g: number, b: number, size: number, dx: number, dy: number];
+/** One `Fluid.force` call, tagged: a push of (dx, dy) around x, y. */
+export type ForceArgs = readonly [op: 'force', x: number, y: number, dx: number, dy: number, radius: number];
+/** One `Fluid.pulse` call, tagged: a dye-free vortex around x, y; direction 1 turns clockwise on screen, -1 the other way. */
+export type PulseArgs = readonly [op: 'pulse', x: number, y: number, strength: number, radius: number, direction: number];
+/** Anything a writer hands the solver before a step. Untagged tuples are splats, so splat-only work keeps its shape. */
+export type FluidWrite = SplatArgs | ForceArgs | PulseArgs;
+
+/** Applies one write to the solver. */
+export function applyFluidWrite(sim: Fluid, write: FluidWrite): void {
+  if (write[0] === 'force') sim.force(write[1], write[2], write[3], write[4], write[5]);
+  else if (write[0] === 'pulse') sim.pulse(write[1], write[2], write[3], write[4], write[5]);
+  else {
+    const [x, y, r, g, b, size, dx, dy] = write as SplatArgs;
+    sim.splat(x, y, [r, g, b], size, dx, dy);
+  }
+}
 
 /** The solver's knobs, as the solver names them. Fluid's knobs map onto these (`fluidSolverParams`). */
 export interface FluidSolverParams {
@@ -45,8 +61,8 @@ export interface FluidWork {
   params: FluidSolverParams;
   /** Palette id for the colorizer (render/palettes.ts); unknown ids fall back to classic. */
   palette: string;
-  /** Applied in order before the step. */
-  splats: readonly SplatArgs[];
+  /** Splats, forces and pulses, applied in order before the step. */
+  splats: readonly FluidWrite[];
   /** Seconds on the audio clock, for the colorizer's slow shimmer. */
   time: number;
 }
@@ -122,7 +138,7 @@ export function createFluidStepper(now: () => number = () => 0): (request: Fluid
     sim.swirl = params.swirl;
     sim.persistence = params.persistence;
     sim.drag = params.drag;
-    for (const [x, y, r, g, b, size, dx, dy] of splats) sim.splat(x, y, [r, g, b], size, dx, dy);
+    for (const write of splats) applyFluidWrite(sim, write);
     const start = now();
     sim.step(dt);
     const stepped = now();
@@ -189,7 +205,7 @@ export class FluidHost implements FluidBackend {
   private inFlight: number | null = null;
   private seq = 0;
   /** Work waiting for the next request; its splats array is the host's own, appended in place. */
-  private owed: (FluidWork & { splats: SplatArgs[] }) | null = null;
+  private owed: (FluidWork & { splats: FluidWrite[] }) | null = null;
   /** The `step` call each owed splat came from, beside `owed.splats`. */
   private owedSteps: number[] = [];
   private generation = 0;

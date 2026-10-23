@@ -8,7 +8,7 @@ A fixed set of music-shaped building blocks around one fluid field, not a genera
 | --- | --- | --- | --- |
 | Fluid | Owns the solver; outputs a Field. Knobs: vorticity, dissipation (color persistence), viscosity, grid budget | `fluid.js`, `fluid-viewport.js`, ported to WebGL2 passes | M1 (CPU), M3 (GPU) |
 | Splat | Writer: dye + impulse at a point, from any Event with x/y | `fluid.js` splat | M1 |
-| Force | Writer: a continuous push following a Signal pair | `fluid.js` force | M2 (mode patches) |
+| Force | Writer: a continuous push following a Signal pair, or Hold's whirlpool or Orbit's twin whirlpools | `fluid.js` force and pulse, `performance.js` | M2 (mode patches) |
 | Stir ★ | Writer: Flow's percussion roll, sweep and eddy impulses | `percussion-visuals.js` | M3 |
 | Clear / Fade | Writer: clears or fades the field | New | As needed |
 | Probe | Reader: density, speed and curl at a point, as Signals | `fluid.js` probe | As needed |
@@ -39,6 +39,9 @@ A fixed set of music-shaped building blocks around one fluid field, not a genera
 
 - **Frame clock.** Visual nodes implement `frame()`. Each frame they read the events whose timestamps fell in the frame interval, so a Ripple fed by a note appears as the note sounds, even though it was scheduled 120 ms earlier.
 - **Writers and readers.** A writer's Write output returns a `FluidWriter` from `field()`; Fluid calls its `write(target)` once a frame, before stepping. Readers get Fluid's `FluidField`, whose `image()` is the step latched at the frame's start. The contract is in `packages/engine/src/fluid/field.ts`.
+- **Force.** Inputs X, Y, Active and Spin (Signals); Write output. Mode `push` pushes along the X/Y pair's motion (Conduct; speed × 30, capped at 120 × Strength). `whirlpool` makes a vortex ringed by four inward pushes (Hold's charge: cable Charge into Strength). `twin` makes a vortex plus a smaller counter-turning one 0.8 × Radius to its right (Orbit). Spin's sign, else Direction, picks the vortex's turn. It pushes on a fixed 50 ms grid of the frame clock, so the result doesn't depend on frame rate. A move of more than 0.25 within one tick is a jump, not a push. Unwired X/Y means 0.5, and unwired Active means always on.
+- **Overlays** ([ADR 0030](../decisions/0030-overlays-draw-into-the-renderer.md)). An overlay's Overlay output cables into the Renderer's Overlays input. The Renderer scales the fluid picture up to about 512 × 288 and each overlay blends into it in pure TS, so headless renders are byte-exact goldens.
+- **Orbit Rings.** Inputs Angle, X, Y and Active (Signals) and Color (a Value: `#rrggbb` or `[r, g, b]` in 0–1). Params Radius and Strength (both modulatable), Angle unit (radians, or turns for a 0–1 ramp such as Clock's Phase), and Palette and Dye, which give the color when no Color comes in. The rings fade in while Active is at least 0.5 (in 0.1 s) and fade out holding their last pose (0.18 s). Their tilt eases toward Angle the short way across ±π. Reduced motion keeps them level.
 - **Separate drawing from state.** Flow's visual modules read Flow's app state directly. Borrowing them means separating the drawing code from that state, and taking palette and energy as inputs.
 - **Reduced motion.** Every overlay obeys reduced-motion: it keeps color and drops added motion.
 - **One Renderer** per patch, and one canvas ([ADR 0005](../decisions/0005-single-canvas.md)).

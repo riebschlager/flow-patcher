@@ -21,14 +21,14 @@ export interface PortSpec {
   type: PortType;
   direction: 'in' | 'out';
   label?: string;
-  /** Field ports only: a Write output feeds only a Writers input. Default 'fluid'. */
+  /** Field ports only: a Write output feeds only a Writers input, an Overlay output only an Overlays input. Default 'fluid'. */
   fieldKind?: FieldKind;
   /** Inputs only: what the editor tells the user while no cable comes in, when the node then does
    *  something they might not expect (Progression holding its first chord with no Transport). */
   unwiredHint?: string;
 }
 
-export type FieldKind = 'fluid' | 'write';
+export type FieldKind = 'fluid' | 'write' | 'overlay';
 
 export interface NumberParamSpec {
   name: string;
@@ -129,6 +129,9 @@ export interface HostServices {
    *  the browser fetches /vendor/<file>, headless reads vendor/ from disk. Rejects
    *  when the file is missing. */
   samples?: (file: string) => Promise<string>;
+  /** Whether the player asked for reduced motion (prefers-reduced-motion). Overlays keep their
+   *  color and drop the motion they add (ADR 0012, ADR 0030). Absent means no. */
+  reducedMotion?: () => boolean;
 }
 
 /** What a node sees in every hook: its params, state and the cables into it. */
@@ -304,7 +307,7 @@ export interface NodeDefinition {
   value?(ctx: NodeContext, port: string, t: number): unknown;
   /** Field outputs: the object shared by reference with every reader. A Fluid
    *  output gives a `FluidField`, a Write output a `FluidWriter` (fluid/field.ts
-   *  has the writer contract). */
+   *  has the writer contract), an Overlay output an `OverlayDrawer` (render/overlay.ts). */
   field?(ctx: NodeContext, port: string): unknown;
   /** Visual nodes: runs once per animation frame. */
   frame?(ctx: FrameContext): void;

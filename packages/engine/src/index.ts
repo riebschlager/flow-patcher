@@ -14,6 +14,7 @@ export * from './input';
 export * from './limits';
 export * from './patch';
 export * from './render/fluid-renderer';
+export * from './render/overlay';
 export * from './render/palettes';
 export * from './rng';
 export * from './runtime';

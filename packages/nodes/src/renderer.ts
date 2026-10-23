@@ -9,11 +9,31 @@
 // `rendererImage` (no copy); `image()`, for headless runs, copies it, so call
 // it between frames. With nothing to show, the host fills the canvas with
 // FLUID_BACKGROUND.
-import { isFluidField, type FluidImage, type NodeDefinition, type NodeImage, type NodeState } from '@flow-patcher/engine';
+//
+// Overlays (ADR 0030): with anything cabled into Overlays, the picture is the
+// Renderer's own buffer instead, the fluid's pixels scaled up by
+// `overlayScale` (or FLUID_BACKGROUND without a fluid picture), with each
+// overlay drawn over it in cable order. The buffer is reused, so the same
+// no-copy rule holds.
+import {
+  FLUID_BACKGROUND,
+  fillOpaque,
+  isFluidField,
+  isOverlayDrawer,
+  OVERLAY_SIZE,
+  overlayScale,
+  upscaleInto,
+  type FluidImage,
+  type NodeDefinition,
+  type NodeImage,
+  type NodeState,
+} from '@flow-patcher/engine';
 
 /** Frame-only state (Renderer has no query, so it is never snapshotted and may hold the backend's buffer). */
 interface RendererState extends NodeState {
   shown?: FluidImage | null;
+  /** The buffer overlays draw into, kept between frames. */
+  composed?: FluidImage;
 }
 
 /** A usable image: positive integer size and exactly width × height RGBA pixels. */
@@ -37,20 +57,37 @@ export function rendererImage(state: NodeState): FluidImage | null {
 
 export const renderer: NodeDefinition = {
   type: 'renderer',
-  version: 1,
+  version: 2,
   label: 'Renderer',
   category: 'visual',
   // One per patch: one canvas (ADR 0005).
   unique: true,
-  description: 'Draws the fluid’s Field on the canvas. One per patch.',
-  ports: [{ name: 'field', type: 'field', direction: 'in', label: 'Field', fieldKind: 'fluid' }],
+  description: 'Draws the fluid’s Field on the canvas, with any Overlays on top. One per patch.',
+  ports: [
+    { name: 'field', type: 'field', direction: 'in', label: 'Field', fieldKind: 'fluid' },
+    { name: 'overlays', type: 'field', direction: 'in', label: 'Overlays', fieldKind: 'overlay' },
+  ],
   params: [],
   frame({ state, fields }) {
     const s = state as RendererState;
     // The first Fluid on the input; anything else cabled here draws nothing.
     const field = fields('field').find(isFluidField);
     const image = field?.image();
-    s.shown = usable(image) ? image : null;
+    const fluid = usable(image) ? image : null;
+    const overlays = fields('overlays').filter(isOverlayDrawer);
+    if (!overlays.length) {
+      s.shown = fluid;
+      return;
+    }
+    const scale = fluid ? overlayScale(fluid.width, fluid.height) : 1;
+    const width = fluid ? fluid.width * scale : OVERLAY_SIZE.width;
+    const height = fluid ? fluid.height * scale : OVERLAY_SIZE.height;
+    let composed = s.composed;
+    if (composed?.width !== width || composed.height !== height) composed = s.composed = { width, height, pixels: new Uint8ClampedArray(width * height * 4) };
+    if (fluid) upscaleInto(fluid, scale, composed);
+    else fillOpaque(composed.pixels, FLUID_BACKGROUND);
+    for (const overlay of overlays) overlay.draw(composed);
+    s.shown = composed;
   },
   /** A copy of the last frame's picture, safe to keep. Call it between frames. */
   image(state): NodeImage | null {

@@ -77,7 +77,7 @@
     {
       "id": "renderer",
       "type": "renderer",
-      "typeVersion": 1,
+      "typeVersion": 2,
       "params": {},
       "position": {
         "x": 720,
