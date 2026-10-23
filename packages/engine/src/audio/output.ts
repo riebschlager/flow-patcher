@@ -7,6 +7,7 @@
 // and a fixed gain of 1/makeup cancels the compressor's automatic makeup. The
 // guard is exactly linear up to OUTPUT_KNEE and bends smoothly towards
 // OUTPUT_CEILING above it, so no sample leaves the stage above the ceiling.
+import { editRamp } from './automation';
 import type { AudioContextLike, AudioNodeLike } from './types';
 
 export const DEFAULT_MASTER_LEVEL = 0.7;
@@ -98,7 +99,8 @@ export function guardCurve(points = GUARD_POINTS): Float32Array {
 export interface OutputStage {
   input: AudioNodeLike;
   output: AudioNodeLike;
-  setLevel(level: number): void;
+  /** Ramps the master level to `level` from audio-clock `time` (default now), never jumping. */
+  setLevel(level: number, time?: number): void;
 }
 
 /** Limiter → makeup compensation → soft-knee guard → master level. */
@@ -119,14 +121,15 @@ export function createOutputStage(context: AudioContextLike, level = DEFAULT_MAS
   guard.oversample = 'none';
   const master = context.createGain();
   master.gain.value = masterLevel(level);
+  const levelRamp = editRamp(master.gain, masterLevel(level));
   limiter.connect(compensation);
   compensation.connect(guard);
   guard.connect(master);
   return {
     input: limiter,
     output: master,
-    setLevel(next) {
-      master.gain.setTargetAtTime(masterLevel(next), context.currentTime, 0.02);
+    setLevel(next, time = context.currentTime) {
+      levelRamp.set(masterLevel(next), time);
     },
   };
 }
