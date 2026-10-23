@@ -1,7 +1,7 @@
 // The shape of a node type. One file per node type in packages/nodes exports one
 // of these; the palette, inspector and (later) server validation read it.
 import type { AudioContextLike, AudioNodeLike } from './audio/types';
-import type { VoicePool } from './audio/voices';
+import type { Voices } from './audio/voices';
 import type { EngineEvent, EventPath, PortType } from './events';
 import type { FluidBackend } from './fluid/backend';
 
@@ -225,9 +225,10 @@ export interface AudioSetupContext {
   readonly state: NodeState;
   /** See `NodeContext.param`; sample it at note time inside `schedule`. */
   param(name: string, t: number, channel?: number): number;
-  /** The runtime's voice pool, shared by every audio node on this context. Claim a
-   *  voice per note in `schedule` and release it in `cancel`. */
-  readonly voices: VoicePool;
+  /** The runtime's voice pool, shared by every audio node on this context, as this
+   *  node sees it (its steals count toward it). Claim a voice per note in
+   *  `schedule` and release it in `cancel`. */
+  readonly voices: Voices;
   /** The host's platform resources, the same object as `NodeContext.services`. */
   readonly services: HostServices;
 }

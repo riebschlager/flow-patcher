@@ -1,7 +1,7 @@
 // The voice pool (ADR 0011: 64 voices, oldest stolen first; audio/voices.ts):
 // steals by earliest start at the stealing note's start, frees slots on release
 // and lazily once voices end, and is shared by every audio instance a Runtime
-// builds on one context.
+// builds on one context. It counts steals and reports them (ADR 0025).
 import { describe, expect, it } from 'vitest';
 import {
   compilePatch,
@@ -13,8 +13,10 @@ import {
   type AudioContextLike,
   type EngineEvent,
   type NodeDefinition,
+  type NodeWarning,
   type Patch,
   type VoiceHandle,
+  type Voices,
 } from '../src';
 
 /** A pool on a hand-set clock that records every stop it calls, as `id@at`. */
@@ -163,32 +165,39 @@ describe('VoicePool', () => {
     expect(stops).toEqual(['b@100.5']);
   });
 
-  it('steals what a plain scan over every voice would, under random claims, releases, end moves and clock steps', () => {
-    // The rule written out directly: at each start in the added time, steal the earliest start sounding there.
-    type Ref = { id: string; start: number; end: number; at: number };
-    const reference = (pooled: Ref[], from: number, to: number, size: number, stops: string[]) => {
-      const starts = [...new Set(pooled.map((v) => v.start).filter((t) => t >= from && t < to))].sort((a, b) => a - b);
-      for (const at of starts) {
-        for (;;) {
-          const sounding = pooled.filter((v) => v.start <= at && at < v.end).sort((a, b) => a.start - b.start || a.at - b.at);
-          if (sounding.length <= size) break;
-          const victim = sounding[0]!;
-          pooled.splice(pooled.indexOf(victim), 1);
-          stops.push(`${victim.id}@${at}`);
-        }
+  // The rule written out directly: at each start in the added time, steal the earliest start sounding there.
+  type Ref = { id: string; start: number; end: number; at: number };
+  const reference = (pooled: Ref[], from: number, to: number, size: number, stops: string[]) => {
+    const starts = [...new Set(pooled.map((v) => v.start).filter((t) => t >= from && t < to))].sort((a, b) => a - b);
+    for (const at of starts) {
+      for (;;) {
+        const sounding = pooled.filter((v) => v.start <= at && at < v.end).sort((a, b) => a.start - b.start || a.at - b.at);
+        if (sounding.length <= size) break;
+        const victim = sounding[0]!;
+        pooled.splice(pooled.indexOf(victim), 1);
+        stops.push(`${victim.id}@${at}`);
       }
-    };
+    }
+  };
+
+  // Size 4 exercises ties and the clock; size 16 with dense notes keeps the pool near full, so the
+  // sweep's jumps past starts that can't be over (by up to `size` voices) and its cached steal search
+  // both run, with claims in and out of time order.
+  it.each([
+    { size: 4, rounds: 20, ops: 160, span: 40, length: 15, minSteals: 100 },
+    { size: 16, rounds: 10, ops: 400, span: 20, length: 30, minSteals: 1000 },
+  ])('steals what a plain scan over every voice would, under random claims, releases, end moves and clock steps (size $size)', ({ size, rounds, ops, span, length, minSteals }) => {
     let seed = 7;
     const random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
     let steals = 0;
-    for (let round = 0; round < 20; round++) {
-      const { voices, stops, claim, set } = pool(4);
+    for (let round = 0; round < rounds; round++) {
+      const { voices, stops, claim, set } = pool(size);
       const expected: string[] = [];
       let pooled: Ref[] = [];
       const handles: [VoiceHandle, Ref][] = [];
       let now = 0;
       let reclaimed = 0;
-      for (let i = 0; i < 160; i++) {
+      for (let i = 0; i < ops; i++) {
         const roll = random();
         if (roll < 0.1) {
           // The clock moves on; voices it has passed are over, in the reference at once, in the pool lazily.
@@ -209,28 +218,80 @@ describe('VoicePool', () => {
             else {
               const before = ref.end;
               ref.end = end;
-              if (end > before) reference(pooled, before, end, 4, expected);
+              if (end > before) reference(pooled, before, end, size, expected);
             }
           }
         } else {
           // Starts on a coarse grid at or after the clock, as the runtime hands them out, so ties
           // happen, and not always in order. Now and then a note held until told.
-          const start = now + Math.round(random() * 40) / 10;
-          const end = random() < 0.05 ? Infinity : start + Math.round(random() * 15) / 10;
+          const start = now + Math.round(random() * span) / 10;
+          const end = random() < 0.05 ? Infinity : start + Math.round(random() * length) / 10;
           const ref = { id: `v${i}`, start, end, at: i };
           handles.push([claim(ref.id, start, end), ref]);
           if (end > start) {
             pooled.push(ref);
-            reference(pooled, start, end, 4, expected);
+            reference(pooled, start, end, size, expected);
           }
         }
       }
       expect(stops).toEqual(expected);
+      expect(voices.steals).toBe(stops.length);
       expect(voices.inUse()).toBe(pooled.length);
       steals += stops.length;
       expect(reclaimed).toBeGreaterThan(0);
     }
-    expect(steals).toBeGreaterThan(100);
+    expect(steals).toBeGreaterThan(minSteals);
+  });
+
+  it.each([
+    ['short notes, then long ones on the same starts', false],
+    ['the same, both claimed latest start first', true],
+  ])('steals what a plain scan would in the worst cases found: %s', (_name, reversed) => {
+    // ADR 0025's worst cases, scaled down so the reference can keep up: N short notes, then N long
+    // ones, at N starts across one 120 ms window, with the clock still at 0.
+    const N = 192, size = 16;
+    const { voices, stops, claim } = pool(size);
+    const expected: string[] = [];
+    const pooled: Ref[] = [];
+    let at = 0;
+    for (const length of [(12 * 0.12) / N, 10]) {
+      for (let k = 0; k < N; k++) {
+        const i = reversed ? N - 1 - k : k;
+        const start = (i * 0.12) / N;
+        const ref = { id: `v${at}`, start, end: start + length, at: at++ };
+        claim(ref.id, ref.start, ref.end);
+        pooled.push(ref);
+        reference(pooled, ref.start, ref.end, size, expected);
+      }
+    }
+    expect(stops.length).toBeGreaterThan(N / 2);
+    expect(stops).toEqual(expected);
+    expect(voices.inUse()).toBe(pooled.length);
+  });
+
+  it("counts steals, and tells onSteal whose note caused each: the claim's node, or for a later end the voice's", () => {
+    const { voices, claim } = pool(2);
+    const heard: string[] = [];
+    voices.onSteal = (owner, at) => void heard.push(`${owner}@${at}`);
+    const a = voices.forNode('a');
+    const b = voices.forNode('b');
+    expect(voices.forNode('a')).toBe(a);
+    expect(a.size).toBe(2);
+    const stop = () => {};
+    const held = a.claim({ start: 0, end: 0.4, stop });
+    a.claim({ start: 0, end: 2, stop });
+    b.claim({ start: 0.5, end: 2, stop });
+    expect(heard).toEqual([]);
+    expect(a.inUse()).toBe(3);
+    // Holding `held` past 0.5 makes three sound there: `a`'s later end steals.
+    a.setEnd(held, 1);
+    expect(heard).toEqual(['a@0.5']);
+    b.claim({ start: 0.6, end: 2, stop });
+    claim('pool', 0.7, 2);
+    expect(heard).toEqual(['a@0.5', 'b@0.6', 'null@0.7']);
+    expect(voices.steals).toBe(3);
+    b.release(held); // already stolen: nothing to free
+    expect(voices.inUse()).toBe(2);
   });
 
   it('steals the same voices for the same claims, however the clock was read between them', () => {
@@ -249,16 +310,23 @@ describe('VoicePool', () => {
   });
 });
 
-/** An instrument that claims a voice per event, ringing RING seconds, and releases it when the event is withdrawn. */
+/**
+ * An instrument that claims a voice per event, ringing `ring` seconds, and releases it when the event is
+ * withdrawn; each steal is logged in `stops` as `time@at` (the note's time, the time it was cut). Also a
+ * 25 ms metro, a tap that only fires through push, and a counter that numbers the events it passes.
+ */
 const RING = 0.5;
-function pooledTypes(pools: VoicePool[]): NodeDefinition[] {
+function pooledTypes(pools: Voices[], ring = RING, stops: string[] = []): NodeDefinition[] {
   const metro: NodeDefinition = {
     type: 'metro', version: 1, label: 'Metro', category: 'time-rhythm', description: '',
     ports: [{ name: 'out', type: 'event', direction: 'out' }],
     params: [],
     query: ({ t0, t1 }) => {
       const out: EngineEvent[] = [];
-      for (let k = Math.ceil(t0 / 0.025); k * 0.025 < t1; k++) out.push({ time: k * 0.025, channel: 0 });
+      // The first k with k × 0.025 at or after t0, as the product rounds, so no window edge loses a note.
+      let k = Math.round(t0 / 0.025);
+      if (k * 0.025 < t0) k++;
+      for (; k * 0.025 < t1; k++) out.push({ time: k * 0.025, channel: 0 });
       return { out };
     },
   };
@@ -271,7 +339,7 @@ function pooledTypes(pools: VoicePool[]): NodeDefinition[] {
       const held = new Map<EngineEvent, VoiceHandle>();
       return {
         schedule: (_port, events) => {
-          for (const e of events) held.set(e, voices.claim({ start: e.time, end: e.time + RING, stop: () => {} }));
+          for (const e of events) held.set(e, voices.claim({ start: e.time, end: e.time + ring, stop: (at) => void stops.push(`${e.time}@${at}`) }));
         },
         cancel: (_port, events) => {
           for (const e of events) {
@@ -283,7 +351,20 @@ function pooledTypes(pools: VoicePool[]): NodeDefinition[] {
       };
     },
   };
-  return [metro, voice];
+  const tap: NodeDefinition = {
+    type: 'tap', version: 1, label: 'Tap', category: 'canvas-sources', description: '',
+    ports: [{ name: 'out', type: 'event', direction: 'out' }],
+    params: [],
+  };
+  const counter: NodeDefinition = {
+    type: 'counter', version: 1, label: 'Counter', category: 'control-logic', description: '',
+    ports: [{ name: 'in', type: 'event', direction: 'in' }, { name: 'out', type: 'event', direction: 'out' }],
+    params: [],
+    query: ({ inputs, state }) => ({
+      out: (inputs.in ?? []).map((e) => ({ time: e.time, channel: e.channel, count: (state.count = ((state.count as number | undefined) ?? 0) + 1) })),
+    }),
+  };
+  return [metro, voice, tap, counter];
 }
 
 const node = (id: string, type: string, params = {}) => ({ id, type, typeVersion: 1, params, position: { x: 0, y: 0 } });
@@ -292,12 +373,13 @@ const patch = (tone: number): Patch => ({
   nodes: [node('m', 'metro'), node('v', 'pooled', { tone })],
   cables: [{ from: { node: 'm', port: 'out' }, to: { node: 'v', port: 'in' } }],
 });
+const cable = (from: string, to: string) => ({ from: { node: from, port: 'out' }, to: { node: to, port: 'in' } });
 const fakeContext = (clock: ManualClock): AudioContextLike => ({ get currentTime() { return clock.audio; } }) as AudioContextLike;
 
 describe('Runtime voice pool', () => {
-  function setup() {
-    const pools: VoicePool[] = [];
-    const definitions = new Map(pooledTypes(pools).map((d) => [d.type, d]));
+  function setup(ring = RING, stops: string[] = []) {
+    const pools: Voices[] = [];
+    const definitions = new Map(pooledTypes(pools, ring, stops).map((d) => [d.type, d]));
     const compile = (p: Patch) => {
       const compiled = compilePatch(p, definitions);
       if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
@@ -345,5 +427,166 @@ describe('Runtime voice pool', () => {
     second.attachAudio(fakeContext(clock));
     expect(new Set(pools).size).toBe(3);
     second.dispose();
+  });
+
+  it('counts steals per runtime and per node, raises a warning on the node whose notes stole, and reports them in voiceStats', () => {
+    // Every 25 ms note rings 5 s: from the 65th note on (1.6 s), each one steals the oldest.
+    const { compile } = setup(5);
+    const clock = new ManualClock();
+    const runtime = new Runtime(compile(patch(0.5)));
+    expect(runtime.voiceStats()).toEqual({ inUse: 0, limit: VOICE_LIMIT, steals: 0, byNode: {} });
+    const heard: NodeWarning[] = [];
+    runtime.onWarning = (_message, warning) => void heard.push(warning);
+    runtime.attachAudio(fakeContext(clock));
+    const scheduler = new Scheduler(runtime, { clock });
+    const run = (from: number, to: number) => {
+      for (let t = from; t < to; t += 0.025) {
+        clock.set(t);
+        scheduler.wake();
+      }
+    };
+    run(0, 1.4);
+    expect(runtime.voiceStats().steals).toBe(0);
+    expect(runtime.warnings()).toEqual([]);
+
+    run(1.4, 3);
+    const stats = runtime.voiceStats();
+    expect(stats.steals).toBeGreaterThan(0);
+    expect(stats.steals).toBe(runtime.counters.voiceSteals);
+    expect(stats.byNode).toEqual({ v: stats.steals });
+    expect(stats.limit).toBe(VOICE_LIMIT);
+    // Claimed and not over, future notes up to the horizon included; at most 64 of them sound at once.
+    expect(stats.inUse).toBeGreaterThanOrEqual(VOICE_LIMIT);
+    const [warning] = runtime.warnings('v');
+    expect(warning).toMatchObject({ node: 'v', kind: 'voice-steal', count: stats.steals });
+    expect(warning!.message).toContain('64-voice limit');
+    expect(warning!.time).toBeGreaterThan(1.6);
+    expect(warning!.time).toBeLessThan(runtime.horizon!);
+    // The host hears of it once; later steals add to the count.
+    expect(heard).toHaveLength(1);
+    expect(heard[0]!.kind).toBe('voice-steal');
+
+    // Dismissed, it comes back with the next steal, counting from there; the totals keep going.
+    const version = runtime.warningsVersion;
+    runtime.clearWarnings('v');
+    expect(runtime.warnings('v')).toEqual([]);
+    run(3, 3.5);
+    expect(runtime.warningsVersion).toBeGreaterThan(version);
+    expect(heard).toHaveLength(2);
+    const after = runtime.voiceStats();
+    expect(runtime.warnings('v')[0]!.count).toBe(after.steals - stats.steals);
+    expect(after.byNode.v).toBe(after.steals);
+    runtime.dispose();
+  });
+
+  it('steals the same voices for the same run, however long its windows', () => {
+    const stealsWith = (window: number) => {
+      const stops: string[] = [];
+      const { compile } = setup(5, stops);
+      const clock = new ManualClock();
+      const runtime = new Runtime(compile(patch(0.5)));
+      runtime.attachAudio(fakeContext(clock));
+      const scheduler = new Scheduler(runtime, { clock, lookahead: window });
+      // Wakes every half window, the last one querying up to 2.99 s.
+      for (let k = 0; ; k++) {
+        const t = Math.min((k * window) / 2, 2.99 - window);
+        clock.set(t);
+        scheduler.wake();
+        if (t === 2.99 - window) break;
+      }
+      expect(runtime.horizon).toBeCloseTo(2.99, 9);
+      const { steals } = runtime.voiceStats();
+      const warning = runtime.warnings('v')[0];
+      runtime.dispose();
+      expect(stops).toHaveLength(steals);
+      return { steals, stops, time: warning?.time };
+    };
+    // Which notes were cut, and when, not just how many.
+    const base = stealsWith(0.12);
+    expect(base.steals).toBeGreaterThan(0);
+    expect(base.stops[0]).toBe('0@1.6');
+    expect(stealsWith(0.05)).toEqual(base);
+    expect(stealsWith(0.3)).toEqual(base);
+  });
+
+  it("counts a removed node's retiring steals in the totals, but raises nothing for it and keeps it out of byNode", () => {
+    // Two instruments on one metro, each note ringing 5 s: from 0.8 s on the pool is full and steals.
+    const { pools, compile } = setup(5);
+    const both: Patch = {
+      format: 'flowpatch', version: 1, seed: 1,
+      nodes: [node('m', 'metro'), node('v', 'pooled'), node('w', 'pooled')],
+      cables: [cable('m', 'v'), cable('m', 'w')],
+    };
+    const clock = new ManualClock();
+    const runtime = new Runtime(compile(both));
+    const heard: NodeWarning[] = [];
+    runtime.onWarning = (_message, warning) => void heard.push(warning);
+    runtime.attachAudio(fakeContext(clock));
+    const scheduler = new Scheduler(runtime, { clock });
+    for (let k = 0; k < 60; k++) {
+      clock.set(k * 0.025);
+      scheduler.wake();
+    }
+    const before = runtime.voiceStats();
+    expect(before.byNode.v).toBeGreaterThan(0);
+    expect(before.byNode.w).toBeGreaterThan(0);
+    const v = pools.find((p) => (p as unknown as { owner: string }).owner === 'v')!;
+
+    // Remove `v`: its notes from the swap on are withdrawn, but the ones already sounding ring on.
+    scheduler.swap(compile({ ...both, nodes: both.nodes.filter((n) => n.id !== 'v'), cables: [cable('m', 'w')] }));
+    const swapped = runtime.voiceStats();
+    expect(swapped.byNode).toEqual({ w: before.byNode.w });
+    expect(runtime.warnings('v')).toEqual([]);
+
+    // The retiring instance still claims (a late delivery) and holds a voice on (a later end): both steal.
+    // Withdrawing its notes from the swap on left 4 slots free by the last start scheduled (1.575 s),
+    // so the 5th late claim steals there.
+    const at = clock.audio + 0.01;
+    Array.from({ length: 5 }, () => v.claim({ start: at, end: at + 5, stop: () => {} }));
+    expect(runtime.counters.voiceSteals).toBe(swapped.steals + 1);
+    // A short one fits; held on past 1.575 s, it steals there too.
+    const short = v.claim({ start: at, end: at + 0.01, stop: () => {} });
+    expect(runtime.counters.voiceSteals).toBe(swapped.steals + 1);
+    v.setEnd(short, at + 6);
+    expect(runtime.counters.voiceSteals).toBe(swapped.steals + 2);
+    const after = runtime.voiceStats();
+    expect(after.steals).toBe(runtime.counters.voiceSteals);
+    // None of it is on a node: `v` is gone, and `w` caused none of these.
+    expect(after.byNode).toEqual(swapped.byNode);
+    expect(runtime.warnings('v')).toEqual([]);
+    expect(heard.filter((w) => w.node === 'v')).toHaveLength(1); // the one raised before the swap
+    runtime.dispose();
+  });
+
+  it("doesn't take steals back when a live event rewinds over the windows they happened in", () => {
+    // Metro and tap feed a counter, which numbers the notes for the instrument. A tap renumbers every
+    // note after it, so the rewind withdraws them (freeing their slots) and claims new ones, which steal again.
+    const { compile } = setup(5);
+    const clock = new ManualClock();
+    const runtime = new Runtime(compile({
+      format: 'flowpatch', version: 1, seed: 1,
+      nodes: [node('m', 'metro'), node('t', 'tap'), node('c', 'counter'), node('v', 'pooled')],
+      cables: [cable('m', 'c'), cable('t', 'c'), cable('c', 'v')],
+    }));
+    runtime.attachAudio(fakeContext(clock));
+    const scheduler = new Scheduler(runtime, { clock });
+    for (let k = 0; k < 80; k++) {
+      clock.set(k * 0.025);
+      scheduler.wake();
+    }
+    const [before] = runtime.warnings('v');
+    expect(before).toMatchObject({ kind: 'voice-steal' });
+    const steals = runtime.counters.voiceSteals;
+
+    clock.set(1.99);
+    const tapped = scheduler.push('t', 'out', { channel: 0 })!;
+    // The rewind re-ran windows that had stolen, and withdrew notes that had.
+    expect(before!.time).toBeGreaterThan(tapped.time);
+    expect(runtime.counters.cancelled).toBeGreaterThan(0);
+    const [after] = runtime.warnings('v');
+    expect(after!.count).toBeGreaterThan(before!.count);
+    expect(after!.count).toBe(runtime.voiceStats().byNode.v);
+    expect(runtime.counters.voiceSteals).toBeGreaterThan(steals);
+    runtime.dispose();
   });
 });

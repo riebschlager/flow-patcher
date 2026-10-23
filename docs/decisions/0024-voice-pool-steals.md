@@ -1,6 +1,6 @@
 # 0024 · The voice pool steals the earliest start, and a steal outlives its cause
 
-Status: Accepted · 2026-10-22 · Amends [0011](0011-runtime-safety-limits.md) and [0019](0019-live-events-rewind.md)
+Status: Accepted · 2026-10-22 · Amends [0011](0011-runtime-safety-limits.md) and [0019](0019-live-events-rewind.md) · Amended by [0025](0025-voice-steals-warn-and-stay-in-budget.md) (steals warn and are counted; new cost numbers; Simple Synth uses the pool)
 
 ## Context
 ADR 0011 gives the runtime 64 voices, "oldest stolen first". #25 built that pool (packages/engine/src/audio/voices.ts) and had to settle two things 0011 doesn't say:
