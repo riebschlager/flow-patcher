@@ -30,7 +30,7 @@ import {
 } from './definition';
 import { compareEvents, type EngineEvent, type EventField, type EventPath } from './events';
 import { FRAME_BACKLOG, FRAME_QUEUE_LIMIT } from './frame-loop';
-import { LIMIT_WINDOW, limitWindowOf, NODE_EVENT_LIMIT, PATCH_EVENT_LIMIT, WARNING_KINDS, type NodeWarning, type NodeWarningKind } from './limits';
+import { LIMIT_WINDOW, limitWindowOf, NODE_EVENT_LIMIT, PATCH_EVENT_LIMIT, VOICE_LIMIT, WARNING_KINDS, type NodeWarning, type NodeWarningKind } from './limits';
 import type { Patch, PortRef } from './patch';
 import { clonePlain, restoreState } from './state';
 
@@ -357,6 +357,20 @@ export interface RuntimeCounters {
   snapshots: number;
   /** Wall-clock milliseconds spent copying them (0 without a wall clock; see keepHistory). */
   snapshotMs: number;
+  /** Voices the pool stole (ADR 0024), on every context this runtime attached to. Never taken back. */
+  voiceSteals: number;
+}
+
+/** The voice pool's state, for the editor's budget readout (`Runtime.voiceStats`). */
+export interface VoiceStats {
+  /** Voices claimed and not yet over, on the attached context: sounding now or scheduled to. */
+  inUse: number;
+  /** Voices that may sound at once (VOICE_LIMIT). */
+  limit: number;
+  /** Voices stolen so far: `counters.voiceSteals`. */
+  steals: number;
+  /** Steals per node in the latest plan, by the node whose note caused them; nodes with none left out. */
+  byNode: Record<string, number>;
 }
 
 /** What one live event's rewind and re-query cost (ADR 0019). */
@@ -549,7 +563,7 @@ interface Retiring {
 }
 
 export class Runtime {
-  readonly counters: RuntimeCounters = { delivered: 0, caughtUp: 0, lateScheduled: 0, lateImmediate: 0, cancelled: 0, uncancelled: 0, outOfWindow: 0, droppedNodeLimit: 0, droppedPatchLimit: 0, queries: 0, snapshots: 0, snapshotMs: 0 };
+  readonly counters: RuntimeCounters = { delivered: 0, caughtUp: 0, lateScheduled: 0, lateImmediate: 0, cancelled: 0, uncancelled: 0, outOfWindow: 0, droppedNodeLimit: 0, droppedPatchLimit: 0, queries: 0, snapshots: 0, snapshotMs: 0, voiceSteals: 0 };
   /** The latest plan: what the next window runs. */
   private stage: Stage;
   /** The plan the chunk being run belongs to: `stage`, except while a rewind replays older windows. */
@@ -600,6 +614,8 @@ export class Runtime {
   private audioContext: AudioContextLike | null = null;
   /** The voice pool on `audioContext`: every audio instance built on it shares it, swaps included. */
   private voicePool: VoicePool | null = null;
+  /** Steals per node id, by the node that caused them: nodes in the latest plan only. */
+  private readonly steals = new Map<string, number>();
   /** Audio instances a swap removed or rebuilt, still sounding. */
   private retiring: Retiring[] = [];
   /** What each audio output is connected to, in connection order. */
@@ -669,6 +685,16 @@ export class Runtime {
       }
     }
     return out;
+  }
+
+  /** Voices in use and steals, for the budget readout. Before `attachAudio`, nothing is in use. */
+  voiceStats(): VoiceStats {
+    const byNode: Record<string, number> = {};
+    for (const node of this.stage.plan.order) {
+      const steals = this.steals.get(node.id);
+      if (steals) byNode[node.id] = steals;
+    }
+    return { inUse: this.voicePool?.inUse() ?? 0, limit: this.voicePool?.size ?? VOICE_LIMIT, steals: this.counters.voiceSteals, byNode };
   }
 
   /** Goes up whenever a warning is raised, changes or is cleared. */
@@ -823,6 +849,7 @@ export class Runtime {
     if (this.audioContext) this.rewire();
     for (const id of removed) {
       if (this.nodeWarnings.delete(id)) this.version++;
+      this.steals.delete(id);
       this.pendingFrames.delete(id);
       this.shown.delete(id);
       // Snapshots keep copies for rewinds into windows before the swap.
@@ -969,7 +996,10 @@ export class Runtime {
   /** Builds every audio node's Web Audio graph and connects the audio cables. Swaps build their own from then on. */
   attachAudio(context: AudioContextLike): void {
     // A new context starts with an empty pool; voices on the old one don't sound on it.
-    if (context !== this.audioContext || !this.voicePool) this.voicePool = new VoicePool(() => context.currentTime);
+    if (context !== this.audioContext || !this.voicePool) {
+      this.voicePool = new VoicePool(() => context.currentTime);
+      this.voicePool.onSteal = (owner, at) => this.stole(owner, at);
+    }
     this.audioContext = context;
     for (const node of this.stage.plan.order) if (node.definition.audio) this.stage.audio.set(node.id, this.buildAudio(node, this.stage));
     this.rewire();
@@ -1038,7 +1068,7 @@ export class Runtime {
   private buildAudio(node: PlanNode, stage: Stage): AudioInstance {
     const { param } = stage.contexts.get(node.id)!;
     return node.definition.audio!({
-      audio: this.audioContext!, params: node.params, state: stage.states.get(node.id)!, param, voices: this.voicePool!, services: this.services,
+      audio: this.audioContext!, params: node.params, state: stage.states.get(node.id)!, param, voices: this.voicePool!.forNode(node.id), services: this.services,
     });
   }
 
@@ -1603,6 +1633,21 @@ export class Runtime {
       for (const drop of kept) if (drop.kind === warning.kind && drop.seq >= warning.seq) warning.time = Math.max(warning.time, drop.time);
       this.version++;
     }
+  }
+
+  /**
+   * The pool stole a voice, cut at `at`, because of `owner`'s note (ADR 0025).
+   * Counted, and raised on that node while it is in the latest plan: a removed
+   * node's retiring notes still count but warn nothing. Steals are never undone,
+   * so unlike a cap warning this one isn't net of rewinds.
+   */
+  private stole(owner: string | null, at: number): void {
+    this.counters.voiceSteals++;
+    if (owner === null || !this.stage.byId.has(owner)) return;
+    this.steals.set(owner, (this.steals.get(owner) ?? 0) + 1);
+    const held = this.nodeWarnings.get(owner)?.get('voice-steal');
+    this.warn(owner, 'voice-steal', 1, at, held?.message
+      ?? `node "${owner}" played past the ${VOICE_LIMIT}-voice limit; the oldest voices were cut short`);
   }
 
   /** Raises or adds to a node's warning; the host hears about it the first time. Returns the warning's `seq`. */
