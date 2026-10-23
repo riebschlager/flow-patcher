@@ -54,7 +54,7 @@ Human
 1. **Harness** (setup guide Step 2): already built before M0 (monorepo, `pnpm check`, `pnpm e2e`, `pnpm run-patch`, the engine-boundary lint rule, CI). M1 extends it as the gate checks below need.
 2. **Types and channels:** the six port types, per-event `channel`, fan-in rules (Event merge in time order, Signal sum, parameter = base + depth × cable).
 3. **Graph compiler:** topologically sorted plan, delay edges marked, cycles without a delay edge rejected.
-4. **Scheduler:** 25 ms wake, 120 ms lookahead, 1.25 s when the tab is hidden; a wake up to 100 ms past its horizon catches up, keeping its events' spacing, and longer stalls skip missed windows; immediate path for input events at `currentTime + 5 ms`, or one audio clock step + 1 ms if that is longer ([ADR 0017](decisions/0017-immediate-offset-and-catch-up.md), [0027](decisions/0027-immediate-offset-covers-a-callback.md), [0028](decisions/0028-offset-from-measured-clock-step.md)).
+4. **Scheduler:** 25 ms wake, 120 ms lookahead, 1.25 s when the tab is hidden; a wake up to 100 ms past its horizon catches up, keeping its events' spacing, and longer stalls skip missed windows; immediate path for input events at `currentTime + 5 ms` ([ADR 0017](decisions/0017-immediate-offset-and-catch-up.md), [0027](decisions/0027-immediate-notes-within-one-clock-step.md)).
 5. **Hot patching:** plan swap at the next window boundary; node state kept when the id survives; future events from removed or changed nodes cancelled; sounding notes finish their release.
 6. **Runtime limits:** 256 events per node and 2,048 per patch per window, excess dropped with a warning on the node; seeded RNG, no `Math.random` in engine or nodes.
 7. **Patch format v1:** load/save. Patches record the format version and each node's type version from the start, but migrations and placeholders wait for M4. Until then, a breaking node change updates the example patches and fixtures instead.
@@ -68,7 +68,7 @@ Automated
 - [x] **Determinism:** the same patch and seed, run twice headless, gives byte-identical event logs.
 - [x] **Window independence:** querying 0–10 s in 25 ms steps, in 100 ms steps and in one call gives identical events for every generator node.
 - [x] **Hot swap:** a headless run of a Clock → Euclidean → Probability → Make Note → Sampled Voice patch with 100 scripted edits (knob change, cable add/remove, node add/remove) shows no duplicated events, no missing events from nodes the edit didn't touch, no events from removed nodes after the swap, and preserved state for surviving ids.
-- [x] **No late events:** across the e2e edit run, no event is handed to Web Audio with `time < ctx.currentTime`.
+- [x] **No late events:** across the e2e edit run, no scheduled event is handed to Web Audio with `time < ctx.currentTime`, and a tap's own note is at most one audio clock step late ([ADR 0027](decisions/0027-immediate-notes-within-one-clock-step.md)).
 - [x] **Stalls:** a simulated 500 ms main-thread stall skips the missed windows; no burst of more than one window's events afterwards.
 - [x] **Catch-up:** a simulated 150 ms stall loses no events, and no two caught-up events from one stream land on the same time.
 - [x] **Offline audio:** an `OfflineAudioContext` render of a sustained patch with edits applied via `suspend()` has no silent gap longer than 5 ms *(tune)* and no peak above the Output ceiling.

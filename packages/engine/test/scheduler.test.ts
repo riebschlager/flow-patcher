@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest';
 import {
   compilePatch,
   HIDDEN_LOOKAHEAD,
-  IMMEDIATE_MARGIN,
   IMMEDIATE_OFFSET,
   LOOKAHEAD,
   ManualClock,
@@ -230,32 +229,6 @@ describe('Immediate path: a pushed note lands at currentTime + 5 ms, without a w
     expect(Math.abs(deliveries[0]!.event.time - (1.0123 + 0.005))).toBeLessThanOrEqual(0.002);
     expect(scheduler.events()).toEqual([{ node: 't', port: 'out', ...event }]);
     expect(scheduler.stats).toMatchObject({ pushes: 1, rewinds: 1, lateImmediate: 0, pushFallbacks: 0 });
-  });
-
-  it('stamps a push one clock step + 1 ms ahead when that is longer than 5 ms (ADR 0027, 0028)', () => {
-    const { scheduler, clock, deliveries, wakeEvery } = setup(p);
-    // 256 frames at 48 kHz.
-    Object.assign(clock, { step: () => 0.00533 });
-    wakeEvery(0, 1);
-    clock.set(1.0123);
-    expect(scheduler.offset).toBeCloseTo(0.00533 + IMMEDIATE_MARGIN, 12);
-    const event = scheduler.push('t', 'out', { channel: 0 });
-    expect(event!.time).toBeCloseTo(1.0123 + 0.00633, 12);
-    expect(deliveries.map((d) => d.event.time)).toEqual([event!.time]);
-    expect(scheduler.stats).toMatchObject({ pushes: 1, rewinds: 1, lateImmediate: 0 });
-  });
-
-  it('keeps 5 ms when one clock step + 1 ms is shorter, or the step is unknown', () => {
-    for (const step of [0.002, 0, -0.01, NaN, Infinity]) {
-      const { scheduler, clock, wakeEvery } = setup(p);
-      Object.assign(clock, { step: () => step });
-      wakeEvery(0, 1);
-      clock.set(1.0123);
-      expect(scheduler.offset).toBe(IMMEDIATE_OFFSET);
-      expect(scheduler.push('t', 'out', { channel: 0 })!.time).toBe(1.0123 + IMMEDIATE_OFFSET);
-    }
-    // No step at all: the configured offset alone, as headless runs have it.
-    expect(setup(p).scheduler.offset).toBe(IMMEDIATE_OFFSET);
   });
 
   it('wakes at once when nothing has been queried yet', () => {

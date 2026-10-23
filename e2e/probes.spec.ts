@@ -239,8 +239,21 @@ test('a node over the event cap shows its warning until dismissed', async ({ pag
   const warning = card(page, 'note').getByTestId('node-warning');
   await expect(warning.locator('[data-kind="node-event-limit"]')).toContainText(/Over 256 events in 120 ms: \d+ dropped/);
   expect((await page.evaluate(() => window.flowPatcher!.stats)).droppedNodeLimit).toBeGreaterThan(0);
+  // The node keeps going over, so the warning can come back before a poll sees it gone:
+  // watch the card for the warning's removal instead.
+  await card(page, 'note').evaluate((el) => {
+    const w = window as Window & { warningRemoved?: boolean };
+    w.warningRemoved = false;
+    const warning = el.querySelector('[data-testid="node-warning"]');
+    new MutationObserver((records, observer) => {
+      if (records.some((r) => [...r.removedNodes].some((n) => n === warning || (n instanceof Element && n.contains(warning))))) {
+        w.warningRemoved = true;
+        observer.disconnect();
+      }
+    }).observe(el, { childList: true, subtree: true });
+  });
   await warning.getByTestId('dismiss-warnings').click();
-  await expect(warning).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => (window as Window & { warningRemoved?: boolean }).warningRemoved)).toBe(true);
   // It keeps going over, so the warning comes back.
   await expect(card(page, 'note').getByTestId('node-warning').locator('[data-kind="node-event-limit"]')).toBeVisible();
   expect(errors).toEqual([]);

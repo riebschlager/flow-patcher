@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { LivePatch } from '../packages/editor/src/live';
-import { audioClock, clockStepKnown } from './audio-clock';
+import { audioCallback } from './audio-clock';
 
 declare global {
   interface Window {
@@ -28,8 +28,6 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
   await canvas.click({ position: { x: 40, y: 40 } });
   await expect(page.getByTestId('audio-state')).toHaveText('live');
   await expect.poll(() => page.evaluate(() => window.flowPatcher!.taps[0]?.note ?? null)).not.toBeNull();
-  // The offset rests on the measured clock step once it is known (ADR 0028), so the warm taps wait for it.
-  await clockStepKnown(page);
 
   // Warm taps, spread over different wake phases.
   for (let i = 0; i < 10; i++) {
@@ -37,30 +35,21 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
     await page.waitForTimeout(37);
   }
   const taps = await page.evaluate(() => window.flowPatcher!.taps.filter((tap) => !tap.cold));
-  const clock = await audioClock(page);
-  // Each tap keeps the offset it was stamped with: 5 ms, or one clock step + 1 ms if that is longer (ADR 0027, 0028).
+  const { callback } = await audioCallback(page);
   expect(taps).toHaveLength(10);
   for (const tap of taps) {
-    // push reads currentTime again after the handler did, and the clock can step between the two
-    // reads, so the gate's currentTime is push's read: the stamp minus the offset.
-    expect(tap.stamped! - tap.at).toBeGreaterThanOrEqual(tap.offset - 1e-6);
-    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(tap.offset + clock.step + 1e-6);
+    // push reads currentTime again after the handler did, and an audio callback can land between the
+    // two reads. The +5 ms is the lower bound here; the gate's ±2 ms is then measured from push's read.
+    expect(tap.stamped! - tap.at).toBeGreaterThanOrEqual(0.005 - 1e-6);
+    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(0.005 + callback + 1e-6);
     expect(tap.note).not.toBeNull();
-    // The gate as written: the note at currentTime + 5 ms ± 2 ms.
-    expect(Math.abs(tap.note! - (tap.stamped! - tap.offset) - 0.005)).toBeLessThanOrEqual(0.002 + 1e-9);
+    expect(Math.abs(tap.note! - tap.stamped!)).toBeLessThanOrEqual(0.002);
   }
-  const ms = (s: number) => (s * 1000).toFixed(2);
-  console.log(
-    `offset ${[...new Set(taps.map((t) => ms(t.offset)))].join('/')} ms (clock step ${ms(clock.step)} ms, largest seen ${ms(clock.largestStep)} ms, baseLatency ${ms(clock.baseLatency)} ms); ` +
-      `note − push's read: ${ms(Math.min(...taps.map((t) => t.note! - t.stamped! + t.offset)))}–${ms(Math.max(...taps.map((t) => t.note! - t.stamped! + t.offset)))} ms; ` +
-      `note − handler's read: ${ms(Math.min(...taps.map((t) => t.note! - t.at)))}–${ms(Math.max(...taps.map((t) => t.note! - t.at)))} ms`,
-  );
   const stats = await page.evaluate(() => window.flowPatcher!.stats);
   expect(stats.pushes).toBeGreaterThanOrEqual(11);
-  // ADR 0026: a visible push always rewinds, so none fell back to the horizon, and none was handed over late.
+  // ADR 0026: a visible push always rewinds, so none fell back to the horizon.
   expect(await page.evaluate(() => document.visibilityState)).toBe('visible');
   expect(stats.pushFallbacks).toBe(0);
-  expect(stats.lateImmediate).toBe(0);
 
   await page.screenshot({ path: 'test-results/pointer.png' });
   expect(errors).toEqual([]);

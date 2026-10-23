@@ -27,7 +27,6 @@ import {
   type VoiceStats,
 } from '@flow-patcher/engine';
 import { nodeRegistry, rendererImage } from '@flow-patcher/nodes';
-import { ClockStep } from './clock-step';
 import { EventTrack, PROBE_HISTORY } from './event-track';
 
 /** Pointer events the canvas forwards, as Pointer node output ports. */
@@ -43,8 +42,6 @@ export interface Tap {
   down: number;
   /** The time the push was stamped, or null when it was held for the AudioContext to start. */
   stamped: number | null;
-  /** The immediate offset in force when the push was stamped (ADR 0027, 0028). */
-  offset: number;
   /** When the first note it caused starts sounding: the earliest oscillator start scheduled during the push.
    *  A cold tap's push runs on a later wake, so it takes the next oscillator start instead (approximate). */
   note: number | null;
@@ -148,8 +145,6 @@ export class LivePatch {
   /** A cold tap still waiting for its held push to run. */
   private coldTap: Tap | null = null;
   private readonly frames: FrameLoop;
-  /** The audio clock's largest step, which the immediate offset covers (ADR 0028). */
-  private readonly clockStep: ClockStep;
   /** The fluid's host. Its Worker starts when a Fluid first sends it work, so one can be added mid-session. */
   private readonly fluid: { host: FluidHost; worker: () => Worker | null };
   private hasFluid = false;
@@ -184,15 +179,12 @@ export class LivePatch {
     this.audio = this.observeStarts(this.context);
     this.runtime.attachAudio(this.audio);
     const context = this.context;
-    this.clockStep = new ClockStep(() => context.currentTime, () => performance.now(), () => context.baseLatency);
     this.scheduler = new Scheduler(this.runtime, {
       clock: {
         audioTime: () => context.currentTime,
         wallTime: () => performance.now(),
         running: () => context.state === 'running',
         hidden: () => document.hidden,
-        // Measured once a frame; baseLatency until enough steps are seen (ADR 0027, 0028).
-        step: () => this.clockStep.value(),
       },
       timer: {
         every(ms, tick) {
@@ -320,20 +312,9 @@ export class LivePatch {
     return this.scheduler.stats;
   }
 
-  /** The offset live input is stamped with now (ADR 0027, 0028). */
-  get immediateOffset(): number {
-    return this.scheduler.offset;
-  }
-
-  /** The AudioContext's clock, for e2e: currentTime, baseLatency, and the largest step it has taken
-   *  (`step`, in use once `stepKnown`; ADR 0028). */
-  get clock(): { currentTime: number; baseLatency: number; step: number; stepKnown: boolean } {
-    return {
-      currentTime: this.context.currentTime,
-      baseLatency: this.context.baseLatency,
-      step: this.clockStep.value(),
-      stepKnown: this.clockStep.known,
-    };
+  /** The AudioContext's clock, for e2e: currentTime, and baseLatency (in Chromium, one audio callback's buffer). */
+  get clock(): { currentTime: number; baseLatency: number } {
+    return { currentTime: this.context.currentTime, baseLatency: this.context.baseLatency };
   }
 
   /** A number param as the node reads it now, cables included: the knob's modulation ring. It reads the latest
@@ -379,7 +360,6 @@ export class LivePatch {
     const waited = timeStamp !== undefined && timeStamp <= wall ? (wall - timeStamp) / 1000 : 0;
     this.starts = [];
     let stamped: number | null = null;
-    const offset = this.scheduler.offset;
     try {
       for (const id of this.pointers) stamped ??= this.scheduler.push(id, port, fields)?.time ?? null;
     } finally {
@@ -387,7 +367,7 @@ export class LivePatch {
       const starts = this.starts;
       this.starts = null;
       if (port === 'down') {
-        const tap: Tap = { at, down: at - waited, stamped, offset, note: starts.length ? Math.min(...starts) : null, cold, splash: null, splashLost: false };
+        const tap: Tap = { at, down: at - waited, stamped, note: starts.length ? Math.min(...starts) : null, cold, splash: null, splashLost: false };
         if (cold && tap.note === null) this.coldTap = tap;
         if (this.renderer && this.hasFluid && stamped !== null) {
           this.splashes.push({ tap, time: stamped, downWall: wall - waited * 1000, frame: this.frameCounts.frames, carried: null });
@@ -413,7 +393,6 @@ export class LivePatch {
   /** One animation frame: the visual nodes on the frame clock, then the Renderer's picture onto the canvas. */
   private frame(): void {
     this.frameCounts.frames++;
-    if (this.context.state === 'running') this.clockStep.sample();
     this.frames.tick();
     this.followPorts();
     if (this.runtime.warningsVersion !== this.warningsSeen) {
