@@ -22,9 +22,10 @@ export interface DragEdit {
 /**
  * Starts a drag from a pointerdown. It listens on the window, so the moves keep
  * coming when the pointer leaves the element, or when a preview re-renders the
- * element away. A pointercancel puts the document back. Anything else that
- * changes the document mid-drag (an undo, a delete) ends the drag where it is,
- * unrecorded, because its undo step would no longer apply.
+ * element away. A pointercancel puts the document back. Undo and redo wait
+ * while it runs (`dragging` in the store); anything else that changes the
+ * document mid-drag, such as a delete, ends the drag unrecorded, because its
+ * undo step would no longer apply.
  */
 export function startDrag(store: EditorStore, event: Pick<PointerEvent, 'pointerId' | 'clientX'>, drag: DragEdit): void {
   const x0 = event.clientX, before = store.getState().doc;
@@ -64,6 +65,7 @@ export function startDrag(store: EditorStore, event: Pick<PointerEvent, 'pointer
     window.removeEventListener('pointerup', up);
     window.removeEventListener('pointercancel', cancel);
     unsubscribe();
+    store.setState({ dragging: false });
     if (frame) cancelAnimationFrame(frame);
     drag.onEnd?.();
   };
@@ -86,6 +88,7 @@ export function startDrag(store: EditorStore, event: Pick<PointerEvent, 'pointer
     stop();
     if (moved) preview(drag.edits(drag.from));
   };
+  store.setState({ dragging: true });
   const unsubscribe = store.subscribe((state) => {
     // The store tells subscribers inside preview(), before `ours` catches up.
     if (!previewing && state.doc !== ours) stop();

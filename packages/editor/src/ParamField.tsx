@@ -63,9 +63,15 @@ function NumberField({ node, spec, value, modulated }: RowProps<NumberParamSpec>
   const live = useContext(LivePatchContext);
   const base = resolveParam(spec, value) as number;
   const apply = useApply(node, spec, base);
-  const [typing, setTyping] = useState(false);
+  /** 'refocus' once typing ends by key: the slider takes focus back when it's drawn again. */
+  const [typing, setTyping] = useState<boolean | 'refocus'>(false);
   const band = useRef<HTMLSpanElement>(null);
   const field = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (typing !== 'refocus') return;
+    field.current?.focus();
+    setTyping(false);
+  }, [typing]);
 
   // The modulation band: from the knob to the value the node reads now, redrawn every frame while a cable is in.
   useEffect(() => {
@@ -86,7 +92,7 @@ function NumberField({ node, spec, value, modulated }: RowProps<NumberParamSpec>
   }, [modulated, live, node, spec, base]);
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || typing || !store) return;
+    if (event.button !== 0 || typing === true || !store) return;
     event.preventDefault();
     const width = event.currentTarget.getBoundingClientRect().width || 1;
     startDrag(store, event.nativeEvent, {
@@ -97,11 +103,11 @@ function NumberField({ node, spec, value, modulated }: RowProps<NumberParamSpec>
   };
 
   const label = spec.label ?? spec.name;
-  if (typing) {
+  if (typing === true) {
     return (
       <div className="param-field param-field--editing nodrag nopan" data-testid="param-field">
         <span className="param-field__label">{label}</span>
-        <TypedNumber className="param-field__input" label={label} initial={base} onCommit={(typed) => apply(resolveParam(spec, typed))} onDone={() => setTyping(false)} />
+        <TypedNumber className="param-field__input" label={label} initial={base} onCommit={(typed) => apply(resolveParam(spec, typed))} onDone={(byKey) => setTyping(byKey ? 'refocus' : false)} />
       </div>
     );
   }
@@ -145,14 +151,21 @@ function NumberField({ node, spec, value, modulated }: RowProps<NumberParamSpec>
  * A number typed in place: Enter or leaving the field commits it, Escape throws it away. It commits once, and only
  * when the text changed, so opening it and leaving it as it was doesn't round the value.
  */
-export function TypedNumber({ className, label, initial, onCommit, onDone }: { className: string; label: string; initial: number; onCommit: (value: number) => void; onDone: () => void }) {
+export function TypedNumber({ className, label, initial, onCommit, onDone }: {
+  className: string;
+  label: string;
+  initial: number;
+  onCommit: (value: number) => void;
+  /** `byKey` when Enter or Escape ended it, so focus can go back to the control it came from. */
+  onDone: (byKey: boolean) => void;
+}) {
   const done = useRef(false);
-  const finish = (text: string | null) => {
+  const finish = (text: string | null, byKey: boolean) => {
     if (done.current) return;
     done.current = true;
     const typed = text === null || text.trim() === String(initial) ? NaN : parseTyped(text);
     if (Number.isFinite(typed)) onCommit(typed);
-    onDone();
+    onDone(byKey);
   };
   return (
     <input
@@ -162,11 +175,11 @@ export function TypedNumber({ className, label, initial, onCommit, onDone }: { c
       autoFocus
       onFocus={(e) => e.currentTarget.select()}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') finish(e.currentTarget.value);
-        else if (e.key === 'Escape') finish(null);
+        if (e.key === 'Enter') finish(e.currentTarget.value, true);
+        else if (e.key === 'Escape') finish(null, true);
         e.stopPropagation();
       }}
-      onBlur={(e) => finish(e.currentTarget.value)}
+      onBlur={(e) => finish(e.currentTarget.value, false)}
     />
   );
 }

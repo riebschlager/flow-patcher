@@ -96,6 +96,7 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, sourcePosition, 
 function DepthChip({ cable, spec, onBusy }: { cable: PatchCable; spec: NumberParamSpec; onBusy: (busy: boolean) => void }) {
   const store = useContext(EditorStoreContext);
   const [typing, setTypingState] = useState(false);
+  const chip = useRef<HTMLSpanElement>(null);
   const setTyping = (on: boolean) => {
     setTypingState(on);
     onBusy(on);
@@ -130,6 +131,7 @@ function DepthChip({ cable, spec, onBusy }: { cable: PatchCable; spec: NumberPar
   const pct = range > 0 ? Math.min(1, Math.abs(depth) / range) * 100 : 0;
   return (
     <span
+      ref={chip}
       className="cable-chip cable-chip--depth"
       data-testid="depth-chip"
       data-depth={depth}
@@ -160,7 +162,17 @@ function DepthChip({ cable, spec, onBusy }: { cable: PatchCable; spec: NumberPar
     >
       <span className="cable-chip__bar" style={{ background: `linear-gradient(90deg, var(--fp-signal) ${pct}%, var(--fp-line-2) ${pct}%)` }} />
       {typing ? (
-        <TypedNumber className="cable-chip__input" label="Depth" initial={depth} onCommit={(typed) => set(clamp(typed))} onDone={() => setTyping(false)} />
+        <TypedNumber
+          className="cable-chip__input"
+          label="Depth"
+          initial={depth}
+          onCommit={(typed) => set(clamp(typed))}
+          onDone={(byKey) => {
+            setTyping(false);
+            // The chip stays drawn while typing, so it can take focus back from the input it held.
+            if (byKey) chip.current?.focus();
+          }}
+        />
       ) : (
         text
       )}

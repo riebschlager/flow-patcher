@@ -112,6 +112,26 @@ describe('startDrag', () => {
   });
 });
 
+describe('undo during a drag', () => {
+  it('waits for the drag, so a preview is never left out of history', () => {
+    const store = createEditorStore(doc());
+    store.getState().apply([{ op: 'set-param', node: 'n', param: 'steps', value: 12 }]);
+    const hits = () => store.getState().doc.nodes[0]?.params.hits;
+    startDrag(store, { pointerId: 1, clientX: 100 }, { from: 5, valueAt: (dx) => 5 + Math.round(dx / 10), edits: (v) => [{ op: 'set-param', node: 'n', param: 'hits', value: v }] });
+    expect(store.getState().dragging).toBe(true);
+    fire('pointermove', 150);
+    runFrame();
+    store.getState().undo();
+    expect(hits()).toBe(10);
+    expect(store.getState().doc.nodes[0]?.params.steps).toBe(12);
+    fire('pointerup', 150);
+    expect(store.getState().dragging).toBe(false);
+    expect(store.getState().past).toHaveLength(2);
+    store.getState().undo();
+    expect(hits()).toBe(5);
+  });
+});
+
 describe('keyedValue', () => {
   it('steps with arrows, finer with Shift, ten times with Page keys, to the ends with Home and End', () => {
     expect(keyedValue('ArrowRight', false, 5, 0, 32, 1)).toBe(6);

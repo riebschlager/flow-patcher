@@ -15,7 +15,8 @@ export function parseTyped(text: string): number {
   return Number.parseFloat(text.trim().replace('−', '-'));
 }
 
-/** A slider's value after a key: arrows step (Shift finer), Page keys step ten times, Home and End go to the ends.
+/** A slider's value after a key: arrows step (Shift finer when the param has no step), Page keys step ten times,
+ *  Home and End go to the ends.
  *  Undefined for any other key. */
 export function keyedValue(key: string, shift: boolean, value: number, min: number, max: number, step?: number): number | undefined {
   const range = max - min;

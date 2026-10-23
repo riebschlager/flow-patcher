@@ -278,8 +278,9 @@ function Editor() {
       if (mod && event.key.toLowerCase() === 'z') store.getState()[event.shiftKey ? 'redo' : 'undo']();
       else if (mod && event.key.toLowerCase() === 'y') store.getState().redo();
       else if (event.key === 'Tab' && !mod && !event.altKey) {
-        // Tab still moves focus through the toolbar and the preview; it opens the palette from the graph.
+        // Tab still moves focus through the toolbar, the preview and the params; it opens the palette from the graph.
         if (document.activeElement !== document.body && !area.current?.contains(document.activeElement)) return;
+        if (document.activeElement?.closest('.param-row, .cable-controls')) return;
         const box = area.current?.getBoundingClientRect();
         if (!box) return;
         openPalette(pointer.current ?? { x: box.left + box.width / 3, y: box.top + box.height / 3 }, null);

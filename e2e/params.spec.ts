@@ -76,7 +76,8 @@ test('a knob turned while playing hot-swaps, and the whole drag is one undo step
   await undo(page).click();
   await expect(hits).toHaveAttribute('data-value', '5');
 
-  // Previews are throttled to one per animation frame: 50 moves in one task make at most one swap, plus the drop's.
+  // Previews are throttled to one per animation frame: 50 moves and the drop in one task make one swap, the drop's.
+  // Unthrottled, each new snapped value (about ten over 50 px) would swap.
   const box = (await hits.boundingBox())!;
   const swaps = (await stats(page)).swaps;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -86,7 +87,7 @@ test('a knob turned while playing hot-swaps, and the whole drag is one undo step
     window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: x + 50, clientY: y }));
   }, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
   await page.mouse.up();
-  expect((await stats(page)).swaps - swaps).toBeLessThanOrEqual(2);
+  expect((await stats(page)).swaps - swaps).toBe(1);
   expect(Number(await hits.getAttribute('data-value'))).toBeGreaterThan(5);
   const delivered = (await stats(page)).delivered;
   await expect.poll(async () => (await stats(page)).delivered, { timeout: 6000 }).toBeGreaterThan(delivered);
@@ -119,6 +120,16 @@ test('a knob turned while playing hot-swaps, and the whole drag is one undo step
   await page.keyboard.press('ArrowRight');
   await expect(hits).toHaveAttribute('data-value', '5');
   await expect(hits).toHaveAttribute('aria-valuetext', '5');
+  // Enter types, and focus comes back to the slider; Tab moves on to the next param instead of opening the palette.
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.type('6');
+  await page.keyboard.press('Enter');
+  await expect(hits).toHaveAttribute('data-value', '6');
+  await expect(hits).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(field(page, 'euclid', 'steps')).toBeFocused();
+  await expect(page.getByTestId('node-palette')).toHaveCount(0);
 
   const final = await stats(page);
   expect(final.lateScheduled).toBe(0);

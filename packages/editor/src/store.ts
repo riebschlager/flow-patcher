@@ -20,6 +20,8 @@ export interface EditorState {
   future: HistoryEntry[];
   /** Selected node and cable ids. */
   selection: ReadonlySet<string>;
+  /** A drag is previewing edits it hasn't recorded yet. Undo and redo wait for it, since its step isn't in history. */
+  dragging: boolean;
   /** Applies `edits` as one undo step. */
   apply(edits: PatchEdit[]): void;
   /** Applies `edits` without an undo step, such as a node following the pointer mid-drag. */
@@ -55,6 +57,7 @@ export function createEditorStore(doc: Patch) {
     past: [],
     future: [],
     selection: new Set(),
+    dragging: false,
     apply(edits) {
       if (!edits.length) return;
       const { doc, past } = get();
@@ -69,13 +72,15 @@ export function createEditorStore(doc: Patch) {
       set({ past: push(get().past, entry), future: [] });
     },
     undo() {
-      const { doc, past, future } = get();
+      const { doc, past, future, dragging } = get();
+      if (dragging) return;
       const entry = past.at(-1);
       if (!entry) return;
       set({ doc: applyPatchEdits(doc, entry.inverse), past: past.slice(0, -1), future: [...future, entry], selection: new Set() });
     },
     redo() {
-      const { doc, past, future } = get();
+      const { doc, past, future, dragging } = get();
+      if (dragging) return;
       const entry = future.at(-1);
       if (!entry) return;
       set({ doc: applyPatchEdits(doc, entry.edits), past: push(past, entry), future: future.slice(0, -1), selection: new Set() });
