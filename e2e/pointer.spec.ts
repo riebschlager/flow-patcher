@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { IMMEDIATE_OFFSET } from '../packages/engine/src/scheduler';
 import type { LivePatch } from '../packages/editor/src/live';
 import { audioCallback } from './audio-clock';
 
@@ -35,7 +36,17 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
     await page.waitForTimeout(37);
   }
   const taps = await page.evaluate(() => window.flowPatcher!.taps.filter((tap) => !tap.cold));
-  const { callback } = await audioCallback(page);
+  const { callback, largestStep } = await audioCallback(page);
+  // #97: why a warm tap's note sometimes lands past ±2 ms on CI. Logged before the checks, so a failing run has it.
+  const baseLatency = await page.evaluate(() => window.flowPatcher!.clock.baseLatency);
+  const msOf = (s: number | null) => (s === null ? 'null' : (s * 1000).toFixed(2));
+  console.log(`[tap timing] baseLatency ${msOf(baseLatency)} ms, callback ${msOf(callback)} ms, largest step ${msOf(largestStep)} ms`);
+  for (const tap of taps) {
+    // From the push's own clock read (stamp less the offset): past the offset at start(), the note is late.
+    // That holds while no push falls back to the horizon (pushFallbacks is checked to be 0 below).
+    const read = tap.stamped! - IMMEDIATE_OFFSET;
+    console.log(`[tap timing] clock moved ${msOf(read - tap.at)} before the push's read, ${msOf(tap.startClock === null ? null : tap.startClock - read)} by start(), ${msOf(tap.after - read)} by its end; note−stamp ${msOf(tap.note === null ? null : tap.note - tap.stamped!)}; push ${tap.pushMs.toFixed(1)} ms (0.1 ms resolution)`);
+  }
   expect(taps).toHaveLength(10);
   for (const tap of taps) {
     // push reads currentTime again after the handler did, and an audio callback can land between the
