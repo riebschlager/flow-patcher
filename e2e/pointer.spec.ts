@@ -43,6 +43,7 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
   console.log(`[tap timing] baseLatency ${msOf(baseLatency)} ms, callback ${msOf(callback)} ms, largest step ${msOf(largestStep)} ms`);
   for (const tap of taps) {
     // From the push's own clock read (stamp less the offset): past the offset at start(), the note is late.
+    // That holds while no push falls back to the horizon (pushFallbacks is checked to be 0 below).
     const read = tap.stamped! - IMMEDIATE_OFFSET;
     console.log(`[tap timing] clock moved ${msOf(read - tap.at)} before the push's read, ${msOf(tap.startClock === null ? null : tap.startClock - read)} by start(), ${msOf(tap.after - read)} by its end; note−stamp ${msOf(tap.note === null ? null : tap.note - tap.stamped!)}; push ${tap.pushMs.toFixed(1)} ms (0.1 ms resolution)`);
   }
