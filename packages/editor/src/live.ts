@@ -221,6 +221,11 @@ export class LivePatch {
     return { currentTime: this.context.currentTime, baseLatency: this.context.baseLatency };
   }
 
+  /** A number param as the node reads it now, cables included: the knob's modulation ring. */
+  paramAt(nodeId: string, name: string): number | undefined {
+    return this.runtime.paramAt(nodeId, name, this.context.currentTime);
+  }
+
   /** A node's state, for e2e and the console (such as Sampled Voice's skipped-note count). */
   stateOf(nodeId: string): Readonly<Record<string, unknown>> | undefined {
     return this.runtime.stateOf(nodeId);

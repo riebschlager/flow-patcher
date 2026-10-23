@@ -18,9 +18,10 @@ import {
 import { useStore } from 'zustand';
 import { applyPatchEdits, compilePatch, defaultParams, parsePatch, serializePatch, type NodeDefinition, type Patch, type PatchEdit } from '@flow-patcher/engine';
 import { nodeDefinitions, nodeRegistry } from '@flow-patcher/nodes';
-import { cableFor, cableId, handlePort, loadErrors, matchingPort, nextNodeId, patchToGraph, type CableEnd } from './patch-graph';
-import { LivePatchContext, PatchNode } from './PatchNode';
-import { ABOVE_NODES, CableEdge, REFUSED_MS, connectionLineStyle, type CableEdgeData } from './CableEdge';
+import { ABOVE_NODES, cableFor, cableId, handlePort, loadErrors, matchingPort, nextNodeId, patchToGraph, type CableEnd } from './patch-graph';
+import { PatchNode } from './PatchNode';
+import { EditorStoreContext, LivePatchContext } from './ParamField';
+import { CableEdge, REFUSED_MS, connectionLineStyle, type CableEdgeData } from './CableEdge';
 import { LivePatch } from './live';
 import { PreviewPane } from './PreviewPane';
 import { NodePalette, type PaletteItem } from './NodePalette';
@@ -342,6 +343,7 @@ function Editor() {
         </span>
       </header>
       <main className="app__graph" ref={area} onDoubleClick={onDoubleClick} onPointerMove={(event) => (pointer.current = { x: event.clientX, y: event.clientY })}>
+        <EditorStoreContext.Provider value={store}>
         <LivePatchContext.Provider value={live}>
           <ReactFlow
             nodes={nodes}
@@ -370,6 +372,7 @@ function Editor() {
             <Controls />
           </ReactFlow>
         </LivePatchContext.Provider>
+        </EditorStoreContext.Provider>
         {palette && <NodePalette items={items} accepts={palette.end?.port.type} at={palette.at} onPick={insert} onClose={() => setPalette(null)} />}
         <PreviewPane live={live} />
       </main>

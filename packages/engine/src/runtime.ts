@@ -646,6 +646,13 @@ export class Runtime {
     return this.stage.states.get(nodeId);
   }
 
+  /** A number param at time t in the latest plan, as the node reads it: base + Σ depth × cable, clamped.
+   *  For the editor's modulation ring; undefined for an unknown node or a param that isn't a number. */
+  paramAt(nodeId: string, name: string, t: number, channel = 0): number | undefined {
+    const v = this.stage.contexts.get(nodeId)?.param(name, t, channel);
+    return v === undefined || Number.isNaN(v) ? undefined : v;
+  }
+
   /** Turns on window snapshots, so `push` can rewind into windows already queried.
    *  `wallTime` (milliseconds) times the snapshots for `counters.snapshotMs`. */
   keepHistory(wallTime?: () => number): void {

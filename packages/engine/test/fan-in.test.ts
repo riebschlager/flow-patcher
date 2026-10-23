@@ -191,6 +191,29 @@ describe('fan-in', () => {
   });
 });
 
+describe('Runtime.paramAt', () => {
+  it('reads a param as the node does: base + depth × cable, clamped, per channel', () => {
+    // Base 2; the LFO is 1 + 10 × channel, + 100 from 0.5 s on.
+    const rt = runtime(patch([node('a', 'lfo', { level: 1 }), node('r', 'reader')], [cable('a', 'out', 'r', 'knob', 2)]));
+    expect(rt.paramAt('r', 'knob', 0)).toBe(4);
+    expect(rt.paramAt('r', 'knob', 0, 1)).toBe(24);
+    expect(rt.paramAt('r', 'knob', 0.5)).toBe(204);
+    expect(rt.paramAt('r', 'knob', 0.5, 1)).toBe(224);
+    const steep = runtime(patch([node('a', 'lfo', { level: 1 }), node('r', 'reader')], [cable('a', 'out', 'r', 'knob', 3)]));
+    expect(steep.paramAt('r', 'knob', 0.5, 1)).toBe(260);
+    const negative = runtime(patch([node('a', 'lfo', { level: 1 }), node('r', 'reader')], [cable('a', 'out', 'r', 'knob', -24)]));
+    expect(negative.paramAt('r', 'knob', 0)).toBe(0);
+  });
+
+  it('gives the base without cables, and undefined for a non-number param or an unknown node', () => {
+    const rt = runtime(patch([node('r', 'reader', { knob: 7 })], []));
+    expect(rt.paramAt('r', 'knob', 3)).toBe(7);
+    expect(rt.paramAt('r', 'mode', 0)).toBeUndefined();
+    expect(rt.paramAt('r', 'nope', 0)).toBeUndefined();
+    expect(rt.paramAt('missing', 'knob', 0)).toBeUndefined();
+  });
+});
+
 describe('fan-in compile errors', () => {
   const base = [node('m', 'metro'), node('a', 'lfo'), node('r', 'reader'), node('ch', 'chooser'), node('ch2', 'chooser'), node('w', 'writer'), node('p', 'pool')];
   const one = (c: PatchCable) => errors(patch(base, [c]));

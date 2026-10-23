@@ -82,6 +82,46 @@ html, body, #root { height: 100%; margin: 0; background: var(--fp-surface-canvas
 .fp-port--value { background: var(--fp-surface-node); border: 2px solid var(--fp-value); border-radius: 50%; }
 .fp-handle:hover .fp-port--event, .fp-handle:hover .fp-port--note { transform: rotate(45deg) scale(1.35); }
 .fp-handle:hover .fp-port:not(.fp-port--event):not(.fp-port--note) { transform: scale(1.35); }
+/* The hit area is larger than the shape. It's a pseudo-element, not the handle's own box, because React Flow ends a
+   cable on the box's outer edge. Coarse pointers get 32×22, pushed outward so it doesn't cover the node's rows. */
+.fp-handle::before { content: ''; position: absolute; left: 50%; top: 50%; width: var(--fp-grid); height: var(--fp-grid); transform: translate(-50%, -50%); }
+@media (pointer: coarse) {
+  .fp-handle::before { width: var(--fp-space-8); height: var(--fp-row); }
+  .react-flow__handle-left.fp-handle::before { transform: translate(calc(-50% - var(--fp-space-3)), -50%); }
+  .react-flow__handle-right.fp-handle::before { transform: translate(calc(-50% + var(--fp-space-3)), -50%); }
+}
+
+/* Param rows (design system ParamField): a 22px bar in a 26px row. */
+.patch-node__params { padding: var(--fp-space-2) 0 var(--fp-space-3); border-top: 1px solid var(--fp-line-1); }
+.param-row { position: relative; padding: var(--fp-space-1) var(--fp-space-4); }
+.param-field { position: relative; box-sizing: border-box; height: var(--fp-row); display: flex; align-items: center; justify-content: space-between; gap: var(--fp-space-4); padding: 0 var(--fp-space-4); overflow: hidden; border-radius: var(--fp-radius-sm); background: var(--fp-bg-1); font-size: var(--fp-text-xs); user-select: none; transition: background var(--fp-dur-fast), box-shadow var(--fp-dur-fast); }
+.param-field:hover { background: var(--fp-bg-3); box-shadow: inset 0 0 0 1px var(--fp-line-3); }
+.param-field:focus-within { box-shadow: var(--fp-ring-focus); }
+.param-field--number { cursor: ew-resize; touch-action: none; }
+.param-field__fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--fp-bg-4); pointer-events: none; }
+.param-field__mod { position: absolute; top: 0; bottom: 0; width: 0; box-sizing: border-box; background: var(--fp-signal-soft); pointer-events: none; }
+.param-field__mod[data-side='above'] { border-left: 1.5px solid var(--fp-signal); }
+.param-field__mod[data-side='below'] { border-right: 1.5px solid var(--fp-signal); }
+.param-field__label { position: relative; flex: none; color: var(--fp-fg-2); white-space: nowrap; }
+.param-field:hover .param-field__label { color: var(--fp-fg-1); }
+.param-field__value { position: relative; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--fp-font-mono); font-variant-numeric: tabular-nums; color: var(--fp-fg-1); white-space: nowrap; }
+.param-field--editing, .param-field--editing:hover { overflow: visible; background: var(--fp-bg-0); box-shadow: var(--fp-ring-focus); }
+.param-field__input { flex: 1; min-width: 0; padding: 0; border: 0; outline: none; background: transparent; color: var(--fp-fg-1); font-family: var(--fp-font-mono); font-size: inherit; font-variant-numeric: tabular-nums; text-align: right; }
+.param-field--text { cursor: text; }
+.param-field--invalid { box-shadow: inset 0 0 0 1px var(--fp-error); }
+.param-field--select { cursor: pointer; }
+.param-field__select { flex: 1; min-width: 0; appearance: none; padding: 0 var(--fp-space-6) 0 0; border: 0; outline: none; background: transparent; color: var(--fp-fg-1); font: inherit; text-align: right; text-align-last: right; cursor: pointer; }
+.param-field__select option { background: var(--fp-bg-2); color: var(--fp-fg-1); }
+.param-field__chevron { position: absolute; right: var(--fp-space-3); font-size: 12px; color: var(--fp-fg-3); pointer-events: none; }
+.param-text { display: grid; gap: var(--fp-space-2); }
+.param-text__error { padding: 0 var(--fp-space-4); font-size: var(--fp-text-micro); line-height: 1.4; color: var(--fp-error); }
+.param-toggle { width: 100%; height: var(--fp-row); box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; padding: 0 var(--fp-space-4); border: 0; border-radius: var(--fp-radius-sm); background: var(--fp-bg-1); font-family: var(--fp-font-ui); font-size: var(--fp-text-xs); cursor: pointer; transition: background var(--fp-dur-fast); }
+.param-toggle:hover { background: var(--fp-bg-3); }
+.param-toggle:focus-visible { outline: none; box-shadow: var(--fp-ring-focus); }
+.param-toggle__track { width: calc(var(--fp-space-7) + var(--fp-space-2)); height: var(--fp-space-6); box-sizing: border-box; display: flex; justify-content: flex-start; padding: var(--fp-space-1); border-radius: var(--fp-radius-full); background: var(--fp-bg-4); transition: background var(--fp-dur-fast); }
+.param-toggle__track--on { justify-content: flex-end; background: var(--fp-fg-1); }
+.param-toggle__thumb { width: var(--fp-space-5); height: var(--fp-space-5); border-radius: 50%; background: var(--fp-fg-3); }
+.param-toggle__track--on .param-toggle__thumb { background: var(--fp-bg-0); }
 
 /* App bar actions (design system Toolbar: IconButton, Button). */
 .app__actions { margin-left: auto; display: flex; gap: var(--fp-space-2); align-items: center; }
@@ -123,8 +163,22 @@ html, body, #root { height: 100%; margin: 0; background: var(--fp-surface-canvas
 .cable-chip--error { display: inline-flex; align-items: center; gap: var(--fp-space-3); height: 22px; padding: 0 var(--fp-space-4); border: 1px solid var(--fp-error); border-radius: var(--fp-radius-full); background: var(--fp-bg-2); font-size: var(--fp-text-xs); color: var(--fp-fg-1); white-space: nowrap; }
 .cable-chip--error i { font-size: 12px; color: var(--fp-error); }
 
+/* A cable's controls at its midpoint, above the nodes: the depth chip on param cables, the remove button when selected. */
+.cable-controls { position: absolute; display: inline-flex; align-items: center; gap: var(--fp-space-2); pointer-events: all; }
+.cable-chip { display: inline-flex; align-items: center; gap: var(--fp-space-3); height: var(--fp-grid); box-sizing: border-box; padding: 0 var(--fp-space-3); border-radius: var(--fp-radius-full); background: var(--fp-bg-2); white-space: nowrap; }
+.cable-chip--depth { border: 1px solid var(--fp-signal); font-family: var(--fp-font-mono); font-size: var(--fp-text-micro); font-variant-numeric: tabular-nums; color: var(--fp-signal); cursor: ew-resize; touch-action: none; user-select: none; }
+.cable-chip__bar { width: calc(var(--fp-space-7) + var(--fp-space-2)); height: var(--fp-space-1); border-radius: var(--fp-radius-xs); }
+.cable-chip__input { width: 6ch; padding: 0; border: 0; outline: none; background: transparent; color: var(--fp-signal); font: inherit; }
+.cable-remove { width: var(--fp-grid); height: var(--fp-grid); display: inline-grid; place-items: center; padding: 0; border: 1px solid var(--fp-line-3); border-radius: var(--fp-radius-full); background: var(--fp-bg-2); color: var(--fp-fg-2); font-size: 12px; cursor: pointer; transition: background var(--fp-dur-fast), color var(--fp-dur-fast); }
+.cable-remove:hover { background: var(--fp-bg-3); color: var(--fp-fg-1); }
+.cable-remove:focus-visible { outline: none; box-shadow: var(--fp-ring-focus); }
+@media (pointer: coarse) {
+  .cable-chip { height: var(--fp-space-8); padding: 0 var(--fp-space-4); }
+  .cable-remove { width: var(--fp-space-8); height: var(--fp-space-8); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .patch-node, .fp-port, .icon-button, .button { transition: none; }
+  .patch-node, .fp-port, .icon-button, .button, .param-field, .param-toggle, .param-toggle__track, .cable-remove { transition: none; }
   .palette { animation: none; }
   .cable-refused { animation-timing-function: step-end; }
   .patch-node__spinner { animation: none; }
