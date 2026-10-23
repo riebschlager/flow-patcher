@@ -216,6 +216,11 @@ export class LivePatch {
     return this.scheduler.stats;
   }
 
+  /** The AudioContext's clock, for e2e: currentTime, and baseLatency (in Chromium, one audio callback's buffer). */
+  get clock(): { currentTime: number; baseLatency: number } {
+    return { currentTime: this.context.currentTime, baseLatency: this.context.baseLatency };
+  }
+
   /** A node's state, for e2e and the console (such as Sampled Voice's skipped-note count). */
   stateOf(nodeId: string): Readonly<Record<string, unknown>> | undefined {
     return this.runtime.stateOf(nodeId);
