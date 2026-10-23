@@ -69,6 +69,13 @@ export interface SchedulerOptions {
   onStall?(stall: Stall): void;
 }
 
+/** One event of a push: `node` emits `fields` on its output `port`, at the time the push stamps. */
+export interface PushTarget {
+  node: string;
+  port: string;
+  fields: Omit<EngineEvent, 'time'>;
+}
+
 /** What one push cost on the immediate path. */
 export interface PushCost {
   /** The event's time as applied: its stamp, or the horizon when it fell back. */
@@ -142,7 +149,7 @@ export class Scheduler {
   /** The next running wake resumes rather than catching up or counting a stall. */
   private fresh = true;
   /** Pushes held while the audio clock is suspended. */
-  private readonly deferred: { nodeId: string; port: string; fields: Omit<EngineEvent, 'time'> }[] = [];
+  private readonly deferred: (readonly PushTarget[])[] = [];
   /** A live clock read for the runtime's hand-overs (`DeliveryTiming.currentTime`). */
   private readonly audioTime = (): number => this.clock.audioTime();
   private stop: (() => void) | null = null;
@@ -250,10 +257,11 @@ export class Scheduler {
       this.runtime.retain(now);
     }
     // Pushes made while the clock was suspended are stamped now, relative to the resume.
-    // One at a time, so a push that throws leaves the rest held for the next wake.
+    // One at a time, so a push that throws leaves the rest held for the next wake. A swap
+    // while suspended may have removed some of a push's targets: the rest still get it, at one stamp.
     while (this.deferred.length) {
-      const { nodeId, port, fields } = this.deferred.shift()!;
-      this.push(nodeId, port, fields);
+      const targets = this.deferred.shift()!.filter((t) => this.hasEventOutput(t.node, t.port));
+      if (targets.length) this.pushAll(targets);
     }
   }
 
@@ -278,10 +286,26 @@ export class Scheduler {
    * wake delivers it.
    */
   push(nodeId: string, port: string, fields: Omit<EngineEvent, 'time'>): EngineEvent | null {
+    return this.pushAll([{ node: nodeId, port, fields }])?.[0] ?? null;
+  }
+
+  /**
+   * One push onto several outputs: one browser event reaching every source
+   * node that reads it (ADR 0029). The clock is read once, so every target
+   * gets the same stamp, and the fallback is decided once, on the rewind of
+   * all of them together, so it can't split them (ADR 0026). Otherwise as
+   * `push`: returns one event per target, in order, all at the applied time;
+   * or null while the clock is suspended, when the targets are held together
+   * (every node and port checked first; a target a swap removes before the
+   * resume is left out, the rest keep one stamp). It counts as one push in the stats;
+   * a fallback warns on every target's node. No targets: nothing happens, and
+   * it returns [].
+   */
+  pushAll(targets: readonly PushTarget[]): EngineEvent[] | null {
+    if (!targets.length) return [];
     if (this.clock.running && !this.clock.running()) {
-      const spec = this.runtime.plan.order.find((n) => n.id === nodeId)?.definition.ports.find((p) => p.name === port && p.direction === 'out');
-      if (!spec || (spec.type !== 'event' && spec.type !== 'note')) throw new Error(`push: node "${nodeId}" has no event output "${port}"`);
-      this.deferred.push({ nodeId, port, fields });
+      for (const { node, port } of targets) if (!this.hasEventOutput(node, port)) throw new Error(`push: node "${node}" has no event output "${port}"`);
+      this.deferred.push([...targets]);
       this.own.deferredPushes++;
       return null;
     }
@@ -291,8 +315,9 @@ export class Scheduler {
     const stamped = now + this.immediateOffset;
     let time = stamped, fallback: PushCost['fallback'] = null;
     const perQuery = this.msPerQuery.hidden;
+    const nodes = [...new Set(targets.map((t) => t.node))];
     if (hidden && perQuery !== null) {
-      const queries = this.runtime.rewindCost(nodeId, stamped);
+      const queries = this.runtime.rewindCost(nodes, stamped);
       const estimatedMs = queries === null ? 0 : queries * perQuery;
       if (estimatedMs > this.hiddenPushBudgetMs) {
         // The horizon: nothing is queried there yet, so the push re-queries nothing.
@@ -300,16 +325,16 @@ export class Scheduler {
         fallback = { stamped, estimatedMs };
       }
     }
-    const event = { time, ...fields } as EngineEvent;
+    const events = targets.map(({ fields }) => ({ time, ...fields }) as EngineEvent);
     const queriesBefore = this.runtime.counters.queries;
     let rewind: PushCost['rewind'] = null;
-    const report = this.runtime.push(nodeId, port, event, { now, currentTime: this.audioTime, path: 'immediate' });
+    const report = this.runtime.pushAll(targets.map(({ node, port }, i) => ({ node, port, event: events[i]! })), { now, currentTime: this.audioTime, path: 'immediate' });
     // The rewind's own cost, for the ms-per-query average: without the log update or a wake.
     const pushed = this.clock.wallTime();
     const pushQueries = this.runtime.counters.queries - queriesBefore;
     if (fallback) {
       this.own.pushFallbacks++;
-      this.runtime.pushFellBack(nodeId, time);
+      for (const node of nodes) this.runtime.pushFellBack(node, time);
     }
     if (report) {
       const { added, ...cost } = report;
@@ -320,8 +345,8 @@ export class Scheduler {
         this.log = this.log.filter((e) => !(affected.has(e.node) && e.time >= time));
         this.log.push(...added);
       }
-    } else if (this.next === null || event.time >= this.next) {
-      // Nothing has been queried that far yet: wake now and the window covering the event picks it up.
+    } else if (this.next === null || time >= this.next) {
+      // Nothing has been queried that far yet: wake now and the window covering the events picks them up.
       this.wake();
     }
     const queries = this.runtime.counters.queries - queriesBefore;
@@ -334,8 +359,14 @@ export class Scheduler {
     this.own.pushQueries += queries;
     this.own.pushMsTotal += ms;
     this.own.pushMsMax = Math.max(this.own.pushMsMax, ms);
-    this.options.onPush?.({ time: event.time, fallback, rewind, queries, ms });
-    return event;
+    this.options.onPush?.({ time, fallback, rewind, queries, ms });
+    return events;
+  }
+
+  /** Whether the latest plan has `nodeId` with an Event or Note output `port`, so it can be pushed onto. */
+  private hasEventOutput(nodeId: string, port: string): boolean {
+    const spec = this.runtime.plan.order.find((n) => n.id === nodeId)?.definition.ports.find((p) => p.name === port && p.direction === 'out');
+    return spec !== undefined && (spec.type === 'event' || spec.type === 'note');
   }
 
   /**

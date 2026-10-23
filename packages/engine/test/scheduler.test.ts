@@ -1122,3 +1122,147 @@ describe('scheduler', () => {
     expect(log(step(0.1))).toBe(log(step(0.025)));
   });
 });
+
+describe('pushAll: one browser event onto several sources (ADR 0029)', () => {
+  // Two taps, each into its own counter, both into the recorder, with a metro so windows have work.
+  const two = patch(
+    [node('m', 'metro', { period: 0.05 }), node('a', 'tap'), node('b', 'tap'), node('ca', 'counter'), node('cb', 'counter'), node('r', 'recorder')],
+    [cable('m', 'ca'), cable('a', 'ca'), cable('b', 'cb'), cable('ca', 'r'), cable('cb', 'r')],
+  );
+  const both = (channel: number) => [{ node: 'a', port: 'out', fields: { channel } }, { node: 'b', port: 'out', fields: { channel } }];
+  const tapTimes = (run: ReturnType<typeof setup>) => run.scheduler.events().filter((e) => e.node === 'a' || e.node === 'b').map((e) => [e.node, e.time]);
+
+  it('stamps every target once, rewinds once and counts one push', () => {
+    const costs: PushCost[] = [];
+    const run = setup(two, { onPush: (cost) => costs.push(cost) });
+    run.wakeEvery(0, 0.3);
+    run.clock.set(0.3012);
+    // A clock that moves on every read: a second read for the second target would give it a later stamp.
+    const reads: number[] = [];
+    run.clock.audioTime = () => {
+      reads.push((run.clock.audio += 0.0001));
+      return run.clock.audio;
+    };
+    const events = run.scheduler.pushAll(both(4))!;
+    run.clock.audioTime = ManualClock.prototype.audioTime;
+    const stamp = 0.3012 + 0.0001 + IMMEDIATE_OFFSET;
+    expect(events.map((e) => e.time)).toEqual([stamp, stamp]);
+    // The stamp is the first read's. The other reads are the rewind's hand-overs checking currentTime
+    // (DeliveryTiming.currentTime), which is a live read by design; none of them moved a stamp.
+    expect(reads[0]! + IMMEDIATE_OFFSET).toBe(stamp);
+    expect(events[0]).not.toBe(events[1]);
+    expect(run.scheduler.stats).toMatchObject({ pushes: 1, rewinds: 1 });
+    expect([...costs[0]!.rewind!.affected].sort()).toEqual(['a', 'b', 'ca', 'cb', 'r']);
+    run.wakeEvery(0.325, 0.6);
+    expect(tapTimes(run)).toEqual([['a', stamp], ['b', stamp]]);
+    // The same log as the two events pushed before any window: one rewind gives what one query would.
+    const reference = setup(two);
+    reference.runtime.pushAll([{ node: 'a', port: 'out', event: { ...events[0]! } }, { node: 'b', port: 'out', event: { ...events[1]! } }]);
+    reference.wakeEvery(0, 0.6);
+    expect(json(run.scheduler.events())).toBe(json(reference.scheduler.events()));
+  });
+
+  it("doesn't split a hidden push over budget: every target lands at the horizon", () => {
+    /** Hidden, every query 1 ms; a first push seeds the hidden average, then the clock moves to 0.6 s. */
+    const hidden = (hiddenPushBudgetMs: number) => {
+      const run = setup(two, { hiddenPushBudgetMs });
+      run.clock.wallTime = () => run.clock.wall + run.runtime.counters.queries;
+      run.clock.isHidden = true;
+      run.wakeAt(0);
+      run.clock.set(0.3);
+      run.scheduler.pushAll(both(0));
+      expect(run.scheduler.stats.pushFallbacks).toBe(0);
+      expect(run.scheduler.stats.msPerQuery.hidden).toBe(1);
+      run.clock.set(0.6);
+      return run;
+    };
+    const t = 0.6 + IMMEDIATE_OFFSET;
+    const probe = hidden(Infinity);
+    const [a, b, sum] = [probe.runtime.rewindCost('a', t)!, probe.runtime.rewindCost('b', t)!, probe.runtime.rewindCost(['a', 'b'], t)!];
+    // A budget each target alone is under and the two together are over, so a per-target decision would rewind both.
+    const budget = (Math.max(a, b) + sum) / 2;
+    expect(a).toBeLessThan(budget);
+    expect(b).toBeLessThan(budget);
+    expect(sum).toBeGreaterThan(budget);
+    const run = hidden(budget);
+    const horizon = run.scheduler.horizon!;
+    const events = run.scheduler.pushAll(both(1))!;
+    expect(events.map((e) => e.time)).toEqual([horizon, horizon]);
+    expect(run.scheduler.stats.pushFallbacks).toBe(1);
+    expect(run.runtime.warnings().map((w) => [w.node, w.kind, w.count])).toEqual([['a', 'push-fallback', 1], ['b', 'push-fallback', 1]]);
+  });
+
+  it('holds the targets together while suspended and stamps them together at the resume', () => {
+    const run = setup(two);
+    run.wakeEvery(0, 0.2);
+    run.clock.isRunning = false;
+    run.clock.set(0.3);
+    expect(run.scheduler.pushAll(both(2))).toBeNull();
+    expect(() => run.scheduler.pushAll([...both(2), { node: 'r', port: 'in', fields: { channel: 0 } }])).toThrow(/no event output/);
+    expect(run.scheduler.stats.deferredPushes).toBe(1);
+    run.clock.isRunning = true;
+    run.wakeAt(1);
+    expect(tapTimes(run)).toEqual([['a', 1 + IMMEDIATE_OFFSET], ['b', 1 + IMMEDIATE_OFFSET]]);
+  });
+
+  it('still pushes a held group onto the targets a swap left while suspended, at one stamp', () => {
+    // A cold tap reaching two sources; one is deleted before the context starts. The other must still sound.
+    const run = setup(two);
+    run.wakeEvery(0, 0.2);
+    run.clock.isRunning = false;
+    run.clock.set(0.3);
+    expect(run.scheduler.pushAll([...both(2), { node: 'a', port: 'out', fields: { channel: 3 } }])).toBeNull();
+    run.scheduler.swap(run.compile(patch(two.nodes.filter((n) => n.id !== 'b' && n.id !== 'cb'), two.cables.filter((c) => c.from.node !== 'b' && c.from.node !== 'cb'))));
+    run.clock.isRunning = true;
+    expect(() => run.wakeAt(1)).not.toThrow();
+    expect(run.scheduler.events().filter((e) => e.node === 'a').map((e) => [e.time, e.channel])).toEqual([[1 + IMMEDIATE_OFFSET, 2], [1 + IMMEDIATE_OFFSET, 3]]);
+    expect(run.live().filter((d) => d.event.time === 1 + IMMEDIATE_OFFSET).map((d) => d.event.channel)).toEqual([2, 3]);
+    // A held group with no target left is dropped quietly.
+    run.clock.isRunning = false;
+    expect(run.scheduler.pushAll([{ node: 'a', port: 'out', fields: { channel: 4 } }])).toBeNull();
+    run.scheduler.swap(run.compile(patch([node('m', 'metro', { period: 0.05 }), node('r', 'recorder')], [])));
+    run.clock.isRunning = true;
+    expect(() => run.wakeAt(2)).not.toThrow();
+  });
+
+  it('pushes nothing when one target is wrong, and nothing at all for no targets', () => {
+    const run = setup(two);
+    run.wakeEvery(0, 0.2);
+    run.clock.set(0.2);
+    expect(() => run.scheduler.pushAll([...both(0), { node: 'nope', port: 'out', fields: { channel: 0 } }])).toThrow(/no node/);
+    expect(run.scheduler.pushAll([])).toEqual([]);
+    run.wakeEvery(0.2, 0.5);
+    expect(tapTimes(run)).toEqual([]);
+    expect(run.scheduler.stats.pushes).toBe(0);
+  });
+
+  it('drops every target of a push whose re-run throws, counted once', () => {
+    const fragile: NodeDefinition = {
+      type: 'fragile', version: 1, label: 'Fragile', category: 'control-logic', description: '',
+      ports: [{ name: 'in', type: 'event', direction: 'in' }, { name: 'out', type: 'event', direction: 'out' }],
+      params: [],
+      query: ({ inputs }) => {
+        if ((inputs.in ?? []).some((e) => e.boom)) throw new Error('fragile broke');
+        return { out: [...(inputs.in ?? [])] };
+      },
+    };
+    const p = patch(
+      [node('m', 'metro', { period: 0.05 }), node('a', 'tap'), node('b', 'tap'), node('f', 'fragile'), node('c', 'counter'), node('r', 'recorder')],
+      [cable('m', 'c'), cable('a', 'f'), cable('b', 'c'), cable('f', 'r'), cable('c', 'r')],
+    );
+    const perform = (push: boolean) => {
+      const run = setup(p, {}, [fragile]);
+      run.wakeEvery(0, 0.3);
+      run.clock.set(0.3012);
+      if (push) run.scheduler.pushAll([{ node: 'a', port: 'out', fields: { channel: 0, boom: true } }, { node: 'b', port: 'out', fields: { channel: 0 } }]);
+      run.wakeEvery(0.325, 0.6);
+      return run;
+    };
+    const run = perform(true);
+    expect(run.scheduler.stats.droppedPushes).toBe(1);
+    // Not even the target whose re-run was fine (b into the counter) keeps its event.
+    expect(json(run.scheduler.events())).toBe(json(perform(false).scheduler.events()));
+    expect(run.runtime.warnings().map((w) => [w.node, w.kind])).toEqual([['f', 'rewind-error']]);
+    expect(run.runtime.warnings()[0]!.message).toBe('Node "f" failed while re-running for a live event from "a", "b", so that event was dropped: fragile broke');
+  });
+});

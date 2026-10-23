@@ -483,10 +483,14 @@ interface Sent {
   sent: EngineEvent;
 }
 
-interface Injected {
+/** One live event for `Runtime.pushAll`: `node` emits `event` on its output `port`. */
+export interface LivePush {
   node: string;
   port: string;
   event: EngineEvent;
+}
+
+interface Injected extends LivePush {
   path: EventPath;
 }
 
@@ -822,23 +826,41 @@ export class Runtime {
    * causes downstream; what a re-run emits after it stays scheduled (ADR 0020).
    */
   push(nodeId: string, port: string, event: EngineEvent, timing?: DeliveryTiming): RewindReport | null {
-    const node = this.stage.byId.get(nodeId);
-    if (!node) throw new Error(`push: no node "${nodeId}"`);
-    const spec = node.definition.ports.find((p) => p.name === port && p.direction === 'out');
-    if (!spec || (spec.type !== 'event' && spec.type !== 'note')) throw new Error(`push: node "${nodeId}" has no event output "${port}"`);
-    const t = event.time;
-    if (!Number.isFinite(t)) throw new RangeError(`push: event time must be finite, got ${t}`);
-    if (timing && t < timing.now) throw new RangeError(`push: event time ${t} is before currentTime ${timing.now}`);
+    return this.pushAll([{ node: nodeId, port, event }], timing);
+  }
+
+  /**
+   * Several live events as one push, such as one browser event reaching every
+   * source node that reads it (ADR 0029): each is checked first, so a bad one
+   * pushes none, and then they rewind together, from the earliest, over every
+   * node downstream of any of them, as `push` describes. If the re-run throws,
+   * all of them are dropped (ADR 0026), counted once in `droppedPushes`.
+   * Null when nothing needed rewinding, including when `pushes` is empty.
+   */
+  pushAll(pushes: readonly LivePush[], timing?: DeliveryTiming): RewindReport | null {
+    if (!pushes.length) return null;
+    let t = Infinity;
+    for (const { node: nodeId, port, event } of pushes) {
+      const node = this.stage.byId.get(nodeId);
+      if (!node) throw new Error(`push: no node "${nodeId}"`);
+      const spec = node.definition.ports.find((p) => p.name === port && p.direction === 'out');
+      if (!spec || (spec.type !== 'event' && spec.type !== 'note')) throw new Error(`push: node "${nodeId}" has no event output "${port}"`);
+      if (!Number.isFinite(event.time)) throw new RangeError(`push: event time must be finite, got ${event.time}`);
+      if (timing && event.time < timing.now) throw new RangeError(`push: event time ${event.time} is before currentTime ${timing.now}`);
+      t = Math.min(t, event.time);
+    }
     const rewinds = this.end !== null && t < this.end;
     if (rewinds && !this.history) throw new Error('push: rewinding into a queried window needs history (Runtime.keepHistory)');
     const oldest = this.history?.[0];
     if (rewinds && (!oldest || t < oldest.t0)) throw new RangeError(`push: time ${t} is before the oldest retained window (${oldest?.t0 ?? 'none'})`);
-    // Time order, after any earlier event at the same time.
-    let at = this.injected.length;
-    while (at > 0 && this.injected[at - 1]!.event.time > t) at--;
-    const entry: Injected = { node: nodeId, port, event, path: timing?.path ?? 'scheduled' };
-    this.injected.splice(at, 0, entry);
-    return rewinds ? this.rewind(entry, timing) : null;
+    const entries = pushes.map(({ node, port, event }): Injected => ({ node, port, event, path: timing?.path ?? 'scheduled' }));
+    for (const entry of entries) {
+      // Time order, after any earlier event at the same time (so in push order within the group).
+      let at = this.injected.length;
+      while (at > 0 && this.injected[at - 1]!.event.time > entry.event.time) at--;
+      this.injected.splice(at, 0, entry);
+    }
+    return rewinds ? this.rewind(entries, t, timing) : null;
   }
 
   /**
@@ -854,18 +876,19 @@ export class Runtime {
   }
 
   /**
-   * The node queries a `push` of an event at `time` on `nodeId` would make to
-   * rewind, without making them: the affected and followed query nodes times
+   * The node queries a `push` of an event at `time` on `nodeId` (or a
+   * `pushAll` onto each of several nodes, at that time) would make to rewind, without making them: the affected and followed query nodes times
    * the chunks from the restored snapshot to the horizon, window by window
    * under each window's plan. Null when it wouldn't rewind (nothing queried
    * past `time`, no history, an unknown node, or a time before the oldest
    * retained window, which `push` refuses). A re-run that a node's throw
    * makes `push` repeat (`RewindReport.dropped`) costs about twice this.
    */
-  rewindCost(nodeId: string, time: number): number | null {
+  rewindCost(nodeId: string | readonly string[], time: number): number | null {
     const history = this.history;
-    if (!history?.length || this.end === null || !(time < this.end) || time < history[0]!.t0 || !this.stage.byId.has(nodeId)) return null;
-    const { first, affected, followed } = this.rewindScope(nodeId, time);
+    const origins = typeof nodeId === 'string' ? [nodeId] : nodeId;
+    if (!history?.length || this.end === null || !(time < this.end) || time < history[0]!.t0 || !origins.length || !origins.every((id) => this.stage.byId.has(id))) return null;
+    const { first, affected, followed } = this.rewindScope(origins, time);
     let queries = 0;
     for (let j = first; j < history.length; j++) {
       const window = history[j]!;
@@ -1258,38 +1281,38 @@ export class Runtime {
     return [...stages];
   }
 
-  /** What a rewind into `t` from `origin` re-runs: the latest window at or before `t`,
-   *  the nodes downstream of `origin` over every plan from there, and their Signal and Value sources. */
-  private rewindScope(origin: string, t: number): { first: number; affected: Set<string>; followed: Set<string> } {
+  /** What a rewind into `t` from `origins` re-runs: the latest window at or before `t`,
+   *  the nodes downstream of any origin over every plan from there, and their Signal and Value sources. */
+  private rewindScope(origins: readonly string[], t: number): { first: number; affected: Set<string>; followed: Set<string> } {
     const history = this.history!;
     let first = history.length - 1;
     while (first > 0 && history[first]!.t0 > t) first--;
     // Over every plan the re-run crosses: a swap may have rewired what reads the origin.
     const stages = this.stagesFrom(first);
     const affected = new Set<string>();
-    for (const stage of stages) if (stage.byId.has(origin)) for (const id of this.downstreamOf(origin, stage)) affected.add(id);
+    for (const stage of stages) for (const origin of origins) if (stage.byId.has(origin)) for (const id of this.downstreamOf(origin, stage)) affected.add(id);
     const followed = new Set<string>();
     for (const stage of stages) for (const id of this.signalSourcesOf(affected, stage)) followed.add(id);
     return { first, affected, followed };
   }
 
   /**
-   * Rewinds for the live event `entry`, already in `injected`. If a node throws
-   * while the re-run includes the event, the event is dropped: it comes out of
-   * `injected`, and the nodes are restored and re-run again without it. Node
-   * state, cap counts, the log and deliveries to audio nodes with cancel() end
-   * up as without the event. What can't be taken back stays (ADR 0026): what an
+   * Rewinds from `t` for the live events `entries` (one push), already in
+   * `injected`. If a node throws while the re-run includes them, they are
+   * dropped: they come out of `injected`, and the nodes are restored and
+   * re-run again without them. Node state, cap counts, the log and deliveries
+   * to audio nodes with cancel() end up as without the push. What can't be taken back stays (ADR 0026): what an
    * audio node without cancel() was sent, voice steals, cap warnings the failed
    * re-run already raised through onWarning, the delivered and cancelled
    * counters, and frame-queue entries trimmed at FRAME_QUEUE_LIMIT.
-   * The node that threw gets a 'rewind-error' warning, or the pushing node
-   * when the one that threw is no longer in the plan. If the re-run without
+   * The node that threw gets a 'rewind-error' warning, or the (first) pushing
+   * node when the one that threw is no longer in the plan. If the re-run without
    * the event throws too, the node fails whatever the event, and that error
    * propagates.
    */
-  private rewind(entry: Injected, timing: DeliveryTiming | undefined): RewindReport {
-    const t = entry.event.time;
-    const { first, affected, followed } = this.rewindScope(entry.node, t);
+  private rewind(entries: readonly Injected[], t: number, timing: DeliveryTiming | undefined): RewindReport {
+    const entry = entries[0]!;
+    const { first, affected, followed } = this.rewindScope(entries.map((e) => e.node), t);
     const queriesBefore = this.counters.queries;
     const taken = { removed: 0 };
     try {
@@ -1300,14 +1323,16 @@ export class Runtime {
       const node = this.stage.byId.has(thrower) ? thrower : entry.node;
       // What the event's re-run took back is what the log loses; the second take-back only undoes its partial output.
       const removed = taken.removed;
-      const at = this.injected.indexOf(entry);
-      if (at >= 0) this.injected.splice(at, 1);
+      const pushed = new Set<Injected>(entries);
+      this.injected = this.injected.filter((e) => !pushed.has(e));
       const report = this.rerunFrom(first, t, affected, followed, timing, taken);
       this.counters.droppedPushes++;
       const message = error instanceof Error ? error.message : String(error);
+      // A push onto several sources (one browser event) names every one.
+      const origins = [...new Set(entries.map((e) => e.node))].map((id) => `"${id}"`).join(', ');
       const held = this.nodeWarnings.get(node)?.get('rewind-error');
       this.warn(node, 'rewind-error', 1, t, held?.message
-        ?? `Node "${thrower}" failed while re-running for a live event from "${entry.node}", so that event was dropped: ${message}`);
+        ?? `Node "${thrower}" failed while re-running for a live event from ${origins}, so that event was dropped: ${message}`);
       return { ...report, removed, queries: this.counters.queries - queriesBefore, dropped: { node: thrower, message } };
     } finally {
       this.running = null;

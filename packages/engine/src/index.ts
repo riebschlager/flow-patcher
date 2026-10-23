@@ -10,6 +10,7 @@ export * from './fluid/field';
 export * from './fluid/fluid';
 export * from './fluid/viewport';
 export * from './frame-loop';
+export * from './input';
 export * from './limits';
 export * from './patch';
 export * from './render/fluid-renderer';

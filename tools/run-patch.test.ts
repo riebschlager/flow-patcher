@@ -23,11 +23,11 @@ describe('headless runner', () => {
     });
   }
 
-  it('pushes the scripted inputs beside an example onto its nodes', async () => {
+  it('replays the input stream beside an example through its source nodes', async () => {
     const path = join(ROOT, 'examples/pointer-notes.flowpatch');
     const inputs = loadInputs(path);
     const result = await runPatch(loadPatch(path), { seconds: 4, fps: 0, audio: false }, { inputs });
-    const downs = inputs.filter((i) => i.port === 'down').map((i) => i.event.time);
+    const downs = inputs.filter((i) => i.type === 'pointerdown').map((i) => i.time);
     expect(downs.length).toBeGreaterThan(1);
     expect(result.events.filter((e) => e.node === 'note' && e.port === 'note').map((e) => e.time)).toEqual(downs);
     expect(loadInputs(EXAMPLE)).toEqual([]);

@@ -10,6 +10,7 @@ import {
   FLUID_BACKGROUND,
   FluidHost,
   FrameLoop,
+  inputRouter,
   outputLatencyOf,
   Runtime,
   Scheduler,
@@ -17,6 +18,9 @@ import {
   type EngineEvent,
   type FluidHostStats,
   type HostServices,
+  type InputEventType,
+  type InputFields,
+  type InputRouter,
   type NodeStatus,
   type NodeWarning,
   type Patch,
@@ -29,8 +33,11 @@ import {
 import { nodeRegistry, rendererImage } from '@flow-patcher/nodes';
 import { EventTrack, PROBE_HISTORY } from './event-track';
 
-/** Pointer events the canvas forwards, as Pointer node output ports. */
+/** Pointer events the canvas forwards, by phase. */
 export type PointerPort = 'down' | 'move' | 'up' | 'cancel';
+
+/** The input stream type (ADR 0029) of each pointer phase. */
+const POINTER_TYPES: Readonly<Record<PointerPort, InputEventType>> = { down: 'pointerdown', move: 'pointermove', up: 'pointerup', cancel: 'pointercancel' };
 
 /** One pointerdown, for the Immediate path gate check (docs/milestones.md, M1). */
 export interface Tap {
@@ -138,8 +145,11 @@ export class LivePatch {
   private planKey = '';
   /** Unsubscribes the running plan's nodes' status watchers. */
   private unwatch: (() => void)[] = [];
-  /** Pointer nodes the canvas feeds. Canvas sources are host-fed, so the runner finds them by type. */
-  private pointers: string[] = [];
+  /** Routes canvas events to the running plan's source nodes, by their definitions' `input` (ADR 0029),
+   *  as the headless runner replays a stream. */
+  private router: InputRouter = inputRouter({ order: [] });
+  /** Source nodes that read pointerdown, for the canvas's hint. */
+  private pointers = 0;
   /** Oscillator starts scheduled while a push runs, collected for its Tap. */
   private starts: number[] | null = null;
   /** A cold tap still waiting for its held push to run. */
@@ -217,7 +227,7 @@ export class LivePatch {
   }
 
   get status(): LiveStatus {
-    return { audio: this.context.state, pointers: this.pointers.length };
+    return { audio: this.context.state, pointers: this.pointers };
   }
 
   /**
@@ -342,31 +352,54 @@ export class LivePatch {
     return () => this.listeners.delete(listener);
   }
 
-  /** Sends one pointer event to every Pointer node. x and y are 0–1, y = 0 at the top. */
+  /** Sends one pointer event to every source node that reads it. x and y are 0–1, y = 0 at the top. */
   pointer(
     port: PointerPort,
     fields: { channel: number; x: number; y: number; pressure: number; pointerType: string },
     /** The event's timeStamp (performance.now() time), when it came from a real input event. */
     timeStamp?: number,
   ): void {
+    this.input({ type: POINTER_TYPES[port], ...fields }, timeStamp);
+  }
+
+  /** Whether a source node in the running plan reads this canvas event type, such as `contextmenu` (Platform rules). */
+  reads(type: InputEventType): boolean {
+    return this.router.reads(type);
+  }
+
+  /** Every canvas event type a source node in the running plan reads. */
+  get inputTypes(): ReadonlySet<InputEventType> {
+    return this.router.types;
+  }
+
+  /**
+   * One canvas event, fanned out to every source node that reads its type (ADR 0029), as one push
+   * stamped once (`Scheduler.pushAll`), so every source sees it at the same time. Returns the
+   * pushed events, all at the applied time; null when it was held for the AudioContext to start,
+   * or dropped (no source reads it, or a hover move before audio runs).
+   */
+  input(event: InputFields, timeStamp?: number): EngineEvent[] | null {
     const cold = this.context.state !== 'running';
+    const down = event.type === 'pointerdown';
     // The first pointerdown starts audio. Its push is held until then, so the first touch still sounds (Platform rules).
-    if (cold && port === 'down') void this.context.resume();
+    if (cold && down) void this.context.resume();
+    const targets = this.router.route(event);
     // Pushes are held while audio is stopped, so hover moves before the first tap would pile up and
     // replay as a burst that the event cap can cut the Down out of. Down carries the position anyway.
-    if (!this.pointers.length || (cold && port === 'move')) return;
+    if (!targets.length || (cold && event.type === 'pointermove')) return null;
     const at = this.context.currentTime;
     const wall = performance.now();
     const waited = timeStamp !== undefined && timeStamp <= wall ? (wall - timeStamp) / 1000 : 0;
     this.starts = [];
-    let stamped: number | null = null;
+    let pushed: EngineEvent[] | null = null;
     try {
-      for (const id of this.pointers) stamped ??= this.scheduler.push(id, port, fields)?.time ?? null;
+      pushed = this.scheduler.pushAll(targets);
     } finally {
       this.refreshTracks();
       const starts = this.starts;
       this.starts = null;
-      if (port === 'down') {
+      if (down) {
+        const stamped = pushed?.[0]?.time ?? null;
         const tap: Tap = { at, down: at - waited, stamped, note: starts.length ? Math.min(...starts) : null, cold, splash: null, splashLost: false };
         if (cold && tap.note === null) this.coldTap = tap;
         if (this.renderer && this.hasFluid && stamped !== null) {
@@ -377,6 +410,7 @@ export class LivePatch {
         console.debug(`[live] tap: stamped ${ms(tap.stamped, tap.down)}, note ${ms(tap.note, tap.down)} after pointerdown${cold ? ' (cold)' : ''}`);
       }
     }
+    return pushed;
   }
 
   dispose(): void {
@@ -406,10 +440,11 @@ export class LivePatch {
     this.watchWorker();
   }
 
-  /** The running plan's host-facing parts: Pointer nodes, the Renderer, and status watchers. */
+  /** The running plan's host-facing parts: the source nodes canvas events reach, the Renderer, and status watchers. */
   private adopt(plan: Plan): void {
     this.plan = plan;
-    this.pointers = plan.order.filter((node) => node.definition.type === 'pointer').map((node) => node.id);
+    this.router = inputRouter(plan);
+    this.pointers = plan.order.filter((node) => node.definition.input?.reads.pointerdown !== undefined).length;
     this.renderer = plan.order.find((node) => node.definition.type === 'renderer')?.id ?? null;
     this.hasFluid = plan.order.some((node) => node.definition.type === 'fluid');
     if (!this.renderer || !this.hasFluid) this.splashes.length = 0;

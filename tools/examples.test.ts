@@ -1,6 +1,6 @@
 // Every example patch is also a regression test: a headless run must give the
 // event log recorded in golden/example-events.json, and the same log whatever
-// the window size. A canvas source's input is scripted in <name>.inputs.json beside the patch.
+// the window size. Canvas input is an input stream (ADR 0029) in <name>.inputs.json beside the patch.
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
