@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compilePatch, IMMEDIATE_OFFSET, ManualClock, Runtime, Scheduler, type EngineEvent, type LoggedEvent, type Patch } from '@flow-patcher/engine';
+import { compilePatch, IMMEDIATE_OFFSET, inputRouter, ManualClock, Runtime, Scheduler, type EngineEvent, type LoggedEvent, type Patch } from '@flow-patcher/engine';
 import { nodeRegistry, pointer } from '../src';
 import { MAX_LIFTED } from '../src/pointer';
 import { context, query, queryTiled } from './helpers';
@@ -139,6 +139,20 @@ describe('pointer', () => {
     const log = scheduler.events();
     expect(pick(log, 'p', 'down')).toEqual([{ node: 'p', port: 'down', ...event }]);
     expect(pick(log, 'note', 'note')).toMatchObject([{ time: event!.time, channel: 5, pitch: 64 }]);
+  });
+
+  it('reads pointerdown, move, up and cancel onto its four ports, and skips coalesced moves and hover enter/leave (ADR 0029)', () => {
+    const compiled = compilePatch(patch, nodeRegistry);
+    if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+    const router = inputRouter(compiled.plan);
+    expect([...router.types].sort()).toEqual(['pointercancel', 'pointerdown', 'pointermove', 'pointerup']);
+    const fields = { channel: 3, x: 0.5, y: 0.5, pressure: 0.5, pointerType: 'pen' };
+    for (const [type, port] of [['pointerdown', 'down'], ['pointermove', 'move'], ['pointerup', 'up'], ['pointercancel', 'cancel']] as const) {
+      expect(router.route({ type, ...fields })).toEqual([{ node: 'p', port, fields }]);
+    }
+    expect(router.route({ type: 'pointermove', ...fields, coalesced: true })).toEqual([]);
+    expect(router.route({ type: 'pointerenter', ...fields })).toEqual([]);
+    expect(router.route({ type: 'contextmenu', ...fields })).toEqual([]);
   });
 
   it('passes weird payloads through untouched and gives nothing without pushes', () => {

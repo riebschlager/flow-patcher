@@ -10,11 +10,13 @@ import {
   LOOKAHEAD,
   PATCH_EDIT_OPS,
   ManualClock,
+  parseInputStream,
   parsePatch,
+  replayInput,
   Runtime,
   Scheduler,
   type AudioContextLike,
-  type EngineEvent,
+  type InputEvent,
   type LoggedEvent,
   type NodeDefinition,
   type NodeImage,
@@ -91,17 +93,11 @@ export interface RunSwap {
   report: SwapReport;
 }
 
-/** An event pushed onto a node's output before the run starts, the way a canvas source's host pushes it live. */
-export interface RunInput {
-  node: string;
-  port: string;
-  event: EngineEvent;
-}
-
 export interface RunHooks {
-  /** Scripted input, such as pointer gestures for a Pointer node. Pushed before
-   *  the first window is queried, so it never rewinds. */
-  inputs?: readonly RunInput[];
+  /** A recorded input stream's events (ADR 0029), such as pointer gestures. Each fans out to
+   *  the source nodes that read its type, as live input does (`replayInput`), at its time
+   *  from the run's start. Pushed before the first window is queried, so it never rewinds. */
+  inputs?: readonly InputEvent[];
   /** Edits during the run: a live run (`live: true` with audio), or a run without
    *  audio (`audio: false`, or a patch with no audio nodes). If a suspend() doesn't
    *  take, a live run starts over (LIVE_ATTEMPTS) and the edits apply again to the new one.
@@ -149,19 +145,14 @@ export function loadPatch(file: string): Patch {
  */
 export const LIVE_ATTEMPTS = 3;
 
-/** The scripted input beside a patch file (`<name>.inputs.json`), or none. */
-export function loadInputs(patchFile: string): RunInput[] {
+/** The input stream beside a patch file (`<name>.inputs.json`, ADR 0029): its events, or none.
+ *  Throws, naming the file, on anything parseInputStream rejects. */
+export function loadInputs(patchFile: string): InputEvent[] {
   const file = join(dirname(patchFile), `${patchName(patchFile)}.inputs.json`);
   if (!existsSync(file)) return [];
-  const inputs: unknown = JSON.parse(readFileSync(file, 'utf8'));
-  const valid = (i: unknown): i is RunInput => {
-    if (typeof i !== 'object' || i === null) return false;
-    const { node, port, event } = i as Record<string, unknown>;
-    return typeof node === 'string' && typeof port === 'string' && typeof event === 'object' && event !== null
-      && Number.isFinite((event as EngineEvent).time) && Number.isInteger((event as EngineEvent).channel);
-  };
-  if (!Array.isArray(inputs) || !inputs.every(valid)) throw new Error(`${file}: expected [{ node, port, event: { time, channel, … } }]`);
-  return inputs;
+  const parsed = parseInputStream(JSON.parse(readFileSync(file, 'utf8')));
+  if (!parsed.ok) throw new Error(`${file}:\n  ${parsed.errors.join('\n  ')}`);
+  return parsed.stream.events;
 }
 
 /** The scripted edits beside a patch file (`<name>.edits.json`), or none. Throws, naming the
@@ -289,7 +280,7 @@ async function runOnce(patch: Patch, opts: Required<RunOptions>, hooks: RunHooks
     await Promise.all(instruments.map((key) => instrumentCache.load(context, key, vendorSamples)));
   };
   runtime.onWarning = (message) => console.warn(`[run-patch] ${message}`);
-  for (const { node, port, event } of hooks.inputs ?? []) runtime.push(node, port, event);
+  replayInput(runtime, { events: hooks.inputs ?? [] });
   // The real scheduler on a simulated clock: every wake is on time, so no window is caught up or skipped.
   const clock = new ManualClock();
   const scheduler = new Scheduler(runtime, { clock, wakeInterval: opts.window, lookahead: Math.max(LOOKAHEAD, opts.window), record: true });

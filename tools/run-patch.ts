@@ -7,7 +7,8 @@
 // --live wakes the scheduler during the audio render (suspending it at each
 // wake) instead of querying every window before rendering.
 //
-// Scripted input in <name>.inputs.json and scripted edits in <name>.edits.json
+// The input stream in <name>.inputs.json (flowinput v1, ADR 0029) is replayed
+// through the patch's source nodes, and scripted edits in <name>.edits.json
 // beside the patch are applied ([{ time, edits: [{ op, … }] }], ops from
 // PatchEdit in packages/engine/src/edit.ts). Edits imply --live unless --no-audio.
 //

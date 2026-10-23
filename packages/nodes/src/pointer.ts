@@ -91,10 +91,12 @@ function contactsAt(state: NodeState, t: number): readonly Contact[] {
 
 /**
  * Canvas source: the pointers on the performance canvas (docs/nodes/canvas-sources.md),
- * M1 basic. The host turns pointerdown, pointermove, pointerup and pointercancel
- * into `scheduler.push(nodeId, 'down' | 'move' | 'up' | 'cancel', { channel:
- * pointerId, x, y, pressure, pointerType })`, with x and y normalized 0–1 and
- * y = 0 at the top. The scheduler stamps them currentTime + 5 ms and the runtime
+ * M1 basic. `input` maps pointerdown, pointermove, pointerup and pointercancel
+ * (ADR 0029) to the Down, Move, Up and Cancel outputs, and the host pushes each
+ * as `{ channel: pointerId, x, y, pressure, pointerType }`, with x and y
+ * normalized 0–1 and y = 0 at the top. Coalesced moves (`coalesced: true`) are
+ * Pointer (high rate)'s, so Pointer skips them; pointerenter and pointerleave
+ * aren't read yet. The scheduler stamps them currentTime + 5 ms and the runtime
  * merges them into this node's event outputs (ADR 0019), so they pass through
  * unchanged and `query` returns no events of its own.
  *
@@ -142,6 +144,10 @@ export const pointer: NodeDefinition = {
     { name: 'count', type: 'signal', direction: 'out', label: 'Count' },
   ],
   params: [],
+  input: {
+    reads: { pointerdown: 'down', pointermove: 'move', pointerup: 'up', pointercancel: 'cancel' },
+    accepts: (event) => event.coalesced !== true,
+  },
   query({ state, pushed }) {
     const contacts = (state.contacts ??= []) as Contacts;
     for (const change of pendingOf(state)) apply(contacts, change);

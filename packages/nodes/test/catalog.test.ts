@@ -2,8 +2,9 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { compilePatch, CUSTOM_PRESET, parsePatch, PATCH_FORMAT, PATCH_VERSION, serializePatch, type Patch } from '@flow-patcher/engine';
+import { compilePatch, CUSTOM_PRESET, INPUT_EVENT_TYPES, parseInputStream, parsePatch, PATCH_FORMAT, PATCH_VERSION, serializeInputStream, serializePatch, type Patch } from '@flow-patcher/engine';
 import { nodeDefinitions, nodeRegistry } from '../src';
+import { expectCatalogTypes, nonCatalogNodes } from '../../../test-support/catalog';
 import { ROOT } from '../../../test-support/golden';
 import { REWIND_SECONDS, rewindCheckable, rewindLogs, windowCheckable, windowLogs, WINDOW_SECONDS, WINDOW_STEPS } from '../../../test-support/window-independence';
 
@@ -84,6 +85,17 @@ describe('node catalog', () => {
         }
       });
 
+      if (definition.input) {
+        it('reads input stream types onto its own Event outputs (ADR 0029)', () => {
+          const reads = Object.entries(definition.input!.reads);
+          expect(reads.length).toBeGreaterThan(0);
+          for (const [type, port] of reads) {
+            expect(INPUT_EVENT_TYPES, type).toContain(type);
+            expect(definition.ports.find((p) => p.direction === 'out' && p.name === port)?.type, `${type} → ${port}`).toBe('event');
+          }
+        });
+      }
+
       if (definition.adapter) {
         it('is an adapter whose input and output ports have its from and to types', () => {
           const { from, to, input, output } = definition.adapter!;
@@ -104,8 +116,29 @@ describe('node catalog', () => {
   }
 });
 
+describe('catalog types check (M2 gate)', () => {
+  const patch = (types: string[]): Patch => ({
+    format: PATCH_FORMAT, version: PATCH_VERSION, seed: 1, cables: [],
+    nodes: types.map((type, i) => ({ id: `n${i}`, type, typeVersion: 1, params: {}, position: { x: 0, y: 0 } })),
+  });
+
+  it('rejects a node type that is not in packages/nodes', () => {
+    expect(nonCatalogNodes(patch(['pointer', 'tap', 'clock', 'metro']))).toEqual(['"n1" (tap)', '"n3" (metro)']);
+    expect(() => expectCatalogTypes(patch(['pointer', 'tap']), 'paint')).toThrow('paint uses node types that aren\'t in packages/nodes: "n1" (tap)');
+  });
+
+  it('passes a patch of catalog types only', () => {
+    expect(() => expectCatalogTypes(patch(nodeDefinitions.map((d) => d.type)))).not.toThrow();
+  });
+});
+
 describe('example patches', () => {
   for (const { file, text, patch } of examples()) {
+    it(`${file} uses only catalog node types`, () => {
+      expectCatalogTypes(patch, file);
+    });
+
+
     it(`${file} compiles with catalog node types at their current versions`, () => {
       const compiled = compilePatch(patch, nodeRegistry);
       expect(compiled.ok ? [] : compiled.errors).toEqual([]);
@@ -123,6 +156,14 @@ describe('example patches', () => {
 
     it(`${file} round-trips byte for byte`, () => {
       expect(serializePatch(patch)).toBe(text);
+    });
+
+    const inputs = join(EXAMPLES, file.replace(/\.flowpatch$/, '.inputs.json'));
+    it.runIf(existsSync(inputs))(`${file}'s input stream is valid flowinput v1 and round-trips byte for byte`, () => {
+      const text = readFileSync(inputs, 'utf8');
+      const parsed = parseInputStream(JSON.parse(text));
+      expect(parsed.ok ? [] : parsed.errors).toEqual([]);
+      if (parsed.ok) expect(serializeInputStream(parsed.stream)).toBe(text);
     });
 
     // M1 gate: Format.

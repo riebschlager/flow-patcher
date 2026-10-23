@@ -4,6 +4,7 @@ import type { AudioContextLike, AudioNodeLike } from './audio/types';
 import type { Voices } from './audio/voices';
 import type { EngineEvent, EventPath, PortType } from './events';
 import type { FluidBackend } from './fluid/backend';
+import type { InputSpec } from './input';
 
 export type NodeCategory =
   | 'canvas-sources'
@@ -289,6 +290,9 @@ export interface NodeDefinition {
   params: readonly ParamSpec[];
   /** Set on adapter nodes (Sample & Hold, Threshold, …) so the editor can find them by type pair. */
   adapter?: AdapterSpec;
+  /** Canvas sources: the input stream event types (ADR 0029) the host pushes to this node, and on
+   *  which Event outputs. The live host and the headless runner both route by it (`inputRouter`). */
+  input?: InputSpec;
   /** At most one node of this type per patch (Fluid, ADR 0003; Renderer, ADR 0005).
    *  The compiler rejects a second; the editor can grey it out in the palette. */
   unique?: boolean;
