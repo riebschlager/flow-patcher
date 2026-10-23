@@ -82,6 +82,8 @@ export const INPUT_FIELD_TYPES: Readonly<Record<string, 'number' | 'string' | 'b
   canvasWidth: 'number',
   canvasHeight: 'number',
   status: 'number',
+  data1: 'number',
+  data2: 'number',
 };
 
 /** Fields the source nodes compute from the sequence, so a stream never records them (ADR 0029). */
@@ -112,6 +114,16 @@ function eventProblems(raw: unknown, where: string, previous: number | null): st
     }
   }
   if (raw.coalesced !== undefined && type !== 'pointermove') errors.push(`${where}.coalesced: only pointermove samples are coalesced`);
+  if (type === 'midi') {
+    // MIDI is channel 0; its MIDI channel is in status (ADR 0029).
+    if (channel !== undefined) errors.push(`${where}.channel: midi events have none; the MIDI channel is in status`);
+    const status = raw.status;
+    if (status === undefined) errors.push(`${where}.status: midi events need the status byte`);
+    // Recordings carry channel messages only: the host drops system messages (0xf0 and up).
+    else if (typeof status === 'number' && Number.isFinite(status) && !(Number.isInteger(status) && status >= 0x80 && status <= 0xef)) {
+      errors.push(`${where}.status: expected a channel message status byte, 128–239`);
+    }
+  }
   return errors;
 }
 

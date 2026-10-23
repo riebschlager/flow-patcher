@@ -1,0 +1,16 @@
+{ "format": "flowinput", "version": 1,
+  "events": [
+    {"time":0.25,"type":"midi","status":144,"data1":60,"data2":100},
+    {"time":0.5,"type":"midi","status":128,"data1":60,"data2":64},
+    {"time":0.75,"type":"midi","status":176,"data1":1,"data2":96},
+    {"time":0.75,"type":"midi","status":144,"data1":64,"data2":90},
+    {"time":0.75,"type":"midi","status":144,"data1":67,"data2":90},
+    {"time":1,"type":"midi","status":153,"data1":36,"data2":127},
+    {"time":1.2,"type":"midi","status":144,"data1":64,"data2":0},
+    {"time":1.2,"type":"midi","status":144,"data1":67,"data2":0},
+    {"time":1.5,"type":"midi","status":224,"data1":0,"data2":80},
+    {"time":1.75,"type":"midi","status":176,"data1":1,"data2":20},
+    {"time":2,"type":"midi","status":145,"data1":72,"data2":64},
+    {"time":2.5,"type":"midi","status":129,"data1":72,"data2":0},
+    {"time":3,"type":"midi","status":144,"data1":48,"data2":127}
+  ] }

@@ -1,0 +1,128 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261023,
+  "nodes": [
+    {
+      "id": "midi",
+      "type": "midi-in",
+      "typeVersion": 1,
+      "params": {
+        "channel": "All",
+        "controller": 1,
+        "length": 0.4
+      },
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "clock",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 96,
+        "division": "1/4"
+      },
+      "position": {
+        "x": 0,
+        "y": 420
+      }
+    },
+    {
+      "id": "bass",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.15,
+        "pitch": 36,
+        "velocity": 0.5
+      },
+      "position": {
+        "x": 240,
+        "y": 420
+      }
+    },
+    {
+      "id": "synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.005,
+        "level": 0.2,
+        "release": 0.4,
+        "wave": "triangle"
+      },
+      "position": {
+        "x": 480,
+        "y": 100
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 720,
+        "y": 100
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "midi",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "midi",
+        "port": "cc"
+      },
+      "to": {
+        "node": "synth",
+        "port": "level"
+      },
+      "depth": 0.3
+    },
+    {
+      "from": {
+        "node": "clock",
+        "port": "tick"
+      },
+      "to": {
+        "node": "bass",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "bass",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    }
+  ]
+}

@@ -36,7 +36,8 @@ describe('parseInputStream', () => {
   });
 
   it('accepts every documented type, and an empty stream', () => {
-    expect(errorsOf(stream(INPUT_EVENT_TYPES.map((type) => ({ time: 1, type }))))).toEqual([]);
+    // A midi event needs its status byte; every other type stands on its own.
+    expect(errorsOf(stream(INPUT_EVENT_TYPES.map((type) => ({ time: 1, type, ...(type === 'midi' ? { status: 0x90, data1: 60, data2: 1 } : {}) }))))).toEqual([]);
     expect(errorsOf(stream([]))).toEqual([]);
   });
 
@@ -89,6 +90,38 @@ describe('parseInputStream', () => {
       'events[6].extra: expected a finite number, string or boolean',
       'events[7].y: expected a finite number',
       'events[8]: expected an object with time and type',
+    ]);
+  });
+
+  it('checks MIDI status, data1 and data2 as numbers (#77)', () => {
+    const noteOn = { time: 0.4, type: 'midi', status: 0x90, data1: 60, data2: 100 };
+    expect(errorsOf(stream([noteOn]))).toEqual([]);
+    expect(errorsOf(stream([
+      { ...noteOn, data1: '60' },
+      { ...noteOn, data2: NaN },
+      { ...noteOn, status: '144' },
+    ]))).toEqual([
+      'events[0].data1: expected a finite number',
+      'events[1].data2: expected a finite number',
+      'events[2].status: expected a finite number',
+    ]);
+  });
+
+  it('requires a channel message status on midi events and rejects a channel on them (#77)', () => {
+    expect(errorsOf(stream([
+      { time: 0.4, type: 'midi', data1: 60, data2: 100 },
+      { time: 0.4, type: 'midi', channel: 3, status: 0x92, data1: 60, data2: 100 },
+      { time: 0.4, type: 'midi', status: 0xc0, data1: 5 },
+      { time: 0.4, type: 'midi', status: 0xf8 },
+      { time: 0.4, type: 'midi', status: 3, data1: 60, data2: 100 },
+      { time: 0.4, type: 'midi', status: 144.5, data1: 60, data2: 100 },
+      { time: 0.4, type: 'midi', status: 0xef, data1: 0, data2: 64 },
+    ]))).toEqual([
+      'events[0].status: midi events need the status byte',
+      'events[1].channel: midi events have none; the MIDI channel is in status',
+      'events[3].status: expected a channel message status byte, 128–239',
+      'events[4].status: expected a channel message status byte, 128–239',
+      'events[5].status: expected a channel message status byte, 128–239',
     ]);
   });
 

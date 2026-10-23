@@ -23,7 +23,7 @@ Replays need recorded input: M2's mode patches replay scripted input, and M4's p
   - `pointerenter` and `pointerleave` only update Pointer's hover state. They have no phase on All (ADR 0028).
 
 ### Payload fields
-- The other fields are what the source nodes read, under the names their outputs use. design.md "Event payload" gives the base fields. docs/nodes/canvas-sources.md is the per-source list: pen tilt and twist, `key`, `code` and `repeat`, wheel deltas, gesture scale and rotation, canvas size, visibility, and MIDI `status` and `data` (the MIDI channel is in `status`, not `channel`).
+- The other fields are what the source nodes read, under the names their outputs use. design.md "Event payload" gives the base fields. docs/nodes/canvas-sources.md is the per-source list: pen tilt and twist, `key`, `code` and `repeat`, wheel deltas, gesture scale and rotation, canvas size, visibility, and MIDI `status`, `data1` and `data2`, the message's bytes as numbers (the MIDI channel is in `status`; a midi event has no `channel`). Only channel messages are recorded: the host drops system messages (sysex, clock, active sensing). Two-byte messages (program change, channel pressure) have no `data2`.
 - Fields a type doesn't use are left out.
 - Derived fields (`dx`, `dy`, `speed`, `angle`, `age`) are not recorded. The source nodes compute them from the sequence, on replay as live.
 - Canvas size goes in `canvasWidth` and `canvasHeight`, so it can't be confused with a contact's `width` and `height`.

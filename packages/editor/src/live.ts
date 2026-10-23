@@ -34,6 +34,7 @@ import {
 } from '@flow-patcher/engine';
 import { nodeRegistry, rendererImage } from '@flow-patcher/nodes';
 import { EventTrack, PROBE_HISTORY } from './event-track';
+import { MidiHost } from './midi';
 import { browserRequesters, neededPermissions, Permissions } from './permissions';
 
 /** Pointer events the canvas forwards, by phase. */
@@ -41,6 +42,14 @@ export type PointerPort = 'down' | 'move' | 'up' | 'cancel';
 
 /** The input stream type (ADR 0029) of each pointer phase. */
 const POINTER_TYPES: Readonly<Record<PointerPort, InputEventType>> = { down: 'pointerdown', move: 'pointermove', up: 'pointerup', cancel: 'pointercancel' };
+
+/**
+ * Input events dropped, not held, while the AudioContext isn't running. Held pushes all replay at one
+ * stamp when it starts, as a burst of rewinds that the event cap can cut the important ones out of.
+ * Hover moves before the first tap: the Down carries the position anyway. MIDI: it never starts audio,
+ * so a suspended or interrupted context (an iOS call) would otherwise collect every CC sent meanwhile.
+ */
+export const droppedWhileCold = (type: InputEventType): boolean => type === 'pointermove' || type === 'midi';
 
 /** One pointerdown, for the Immediate path gate check (docs/milestones.md, M1). */
 export interface Tap {
@@ -138,7 +147,9 @@ export class LivePatch {
   readonly scheduler: Scheduler;
   readonly taps: Tap[] = [];
   /** Browser permissions the running patch's sources need, asked when it first plays. */
-  readonly permissions = new Permissions(browserRequesters());
+  readonly permissions = new Permissions(browserRequesters({ midi: (access) => this.midi.attach(access) }));
+  /** MIDI inputs, once the midi permission is granted: each message is one input event, as a pointer event is (ADR 0004, 0029). */
+  readonly midi = new MidiHost((event, timeStamp) => this.input(event, timeStamp));
   private readonly context: AudioContext;
   /** The context as the runtime sees it: the instrument cache is keyed by this object. */
   private readonly audio: AudioContextLike;
@@ -382,10 +393,10 @@ export class LivePatch {
   }
 
   /**
-   * One canvas event, fanned out to every source node that reads its type (ADR 0029), as one push
-   * stamped once (`Scheduler.pushAll`), so every source sees it at the same time. Returns the
-   * pushed events, all at the applied time; null when it was held for the AudioContext to start,
-   * or dropped (no source reads it, or a hover move before audio runs).
+   * One input event, from the canvas or a MIDI device, fanned out to every source node that reads its
+   * type (ADR 0029), as one push stamped once (`Scheduler.pushAll`), so every source sees it at the
+   * same time. Returns the pushed events, all at the applied time; null when it was held for the
+   * AudioContext to start, or dropped (no source reads it, or `droppedWhileCold` while audio isn't running).
    */
   input(event: InputFields, timeStamp?: number): EngineEvent[] | null {
     const cold = this.context.state !== 'running';
@@ -397,9 +408,7 @@ export class LivePatch {
       this.permissions.request(this.needed);
     }
     const targets = this.router.route(event);
-    // Pushes are held while audio is stopped, so hover moves before the first tap would pile up and
-    // replay as a burst that the event cap can cut the Down out of. Down carries the position anyway.
-    if (!targets.length || (cold && event.type === 'pointermove')) return null;
+    if (!targets.length || (cold && droppedWhileCold(event.type))) return null;
     const at = this.context.currentTime;
     const wall = performance.now();
     const waited = timeStamp !== undefined && timeStamp <= wall ? (wall - timeStamp) / 1000 : 0;
@@ -434,6 +443,7 @@ export class LivePatch {
     this.runtime.dispose();
     for (const unwatch of this.unwatch) unwatch();
     this.unwatchPermissions();
+    this.midi.dispose();
     void this.context.close();
     this.listeners.clear();
   }
