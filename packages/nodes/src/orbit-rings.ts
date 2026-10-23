@@ -107,17 +107,30 @@ export function updateRings(rings: Rings, sample: RingSample, now: number, stren
   }
 }
 
-/** The rings as outlines in a width × height picture: none while hidden. Flow's OrbitRings.draw. */
+/** Whether the rings show at all: drawn with some opacity and strength. */
+export const ringsVisible = (rings: Rings): boolean => rings.opacity > 0 && rings.strength > 0;
+
+/** Ring i (0 innermost) as an outline in a width × height picture, written into `out`. Flow's OrbitRings.draw. */
+export function ringStroke(rings: Rings, i: number, width: number, height: number, reducedMotion: boolean, out: EllipseStroke): EllipseStroke {
+  const unit = Math.min(width, height) / REFERENCE_SIDE;
+  const r = (BASE_RADIUS + rings.orbit * RADIUS_RANGE + i * RING_STEP) * unit;
+  out.cx = rings.x * width;
+  out.cy = rings.y * height;
+  out.rx = r;
+  out.ry = r * ASPECT;
+  out.rotation = reducedMotion ? 0 : rings.heading * TILT;
+  out.lineWidth = Math.max(1, LINE_WIDTH * unit);
+  out.color = rings.color;
+  out.alpha = MAX_ALPHA * rings.strength * rings.opacity;
+  return out;
+}
+
+const blankStroke = (): EllipseStroke => ({ cx: 0, cy: 0, rx: 0, ry: 0, rotation: 0, lineWidth: 0, color: [0, 0, 0], alpha: 0 });
+
+/** The rings as outlines in a width × height picture: none while hidden. */
 export function ringStrokes(rings: Rings, width: number, height: number, reducedMotion = false): EllipseStroke[] {
   if (rings.opacity === 0) return [];
-  const unit = Math.min(width, height) / REFERENCE_SIDE;
-  const radius = (BASE_RADIUS + rings.orbit * RADIUS_RANGE) * unit;
-  const alpha = MAX_ALPHA * rings.strength * rings.opacity;
-  const lineWidth = Math.max(1, LINE_WIDTH * unit);
-  return Array.from({ length: RING_COUNT }, (_, i) => {
-    const r = radius + i * RING_STEP * unit;
-    return { cx: rings.x * width, cy: rings.y * height, rx: r, ry: r * ASPECT, rotation: reducedMotion ? 0 : rings.heading * TILT, lineWidth, color: rings.color, alpha };
-  });
+  return Array.from({ length: RING_COUNT }, (_, i) => ringStroke(rings, i, width, height, reducedMotion, blankStroke()));
 }
 
 /** Frame-only state (Orbit Rings has no query, so it is never snapshotted and may hold the drawer). */
@@ -125,7 +138,14 @@ interface OrbitRingsState extends NodeState {
   rings?: Rings;
   reduced?: boolean;
   drawer?: OverlayDrawer;
+  /** Reused for each ring as it's drawn, so drawing allocates nothing. */
+  stroke?: EllipseStroke;
 }
+
+/** Each palette's four slots as 0–1 RGB, parsed once. A constant table, not state. */
+const PALETTE_RGB: Readonly<Record<string, readonly RGB[]>> = Object.fromEntries(
+  Object.entries(colorPalettes).map(([id, palette]) => [id, palette.colors.map((c) => hexRGB(c.hex))]),
+);
 
 /** A Color Value as 0–1 RGB: '#rrggbb', or [r, g, b] with 0–1 channels. Anything else is null. */
 export function colorOf(value: unknown): RGB | null {
@@ -137,9 +157,9 @@ export function colorOf(value: unknown): RGB | null {
 function colorAt(ctx: NodeContext, t: number): RGB {
   const wired = ctx.connected('color') ? colorOf(ctx.value('color', t)) : null;
   if (wired) return wired;
-  const palette = colorPalettes[ctx.params.palette as string] ?? colorPalettes.classic!;
+  const palette = PALETTE_RGB[ctx.params.palette as string] ?? PALETTE_RGB.classic!;
   const slot = Math.max(0, RING_DYES.indexOf(ctx.params.dye as (typeof RING_DYES)[number]));
-  return hexRGB(palette.colors[slot]!.hex);
+  return palette[slot]!;
 }
 
 function sampleAt(ctx: NodeContext, t: number): RingSample {
@@ -179,9 +199,12 @@ export const orbitRings: NodeDefinition = {
     const s = ctx.state as OrbitRingsState;
     return (s.drawer ??= {
       kind: 'overlay',
+      visible: () => (s.rings ? ringsVisible(s.rings) : false),
       draw(target) {
-        if (!s.rings) return;
-        for (const stroke of ringStrokes(s.rings, target.width, target.height, s.reduced === true)) strokeEllipse(target, stroke);
+        const rings = s.rings;
+        if (!rings || !ringsVisible(rings)) return;
+        const stroke = (s.stroke ??= blankStroke());
+        for (let i = 0; i < RING_COUNT; i++) strokeEllipse(target, ringStroke(rings, i, target.width, target.height, s.reduced === true, stroke));
       },
     });
   },

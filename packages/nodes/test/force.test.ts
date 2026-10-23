@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compilePatch, createInProcessFluid, Runtime, type FluidBackend, type FluidTarget, type FluidWork, type FluidWriter, type NodeState, type Patch } from '@flow-patcher/engine';
+import { applyFluidWrite, compilePatch, createInProcessFluid, Fluid, Runtime, type FluidBackend, type FluidTarget, type FluidWork, type FluidWriter, type NodeState, type Patch } from '@flow-patcher/engine';
 import { force, nodeRegistry } from '../src';
 import { FORCE_TICK, forceTicks, MAX_FORCE_TICKS, MAX_PUSH, PUSH_GAIN } from '../src/force';
 import { context, frame } from './helpers';
@@ -87,6 +87,23 @@ describe('force', () => {
     }
   });
 
+  it('measures motion from its own samples, so a source that answers earlier times from its latest state still pushes', () => {
+    // Like Pointer read from frame(): every read answers with the latest position, whatever time it asks about.
+    let latest = 0.2;
+    const signals = { x: [() => latest], y: [() => 0.3] };
+    const state: NodeState = {};
+    const writer = writerOf(state);
+    const calls: Call[] = [];
+    for (let f = 0; f < 30; f++) {
+      latest = 0.2 + 0.5 * ((f + 1) / 60);
+      frame(force, f / 60, (f + 1) / 60, { state, signals, dt: 1 / 60 });
+      calls.push(...written(writer));
+    }
+    // A tick every 50 ms from 0.05 s on, each pushing right at about 0.5 units/s × 30 × Strength 0.5.
+    expect(calls.length).toBe(9);
+    for (const c of calls) expect(c[3]).toBeCloseTo(0.5 * PUSH_GAIN * 0.5, 1);
+  });
+
   it('treats a jump as no push: a ramp wrapping round, or a contact moving to a new spot', () => {
     const ramp = run(2, 1 / 60, { signals: { x: [(t) => (t * 0.5) % 0.5], y: [() => 0.5] } });
     // 0.5 wraps to 0 at t = 1: that tick's move is backwards by nearly 0.5, a jump.
@@ -172,5 +189,21 @@ describe('force', () => {
     // Phase rises at 0.5 per second, so each push is +0.5 × 30 along x.
     expect(forces.length).toBe(9);
     for (const f of forces) expect(f[3]).toBeCloseTo(15);
+    // Replay the recorded work through the solver, with and without the pushes: the water near the
+    // last push moves right only with them.
+    const replay = (withForces: boolean) => {
+      const { w, h } = recorded[0]!.grid;
+      const sim = new Fluid(w, h);
+      for (const work of recorded) {
+        Object.assign(sim, work.params);
+        for (const write of work.splats) if (withForces || write[0] !== 'force') applyFluidWrite(sim, write);
+        sim.step(work.dt);
+      }
+      const last = forces.at(-1)!;
+      const k = Math.round((last[1] as number) * w) + Math.round((last[2] as number) * h) * w;
+      return sim.u[k]!;
+    };
+    expect(replay(false)).toBe(0);
+    expect(replay(true)).toBeGreaterThan(1);
   });
 });

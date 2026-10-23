@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   compilePatch,
+  parsePatch,
   createInProcessFluid,
   FLUID_BACKGROUND,
   hexRGB,
@@ -16,6 +19,19 @@ import {
 import { nodeRegistry, orbitRings, rendererImage } from '../src';
 import { colorOf, createRings, ringStrokes, updateRings, type RingSample, type Rings } from '../src/orbit-rings';
 import { context, frame } from './helpers';
+import { expectGolden, ROOT, sha256 } from '../../../test-support/golden';
+
+/** Runs examples/orbit-rings.flowpatch in process for `frames` frames at 60 fps and returns the Renderer's picture. */
+function examplePicture(frames: number, services: HostServices = {}) {
+  const parsed = parsePatch(JSON.parse(readFileSync(join(ROOT, 'examples/orbit-rings.flowpatch'), 'utf8')));
+  if (!parsed.ok) throw new Error(parsed.errors.join('\n'));
+  const compiled = compilePatch(parsed.patch, nodeRegistry);
+  if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+  const rt = new Runtime(compiled.plan, { services: { fluid: createInProcessFluid(), ...services } });
+  rt.query(0, frames / 60 + 0.5);
+  for (let f = 0; f < frames; f++) rt.frame(f / 60, (f + 1) / 60, 1 / 60);
+  return rendererImage(rt.stateOf('renderer') ?? {})!;
+}
 
 const LILAC = hexRGB('#b7a0ff');
 const WHITE: RGB = [1, 1, 1];
@@ -213,11 +229,50 @@ describe('orbit rings', () => {
     frame(orbitRings, 0, 1 / 60, { state, signals, params: { radius: 9, strength: -2, unit: 'degrees', palette: 'nope', dye: 'puce' } });
     frame(orbitRings, 1 / 60, 2 / 60, { state, signals: { ...signals, active: [() => 1] }, params: { radius: 9, strength: NaN } });
     frame(orbitRings, NaN, NaN, { state, signals: { ...signals, active: [() => 1] } });
+    // Then ordinary frame times with the same hostile signals and out-of-range knobs: the rings show.
+    for (let f = 3; f < 30; f++) frame(orbitRings, f / 60, (f + 1) / 60, { state, signals: { ...signals, active: [() => 1] }, params: { radius: 9, strength: 9 } });
     const rings = state.rings as Rings;
-    for (const v of [rings.opacity, rings.heading, rings.x, rings.y, rings.orbit, ...rings.color]) expect(Number.isFinite(v)).toBe(true);
-    const t = target(16, 9);
+    for (const v of [rings.opacity, rings.heading, rings.x, rings.y, rings.orbit, rings.strength, ...rings.color]) expect(Number.isFinite(v)).toBe(true);
+    expect(rings.opacity).toBeGreaterThan(0.9);
+    // Non-finite signals reach the node as defined numbers; positions stay on the canvas, knobs clamp.
+    for (const v of [rings.x, rings.y]) expect(v >= 0 && v <= 1).toBe(true);
+    expect([rings.orbit, rings.strength]).toEqual([1, 1]);
+    const t = target();
     drawerOf(state).draw(t);
+    expect(lit(t)).toBeGreaterThan(100);
     for (const v of t.pixels) expect(v >= 0 && v <= 255).toBe(true);
+  });
+
+  it('matches golden Renderer pictures byte for byte', () => {
+    const renders: Record<string, string> = {};
+    // The example patch: rings turning with Clock's phase over a stirred fluid.
+    for (const frames of [30, 90]) {
+      const image = examplePicture(frames);
+      expect([image.width, image.height]).toEqual([512, 288]);
+      renders[`example, ${frames} frames`] = sha256(image.pixels);
+    }
+    renders['example, 90 frames, reduced motion'] = sha256(examplePicture(90, { reducedMotion: () => true }).pixels);
+    // A fixed state on the plain background, so ring geometry alone is pinned.
+    const rings: Rings = { ...createRings(), opacity: 0.8, strength: 0.65, orbit: 0.8, heading: 1.3, x: 0.4, y: 0.6, color: LILAC, time: 0 };
+    for (const [name, size] of [['fixed, 512 × 288', [512, 288]], ['fixed, 1280 × 720', [1280, 720]]] as const) {
+      const state: NodeState = { rings };
+      const t = target(size[0], size[1]);
+      drawerOf(state).draw(t);
+      renders[name] = sha256(t.pixels);
+    }
+    expectGolden('orbit-rings-renders', renders);
+  });
+
+  it('says it is idle while hidden, so the Renderer can skip composing', () => {
+    const state: NodeState = {};
+    const drawer = drawerOf(state);
+    expect(drawer.visible!()).toBe(false);
+    frame(orbitRings, 0, 1 / 60, { state });
+    expect(drawer.visible!()).toBe(false);
+    frame(orbitRings, 1 / 60, 2 / 60, { state });
+    expect(drawer.visible!()).toBe(true);
+    for (let f = 2; f < 80; f++) frame(orbitRings, f / 60, (f + 1) / 60, { state, signals: { active: [() => 0] } });
+    expect(drawer.visible!()).toBe(false);
   });
 
   it('shows over the fluid in a running patch, cabled into the Renderer', () => {

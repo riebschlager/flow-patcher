@@ -1,17 +1,36 @@
 // Force: a Fluid writer (docs/nodes/visual.md) giving a continuous, dye-free
 // push at a point that follows a Signal pair (X, Y). From Flow's fluid.js
 // force() and pulse() and the way performance.js drives them:
-// - Push (Conduct, and Paint's fast strokes): a push along the pair's motion.
+// - Push (Conduct): a push along the pair's motion.
 // - Whirlpool (Hold's charge): a vortex with four inward pushes round it.
 // - Twin (Orbit): a vortex and a smaller one beside it turning the other way.
 // The writer contract is in packages/engine/src/fluid/field.ts: frame()
 // queues this frame's pushes in frame-only state, and the Write output's
 // FluidWriter hands them to Fluid, which calls it once a frame before stepping.
 //
-// Changed from Flow: Flow pushed at most once per 50 ms of wall clock, from
-// whichever frame came first. Force pushes on a fixed 50 ms grid of the frame
-// clock instead, sampling its inputs at each grid time, so the fluid gets the
-// same pushes at any frame rate.
+// Each input is read once per tick, at the tick's time, and push mode takes
+// its motion from the previous tick's sample, kept in frame state. frame()
+// can't read a signal back in time: sources such as Pointer answer earlier
+// times from their latest state (NodeState in definition.ts).
+//
+// Changed from Flow (also in docs/nodes/visual.md):
+// - Timing: Flow pushed at most once per 50 ms of wall clock, from whichever
+//   frame came first (about 15 pushes a second at 60 Hz). Force pushes on a
+//   fixed 50 ms grid of the frame clock, 20 a second at any frame rate.
+// - Push: speed × 30 along the motion, capped at 120, times Strength. Flow's
+//   Conduct also scaled the horizontal move by the canvas aspect
+//   (gestures.js), so its horizontal pushes were about 1.78× stronger on a
+//   16:9 canvas; Force has no aspect factor. Flow multiplied by the gesture's
+//   energy; here energy is whatever is cabled into Strength. Paint's push
+//   (cos(heading) × energy × 65, radius 0.07) isn't a separate mode.
+// - Sizes: whirlpool's and twin's offsets and secondary radii scale with
+//   Radius. They match Flow's Hold at Radius 0.12 and Flow's Orbit at 0.15
+//   (Conduct used 0.17); the default, 0.15, is Orbit's.
+// - A new contact landing, the first tick, and a move of more than
+//   MAX_TICK_MOVE within one tick give no push.
+// - Reduced motion: Flow skipped these pushes for touch, synthetic and pinch
+//   input under prefers-reduced-motion. Force ignores it: the reduced-motion
+//   rule covers overlays (ADR 0012), and the fluid is the patch's own picture.
 import type { FluidTarget, FluidWriter, NodeContext, NodeDefinition, NodeState } from '@flow-patcher/engine';
 
 export const FORCE_MODES = ['push', 'whirlpool', 'twin'] as const;
@@ -33,10 +52,20 @@ const ACTIVE_LEVEL = 0.5;
 
 type Write = (target: FluidTarget) => void;
 
+/** One tick's reading of the inputs. */
+interface Sample {
+  t: number;
+  x: number;
+  y: number;
+  active: boolean;
+}
+
 /** Frame-only state (Force has no query, so it is never snapshotted and may hold closures). */
 interface ForceState extends NodeState {
   queue?: Write[];
   writer?: FluidWriter;
+  /** The last tick's sample: push mode's motion runs from it. */
+  last?: Sample;
 }
 
 const clampUnit = (value: number) => Math.max(0, Math.min(1, value));
@@ -62,26 +91,35 @@ function directionAt(ctx: NodeContext, t: number): 1 | -1 {
 /** The grid times in [t0, t1), latest MAX_FORCE_TICKS of them. */
 export function forceTicks(t0: number, t1: number): number[] {
   if (!(Number.isFinite(t0) && Number.isFinite(t1)) || t1 <= t0) return [];
-  // The epsilon keeps a tick that float error put a hair before t0 from being lost or counted twice.
-  const first = Math.max(Math.ceil(t0 / FORCE_TICK - 1e-9), Math.ceil(t1 / FORCE_TICK - 1e-9) - MAX_FORCE_TICKS);
+  // Both ends round the same way, so a tick that float error put a hair before a frame boundary lands in
+  // exactly one frame: the grid index at or after t, within 1e-9 of a tick.
+  const index = (t: number) => Math.ceil(t / FORCE_TICK - 1e-9);
+  const end = index(t1);
   const ticks: number[] = [];
-  for (let k = first; k * FORCE_TICK < t1 - 1e-12; k++) ticks.push(k * FORCE_TICK + 0); // + 0 turns k = -0 into 0
+  for (let k = Math.max(index(t0), end - MAX_FORCE_TICKS); k < end; k++) ticks.push(k * FORCE_TICK + 0); // + 0 turns k = -0 into 0
   return ticks;
 }
 
-/** The writes for one tick at time t, or none. */
-function writesAt(ctx: NodeContext, t: number): Write[] {
-  if (!activeAt(ctx, t)) return [];
+/** Reads the inputs once, at tick time t. */
+function sampleAt(ctx: NodeContext, t: number): Sample {
+  const [x, y] = positionAt(ctx, t);
+  return { t, x, y, active: activeAt(ctx, t) };
+}
+
+/** The writes for the tick `now`, or none. `last` is the previous tick's sample, if any. */
+function writesAt(ctx: NodeContext, now: Sample, last: Sample | undefined): Write[] {
+  const { t, x, y } = now;
+  if (!now.active) return [];
   const strength = ctx.param('strength', t);
   const radius = ctx.param('radius', t);
   if (!(strength > 0) || !Number.isFinite(radius)) return [];
-  const [x, y] = positionAt(ctx, t);
   const mode = FORCE_MODES.includes(ctx.params.mode as ForceMode) ? (ctx.params.mode as ForceMode) : 'push';
   if (mode === 'push') {
-    // Motion over the last tick. There is none before time 0, nor when the pair wasn't active then
-    // (a new touch landing), nor across a jump: none of those is a push.
-    if (t - FORCE_TICK < 0 || !activeAt(ctx, t - FORCE_TICK)) return [];
-    const [px, py] = positionAt(ctx, t - FORCE_TICK);
+    // Motion over the last tick. There is none without a sample from the grid tick just before (the
+    // first tick, or after a gap the frame skipped), nor when the pair wasn't active then (a new touch
+    // landing), nor across a jump: none of those is a push.
+    if (!last || !last.active || Math.abs(last.t - (t - FORCE_TICK)) > 1e-9) return [];
+    const px = last.x, py = last.y;
     if (Math.hypot(x - px, y - py) > MAX_TICK_MOVE) return [];
     const push = (from: number, to: number) => Math.max(-MAX_PUSH, Math.min(MAX_PUSH, ((to - from) / FORCE_TICK) * PUSH_GAIN)) * strength;
     const dx = push(px, x), dy = push(py, y);
@@ -141,6 +179,11 @@ export const force: NodeDefinition = {
   frame(ctx) {
     const s = ctx.state as ForceState;
     // As Splat: Fluid writes the queue later this frame, so whatever is left was never written. Drop it.
-    s.queue = forceTicks(ctx.t0, ctx.t1).flatMap((t) => writesAt(ctx, t));
+    const queue: Write[] = (s.queue = []);
+    for (const t of forceTicks(ctx.t0, ctx.t1)) {
+      const now = sampleAt(ctx, t);
+      queue.push(...writesAt(ctx, now, s.last));
+      s.last = now;
+    }
   },
 };

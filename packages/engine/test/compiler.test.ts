@@ -49,7 +49,19 @@ const writer: NodeDefinition = {
   ports: [{ name: 'fluid', type: 'field', direction: 'in' }, { name: 'write', type: 'field', fieldKind: 'write', direction: 'out' }],
   params: [],
 };
-const definitions = new Map([source, pass, delay, fluid, probe, writer].map((d) => [d.type, d]));
+/** Draws over the picture (ADR 0030). */
+const overlay: NodeDefinition = {
+  type: 'overlay', version: 1, label: 'Overlay', category: 'visual', description: '',
+  ports: [{ name: 'overlay', type: 'field', fieldKind: 'overlay', direction: 'out' }],
+  params: [],
+};
+/** Shows the fluid with overlays on top, as the Renderer. */
+const screen: NodeDefinition = {
+  type: 'screen', version: 1, label: 'Screen', category: 'visual', description: '',
+  ports: [{ name: 'field', type: 'field', direction: 'in' }, { name: 'overlays', type: 'field', fieldKind: 'overlay', direction: 'in' }],
+  params: [],
+};
+const definitions = new Map([source, pass, delay, fluid, probe, writer, overlay, screen].map((d) => [d.type, d]));
 
 const node = (id: string, type: string, params = {}) => ({ id, type, typeVersion: 1, params, position: { x: 0, y: 0 } });
 const cable = (a: string, b: string, from = 'out', to = 'in') => ({ from: { node: a, port: from }, to: { node: b, port: to } });
@@ -163,6 +175,19 @@ describe('graph compiler: window limit', () => {
     };
     const result = compilePatch(patch([node('n', 'notes'), node('d', 'delay')], [cable('n', 'd'), cable('d', 'n')]), new Map([...definitions, ['notes', notes]]));
     expect(result.ok && result.plan.delayEdges).toEqual([0]);
+  });
+
+  it('keeps Overlay fields apart from Fluid and Write fields (ADR 0030)', () => {
+    const nodes = [node('f', 'fluid'), node('w', 'writer'), node('o', 'overlay'), node('s', 'screen')];
+    const rejected = (from: string, fromPort: string, to: string, toPort: string) => failure(patch(nodes, [cable(from, to, fromPort, toPort)])).errors;
+    expect(rejected('o', 'overlay', 'f', 'writers')).toEqual(['cables[0] o.overlay → f.writers: cannot connect field (overlay) to field (write)']);
+    expect(rejected('o', 'overlay', 's', 'field')).toEqual(['cables[0] o.overlay → s.field: cannot connect field (overlay) to field (fluid)']);
+    expect(rejected('w', 'write', 's', 'overlays')).toEqual(['cables[0] w.write → s.overlays: cannot connect field (write) to field (overlay)']);
+    expect(rejected('f', 'fluid', 's', 'overlays')).toEqual(['cables[0] f.fluid → s.overlays: cannot connect field (fluid) to field (overlay)']);
+    // The right cables compile, and the Overlays cable orders the plan.
+    const plan = compile(patch(nodes, [cable('o', 's', 'overlay', 'overlays'), cable('f', 's', 'fluid', 'field')]));
+    const order = plan.order.map((n) => n.id);
+    expect(order.indexOf('o')).toBeLessThan(order.indexOf('s'));
   });
 
   it('rejects a delay that is zero or not a number', () => {

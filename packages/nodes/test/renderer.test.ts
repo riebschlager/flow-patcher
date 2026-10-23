@@ -198,4 +198,27 @@ describe('renderer', () => {
     show([fieldOf(fluidImage)], state);
     expect(rendererImage(state)).toBe(fluidImage);
   });
+
+  it('passes the fluid through uncomposed while every overlay is idle, and draws only visible ones', () => {
+    const state: NodeState = {};
+    const fluidImage = { width: 2, height: 1, pixels: pixels(2, 1, 90) };
+    let shown = false;
+    const drawn: string[] = [];
+    const idle = { kind: 'overlay', visible: () => shown, draw: () => void drawn.push('idle') };
+    const always = { kind: 'overlay', draw: () => void drawn.push('always') };
+    show([fieldOf(fluidImage)], state, [idle]);
+    expect(rendererImage(state)).toBe(fluidImage);
+    expect(drawn).toEqual([]);
+    // With no fluid and nothing visible there's nothing to show.
+    expect(show([], {}, [idle])).toBeNull();
+    // A drawer without visible() counts as visible; the idle one isn't drawn.
+    show([fieldOf(fluidImage)], state, [idle, always]);
+    expect(rendererImage(state)).not.toBe(fluidImage);
+    expect(drawn).toEqual(['always']);
+    shown = true;
+    drawn.length = 0;
+    show([fieldOf(fluidImage)], state, [idle]);
+    expect(drawn).toEqual(['idle']);
+    expect(rendererImage(state)!.width).toBeGreaterThan(2);
+  });
 });
