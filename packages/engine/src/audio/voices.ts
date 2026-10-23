@@ -9,7 +9,8 @@
 // later, checks each start inside the time it adds, and while more than `size`
 // voices sound there it steals the one with the earliest start (the first
 // claimed among equal starts). Stealing calls the voice's stop(at), with `at`
-// that start, and drops it from the pool; the node fades it out there.
+// that start, and drops it from the pool; the node fades it out there, over
+// STEAL_FADE (see voiceEnd).
 //
 // Steals are decided at schedule time and never undone. If the stealing note is
 // later withdrawn (a rewind's cancel, ADR 0019, or a hot swap's), the node
