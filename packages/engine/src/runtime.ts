@@ -320,8 +320,16 @@ export interface LoggedEvent {
 
 /** How one call hands events to audio nodes. The scheduler fills it in. */
 export interface DeliveryTiming {
-  /** The audio clock now. An event before it is handed over at `now` and counted late. */
+  /** The audio clock as the call began: what pushes are checked against and
+   *  swaps and catch-ups are measured from. An event before it is handed over at
+   *  `now` and counted late. */
   now: number;
+  /** A live read of the audio clock (the scheduler's `audioTime`). The clock keeps
+   *  moving while a long call runs (a push's rewind, a swap re-running windows), so
+   *  each hand-over clamps and counts against the later of `now` and this reading:
+   *  an audio node is never handed a time before the clock at hand-over. Without
+   *  it (headless, tests), `now` is the clock throughout. */
+  currentTime?: () => number;
   /** A late wake's missed stretch (ADR 0017): events before `until` move `shift`
    *  seconds later, so they keep their spacing and play late instead of stacking. */
   catchUp?: { until: number; shift: number };
@@ -336,10 +344,16 @@ export interface RuntimeCounters {
   delivered: number;
   /** Events a catch-up moved later. */
   caughtUp: number;
-  /** Scheduled events that were still before currentTime, moved to it. */
+  /** Scheduled events (a wake's window, a swap's re-run) that were before the audio
+   *  clock at hand-over, read then (`DeliveryTiming.currentTime`) and not just as
+   *  the call began, and were moved to it. */
   lateScheduled: number;
-  /** Immediate-path events that were before currentTime, moved to it. */
+  /** Events a push handed over (its rewind's re-run) that were before the audio
+   *  clock at hand-over, read as for lateScheduled, and were moved to it. This covers the
+   *  push's whole re-run, so Clock-driven events it re-delivers count too. */
   lateImmediate: number;
+  /** The most any of those was moved, in ms: how late a push's notes reached Web Audio (ADR 0027). */
+  lateImmediateMaxMs: number;
   /** Events withdrawn from audio nodes because a rewind replaced them. */
   cancelled: number;
   /** Withdrawals an audio node couldn't make, because it has no cancel(). */
@@ -570,7 +584,7 @@ interface Retiring {
 }
 
 export class Runtime {
-  readonly counters: RuntimeCounters = { delivered: 0, caughtUp: 0, lateScheduled: 0, lateImmediate: 0, cancelled: 0, uncancelled: 0, outOfWindow: 0, droppedNodeLimit: 0, droppedPatchLimit: 0, queries: 0, snapshots: 0, snapshotMs: 0, voiceSteals: 0, droppedPushes: 0 };
+  readonly counters: RuntimeCounters = { delivered: 0, caughtUp: 0, lateScheduled: 0, lateImmediate: 0, lateImmediateMaxMs: 0, cancelled: 0, uncancelled: 0, outOfWindow: 0, droppedNodeLimit: 0, droppedPatchLimit: 0, queries: 0, snapshots: 0, snapshotMs: 0, voiceSteals: 0, droppedPushes: 0 };
   /** The latest plan: what the next window runs. */
   private stage: Stage;
   /** The plan the chunk being run belongs to: `stage`, except while a rewind replays older windows. */
@@ -982,7 +996,7 @@ export class Runtime {
     }
     this.enter(next, (id) => affected.has(id) || followed.has(id));
     this.resnapshot(start, affected);
-    const emit: Emit = { log: [], timing: timing && { now: timing.now, path: 'scheduled' }, rewind: true };
+    const emit: Emit = { log: [], timing: timing && { now: timing.now, currentTime: timing.currentTime, path: 'scheduled' }, rewind: true };
     report.queries = this.rerun(first, time, scope, emit);
     report.windows = history!.length - first;
     this.settleWarnings(affected);
@@ -1316,9 +1330,10 @@ export class Runtime {
     for (const id of affected) removed += this.takeBack(id, t);
     taken.removed = removed;
 
-    // Re-run deliveries are all at or after t >= timing.now (push refuses earlier), so none
-    // can be late; they count as scheduled, and there is no catch-up shift.
-    const emit: Emit = { log: [], timing: timing && { now: timing.now, path: 'scheduled' }, rewind: true };
+    // Re-run deliveries are all at or after t >= timing.now (push refuses earlier), and there
+    // is no catch-up shift. They can still be late if the clock passes them while the re-run
+    // runs; those count on the push's path.
+    const emit: Emit = { log: [], timing: timing && { now: timing.now, currentTime: timing.currentTime, path: timing.path ?? 'scheduled' }, rewind: true };
     const queries = this.rerun(first, t, scope, emit);
     this.settleWarnings(affected);
     return { time: t, from: start.t0, to: history.at(-1)!.t1, affected, followed, queries, removed, added: this.sortLog(emit.log), dropped: null };
@@ -1529,7 +1544,9 @@ export class Runtime {
   }
 
   private send(instance: AudioInstance, port: string, events: readonly EngineEvent[], timing: DeliveryTiming | undefined): void {
-    const sent = events.map((event) => this.timed(event, timing));
+    // The clock at hand-over: a long re-run may have moved it past `now`.
+    const floor = timing && (timing.currentTime ? Math.max(timing.now, timing.currentTime()) : timing.now);
+    const sent = events.map((event) => this.timed(event, timing, floor!));
     instance.schedule!(port, sent);
     this.counters.delivered += sent.length;
     if (!this.history) return;
@@ -1540,18 +1557,20 @@ export class Runtime {
     ports.set(port, list);
   }
 
-  /** The time an audio node gets: moved by a catch-up, never before currentTime. */
-  private timed(event: EngineEvent, timing: DeliveryTiming | undefined): EngineEvent {
+  /** The time an audio node gets: moved by a catch-up, never before `floor`, the clock at hand-over. */
+  private timed(event: EngineEvent, timing: DeliveryTiming | undefined, floor: number): EngineEvent {
     if (!timing) return event;
     let time = event.time;
     if (timing.catchUp && time < timing.catchUp.until) {
       time += timing.catchUp.shift;
       this.counters.caughtUp++;
     }
-    if (!(time >= timing.now)) {
-      time = timing.now;
-      if (timing.path === 'immediate') this.counters.lateImmediate++;
-      else this.counters.lateScheduled++;
+    if (!(time >= floor)) {
+      if (timing.path === 'immediate') {
+        this.counters.lateImmediate++;
+        if (Number.isFinite(time)) this.counters.lateImmediateMaxMs = Math.max(this.counters.lateImmediateMaxMs, (floor - time) * 1000);
+      } else this.counters.lateScheduled++;
+      time = floor;
     }
     return time === event.time ? event : { ...event, time };
   }

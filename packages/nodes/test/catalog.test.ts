@@ -112,6 +112,15 @@ describe('example patches', () => {
       for (const node of patch.nodes) expect(node.typeVersion, `${node.id} (${node.type})`).toBe(nodeRegistry.get(node.type)!.version);
     });
 
+    it(`${file} has no text param its node would flag`, () => {
+      for (const node of patch.nodes) {
+        for (const spec of nodeRegistry.get(node.type)!.params) {
+          const value = node.params[spec.name];
+          if (spec.kind === 'text' && spec.check && typeof value === 'string') expect(spec.check(value), `${node.id}.${spec.name}`).toBeNull();
+        }
+      }
+    });
+
     it(`${file} round-trips byte for byte`, () => {
       expect(serializePatch(patch)).toBe(text);
     });

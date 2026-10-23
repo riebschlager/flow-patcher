@@ -228,7 +228,7 @@ describe('Immediate path: a pushed note lands at currentTime + 5 ms, without a w
     expect(deliveries[0]!.at).toBe(1.0123);
     expect(Math.abs(deliveries[0]!.event.time - (1.0123 + 0.005))).toBeLessThanOrEqual(0.002);
     expect(scheduler.events()).toEqual([{ node: 't', port: 'out', ...event }]);
-    expect(scheduler.stats).toMatchObject({ pushes: 1, rewinds: 1, lateImmediate: 0 });
+    expect(scheduler.stats).toMatchObject({ pushes: 1, rewinds: 1, lateImmediate: 0, pushFallbacks: 0 });
   });
 
   it('wakes at once when nothing has been queried yet', () => {
@@ -265,6 +265,55 @@ describe('Immediate path: a pushed note lands at currentTime + 5 ms, without a w
     const { scheduler } = setup(p);
     expect(() => scheduler.push('r', 'in', { channel: 0 })).toThrow(/no event output/);
     expect(() => scheduler.push('nope', 'out', { channel: 0 })).toThrow(/no node/);
+  });
+});
+
+describe('late counters read the audio clock at hand-over', () => {
+  /** Passes events through; while armed, its first query moves the audio clock to `to`, as a long query would. */
+  const stall = { clock: null as ManualClock | null, to: null as number | null };
+  const slow: NodeDefinition = {
+    type: 'slow', version: 1, label: 'Slow', category: 'control-logic', description: '',
+    ports: [{ name: 'in', type: 'event', direction: 'in' }, { name: 'out', type: 'event', direction: 'out' }],
+    params: [],
+    query: ({ inputs }) => {
+      if (stall.clock && stall.to !== null) {
+        stall.clock.set(Math.max(stall.clock.audio, stall.to));
+        stall.to = null;
+      }
+      return { out: [...(inputs.in ?? [])] };
+    },
+  };
+  const arm = (clock: ManualClock, to: number) => Object.assign(stall, { clock, to });
+
+  it('clamps and counts a wake\'s event the clock passed while the window ran', () => {
+    const { scheduler, clock, deliveries, wakeAt } = setup(
+      patch([node('m', 'metro'), node('s', 'slow'), node('r', 'recorder')], [cable('m', 's'), cable('s', 'r')]), {}, [slow]);
+    // The wake reads 0; the query moves the clock to 30 ms, past the ticks at 0 and 25 ms.
+    arm(clock, 0.03);
+    wakeAt(0);
+    expect(clock.audio).toBe(0.03);
+    expect(deliveries.slice(0, 2).map((d) => [d.event.index, d.event.time])).toEqual([[0, 0.03], [1, 0.03]]);
+    expect(deliveries[2]!.event.time).toBe(0.05);
+    expect(deliveries.every((d) => d.event.time >= d.at)).toBe(true);
+    expect(scheduler.stats).toMatchObject({ lateScheduled: 2, lateImmediate: 0 });
+    // The log keeps the generated times: only the hand-over moves.
+    expect(scheduler.events().filter((e) => e.node === 's').slice(0, 2).map((e) => e.time)).toEqual([0, 0.025]);
+  });
+
+  it('clamps and counts a pushed event the clock passed during its rewind', () => {
+    const { scheduler, clock, deliveries, wakeEvery } = setup(
+      patch([node('t', 'tap'), node('s', 'slow'), node('r', 'recorder')], [cable('t', 's'), cable('s', 'r')]), {}, [slow]);
+    wakeEvery(0, 1);
+    clock.set(1.0123);
+    // The re-run moves the clock 10 ms on, past the stamp at +5 ms.
+    arm(clock, 1.0223);
+    const event = scheduler.push('t', 'out', { channel: 3 });
+    expect(event!.time).toBe(1.0123 + IMMEDIATE_OFFSET);
+    expect(deliveries.map((d) => [d.at, d.event.time])).toEqual([[1.0223, 1.0223]]);
+    expect(scheduler.stats).toMatchObject({ pushes: 1, rewinds: 1, pushFallbacks: 0, lateImmediate: 1, lateScheduled: 0 });
+    // Stamped at +5 ms, handed over at +10 ms: 5 ms late.
+    expect(scheduler.stats.lateImmediateMaxMs).toBeCloseTo(5, 9);
+    expect(scheduler.events().map((e) => [e.node, e.time])).toEqual([['t', event!.time], ['s', event!.time]]);
   });
 });
 

@@ -47,6 +47,9 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
   }
   const stats = await page.evaluate(() => window.flowPatcher!.stats);
   expect(stats.pushes).toBeGreaterThanOrEqual(11);
+  // ADR 0026: a visible push always rewinds, so none fell back to the horizon.
+  expect(await page.evaluate(() => document.visibilityState)).toBe('visible');
+  expect(stats.pushFallbacks).toBe(0);
 
   await page.screenshot({ path: 'test-results/pointer.png' });
   expect(errors).toEqual([]);

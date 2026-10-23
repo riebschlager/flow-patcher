@@ -66,6 +66,9 @@ test('taps stay on time with the fluid stepping and the renderer drawing', async
     expect(tap.stamped! - tap.at).toBeLessThanOrEqual(OFFSET + callback + 1e-6);
   }
   expect(worst).toBeLessThanOrEqual(BOUND);
+  // ADR 0026: a visible push always rewinds, so none fell back to the horizon.
+  expect(await page.evaluate(() => document.visibilityState)).toBe('visible');
+  expect((await page.evaluate(() => window.flowPatcher!.stats)).pushFallbacks).toBe(0);
   // ADR 0020: each tap's own event reaches the visual nodes on the very next frame, without the
   // output-latency shift. When it is then drawn depends on the Worker's speed, so that is logged, not bounded.
   for (const splash of splashes) expect(splash.handed).toBe(1);
