@@ -507,8 +507,8 @@ describe('push rules', () => {
 describe('a node that throws during a rewind', () => {
   /** Passes events through. A live event marked `boom` arms it, and from 60 ms after that event
    *  every query throws: mid-way through the re-run, after earlier windows were already re-sent.
-   *  With `broken.always`, every query throws. */
-  const broken = { always: false };
+   *  With `broken.always`, every query throws; `broken.after` moves the 60 ms. */
+  const broken = { always: false, after: 0.06 };
   const fragile: NodeDefinition = {
     type: 'fragile', version: 1, label: 'Fragile', category: 'control-logic', description: '',
     ports: [{ name: 'in', type: 'event', direction: 'in' }, { name: 'out', type: 'event', direction: 'out' }],
@@ -516,7 +516,7 @@ describe('a node that throws during a rewind', () => {
     query: ({ inputs, state, t1 }) => {
       if (broken.always) throw new Error('fragile broke');
       for (const e of inputs.in ?? []) if (e.boom) state.armedAt = e.time;
-      if (typeof state.armedAt === 'number' && t1 > state.armedAt + 0.06) throw new Error('fragile broke');
+      if (typeof state.armedAt === 'number' && t1 > state.armedAt + broken.after) throw new Error('fragile broke');
       return { out: (inputs.in ?? []).map(({ boom: _boom, ...e }) => e) };
     },
   };
@@ -592,6 +592,44 @@ describe('a node that throws during a rewind', () => {
     expect(withoutTap(run.log)).toBe(withoutTap(reference.log));
     expect(run.playing).toEqual(reference.playing);
     expect(run.runtime.stateOf('c')).toEqual(reference.runtime.stateOf('c'));
+  });
+
+  it('rolls back across a swap that chunking can\'t affect, as if the event never came', () => {
+    // The metro's period changes at the swap, 0.42; the delay keeps its time, so where the rewind splits doesn't matter.
+    const swapped = patch(p.nodes.map((n) => (n.id === 'm' ? { ...n, params: { period: 0.03 } } : n)), p.cables);
+    let swapAt = NaN;
+    const before = (run: ReturnType<typeof setup>) => void (swapAt = run.scheduler.swap(run.compile(swapped)).time);
+    const costs: PushCost[] = [];
+    const run = perform(true, costs, { before });
+    expect(swapAt).toBeCloseTo(0.42, 9);
+    expect(costs[0]!.rewind!.dropped).toMatchObject({ node: 'f' });
+    const reference = perform(false, [], { before });
+    expect(run.log).toBe(reference.log);
+    expect(run.playing).toEqual(reference.playing);
+    expect(run.runtime.stateOf('c')).toEqual(reference.runtime.stateOf('c'));
+  });
+
+  it('warns on the pushing node when the node that threw is gone from the latest plan', () => {
+    // A swap at 0.42 removes the fragile node; the push at 0.4062 makes it throw in the window before.
+    const without = patch(
+      p.nodes.filter((n) => n.id !== 'f'),
+      [cable('m', 'c'), cable('t', 'c'), cable('c', 'd'), cable('d', 'r'), cable('c', 'r')],
+    );
+    let swapAt = NaN;
+    const before = (run: ReturnType<typeof setup>) => void (swapAt = run.scheduler.swap(run.compile(without)).time);
+    const costs: PushCost[] = [];
+    broken.after = 0.005;
+    let run;
+    try {
+      run = perform(true, costs, { before });
+    } finally {
+      broken.after = 0.06;
+    }
+    expect(swapAt).toBeCloseTo(0.42, 9);
+    expect(costs[0]!.rewind!.dropped).toEqual({ node: 'f', message: 'fragile broke' });
+    expect(run.runtime.warnings()).toEqual([expect.objectContaining({ node: 't', kind: 'rewind-error', count: 1, message: expect.stringMatching(/^Node "f" failed while re-running for a live event from "t"/) })]);
+    expect(run.runtime.warnings('f')).toEqual([]);
+    expect(run.scheduler.stats.droppedPushes).toBe(1);
   });
 
   it('rolls back when a snapshot fails, and blames the node whose state it was', () => {
