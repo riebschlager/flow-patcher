@@ -1,8 +1,8 @@
 import { OfflineAudioContext } from 'node-web-audio-api';
 import { describe, expect, it } from 'vitest';
-import { VoicePool, type AudioContextLike, type AudioInstance, type NoteEvent } from '@flow-patcher/engine';
+import { STEAL_FADE, VoicePool, type AudioContextLike, type AudioInstance, type NoteEvent } from '@flow-patcher/engine';
 import { instrumentCache } from '../src/instruments';
-import { sampledVoice, STEAL_FADE } from '../src/sampled-voice';
+import { sampledVoice } from '../src/sampled-voice';
 import { midiToHz, simpleSynth } from '../src/simple-synth';
 import { blockLoudness, renderOffline, type RenderedAudio } from '../../../tools/lib/audio';
 import { audioSetup, vendorSamples } from './helpers';

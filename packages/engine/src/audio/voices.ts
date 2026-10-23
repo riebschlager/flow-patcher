@@ -51,6 +51,12 @@ export interface VoiceHandle {
   readonly stolen: boolean;
 }
 
+/** Seconds a stolen voice takes to fade before its source stops (Flow's 64-voice cut). */
+export const STEAL_FADE = 0.05;
+
+/** When a voice is silent: its release end, or its steal plus STEAL_FADE. */
+export const voiceEnd = (voice: { readonly handle: VoiceHandle }): number => (voice.handle.stolen ? voice.handle.end + STEAL_FADE : voice.handle.end);
+
 /**
  * What an audio node sees of the pool (`AudioSetupContext.voices`): the pool
  * itself, or the runtime's per-node view of it (`VoicePool.forNode`), which

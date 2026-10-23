@@ -1,5 +1,4 @@
-import { isNoteEvent, type AudioNodeLike, type EngineEvent, type NodeDefinition, type VoiceHandle } from '@flow-patcher/engine';
-import { STEAL_FADE } from './sampled-voice';
+import { isNoteEvent, STEAL_FADE, voiceEnd, type AudioNodeLike, type EngineEvent, type NodeDefinition, type VoiceHandle } from '@flow-patcher/engine';
 
 export const midiToHz = (pitch: number): number => 440 * 2 ** ((pitch - 69) / 12);
 
@@ -7,9 +6,6 @@ interface Voice {
   nodes: AudioNodeLike[];
   handle: VoiceHandle;
 }
-
-/** When a voice is silent: its release end, or its steal plus the fade. */
-const voiceEnd = (voice: Voice) => (voice.handle.stolen ? voice.handle.end + STEAL_FADE : voice.handle.end);
 
 export const simpleSynth: NodeDefinition = {
   type: 'simple-synth',

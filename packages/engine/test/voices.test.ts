@@ -8,7 +8,9 @@ import {
   ManualClock,
   Runtime,
   Scheduler,
+  STEAL_FADE,
   VOICE_LIMIT,
+  voiceEnd,
   VoicePool,
   type AudioContextLike,
   type EngineEvent,
@@ -27,6 +29,13 @@ function pool(size = VOICE_LIMIT) {
   const claim = (id: string, start: number, end: number) => voices.claim({ start, end, stop: (at) => void stops.push(`${id}@${at}`) });
   return { voices, stops, claim, set: (t: number) => void (now = t) };
 }
+
+describe('voiceEnd', () => {
+  it('is the release end, or the steal plus STEAL_FADE', () => {
+    expect(voiceEnd({ handle: { start: 0, end: 2, stolen: false } })).toBe(2);
+    expect(voiceEnd({ handle: { start: 0, end: 1, stolen: true } })).toBe(1 + STEAL_FADE);
+  });
+});
 
 describe('VoicePool', () => {
   it('holds 64 voices, and the 65th steals the earliest start, stopped at the new start', () => {

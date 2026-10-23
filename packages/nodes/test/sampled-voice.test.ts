@@ -4,9 +4,9 @@
 // against the runtime pool instead of WebAudioFont's envelope list.
 import { OfflineAudioContext } from 'node-web-audio-api';
 import { describe, expect, it } from 'vitest';
-import { resolveParams, VoicePool, type AudioContextLike, type AudioInstance, type HostServices, type NoteEvent, type StatusContext } from '@flow-patcher/engine';
+import { resolveParams, STEAL_FADE, VoicePool, type AudioContextLike, type AudioInstance, type HostServices, type NoteEvent, type StatusContext } from '@flow-patcher/engine';
 import { instrumentCache } from '../src/instruments';
-import { sampledVoice, skippedNotes, STEAL_FADE } from '../src/sampled-voice';
+import { sampledVoice, skippedNotes } from '../src/sampled-voice';
 import { blockLoudness, type RenderedAudio } from '../../../tools/lib/audio';
 import { audioSetup, vendorSamples } from './helpers';
 
