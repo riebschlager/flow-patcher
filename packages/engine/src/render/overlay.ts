@@ -99,20 +99,23 @@ export function planUpscale(width: number, height: number, scale: number): Upsca
  * Bilinear upscale of `src` by `scale` into `out` (scale × the size), sampling
  * at pixel centers with edges clamped, as a browser's smoothed drawImage does.
  * Pass a `plan` from `planUpscale` for these sizes to skip building its tables.
+ * Throws unless `out` is exactly (src.width × scale) × (src.height × scale)
+ * with a pixel buffer to match, so no pixel is left unwritten.
  */
 export function upscaleInto(src: Picture, scale: number, out: Picture, plan?: UpscalePlan): void {
   const { width: w, height: h, pixels: from } = src;
   const W = out.width, H = out.height, to = out.pixels;
+  if (!Number.isInteger(scale) || scale < 1 || W !== w * scale || H !== h * scale || to.length !== W * H * 4 || from.length !== w * h * 4) {
+    throw new RangeError(`upscaleInto: a ${w} × ${h} picture by ${scale} needs a ${w * scale} × ${h * scale} target, got ${W} × ${H} (${to.length / 4} pixels)`);
+  }
   const usable = plan && plan.width === w && plan.height === h && plan.scale === scale ? plan : planUpscale(w, h, scale);
   const { cols, rows, across } = usable;
   // Two passes: across each source row, then down. Each output channel is the same
   // lerp(lerp(a, b, fx), lerp(c, d, fx), fy) as a one-pass bilinear, so the bytes match, but the
   // across-lerps are done once per source row instead of once per output row.
-  const n = w * scale;
-  const Wn = Math.min(W, n), Hn = Math.min(H, h * scale);
   for (let j = 0; j < h; j++) {
-    const row = j * w, base = j * n * 4;
-    for (let x = 0; x < Wn; x++) {
+    const row = j * w, base = j * W * 4;
+    for (let x = 0; x < W; x++) {
       const a = (row + cols.i0[x]!) * 4, b = (row + cols.i1[x]!) * 4, fx = cols.f[x]!, o = base + x * 4;
       across[o] = from[a]! + (from[b]! - from[a]!) * fx;
       across[o + 1] = from[a + 1]! + (from[b + 1]! - from[a + 1]!) * fx;
@@ -120,10 +123,10 @@ export function upscaleInto(src: Picture, scale: number, out: Picture, plan?: Up
       across[o + 3] = from[a + 3]! + (from[b + 3]! - from[a + 3]!) * fx;
     }
   }
-  for (let y = 0; y < Hn; y++) {
-    const top = rows.i0[y]! * n * 4, bottom = rows.i1[y]! * n * 4, fy = rows.f[y]!;
+  for (let y = 0; y < H; y++) {
+    const top = rows.i0[y]! * W * 4, bottom = rows.i1[y]! * W * 4, fy = rows.f[y]!;
     const o = y * W * 4;
-    for (let k = 0; k < Wn * 4; k++) {
+    for (let k = 0; k < W * 4; k++) {
       const t = across[top + k]!;
       to[o + k] = t + (across[bottom + k]! - t) * fy;
     }

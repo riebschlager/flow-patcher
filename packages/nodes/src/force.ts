@@ -13,6 +13,17 @@
 // can't read a signal back in time: sources such as Pointer answer earlier
 // times from their latest state (NodeState in definition.ts).
 //
+// What that means with such a source (pure signals, like Clock's Phase, are
+// exact at every tick):
+// - A frame that holds several ticks (below 20 fps, or after a skipped
+//   frame) reads the same latest state at each. The first tick gets all the
+//   motion since the last sample and the rest get none: the impulse bunches
+//   into one push instead of spreading out, but none of it is lost.
+// - At a frame rate that doesn't divide 50 ms, the state read at successive
+//   ticks is a whole number of frames apart, not exactly 50 ms. At 144 Hz
+//   that's 7 or 8 frames (48.6 or 55.6 ms), so the push strength wobbles from
+//   about -3% to +11% tick to tick.
+//
 // Changed from Flow (also in docs/nodes/visual.md):
 // - Timing: Flow pushed at most once per 50 ms of wall clock, from whichever
 //   frame came first (about 15 pushes a second at 60 Hz). Force pushes on a
