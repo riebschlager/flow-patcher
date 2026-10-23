@@ -1847,6 +1847,260 @@
    "index": 31
   }
  ],
+ "math-ramp.flowpatch": [
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "bar",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 0,
+   "channel": 0,
+   "index": 0,
+   "pitch": 55,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0.28846153846153844,
+   "channel": 0,
+   "index": 1
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 0.28846153846153844,
+   "channel": 0,
+   "index": 1,
+   "pitch": 57,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0.5769230769230769,
+   "channel": 0,
+   "index": 2
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 0.5769230769230769,
+   "channel": 0,
+   "index": 2,
+   "pitch": 58,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0.8653846153846153,
+   "channel": 0,
+   "index": 3
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 0.8653846153846153,
+   "channel": 0,
+   "index": 3,
+   "pitch": 60,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.1538461538461537,
+   "channel": 0,
+   "index": 4
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 1.1538461538461537,
+   "channel": 0,
+   "index": 4,
+   "pitch": 61,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.4423076923076923,
+   "channel": 0,
+   "index": 5
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 1.4423076923076923,
+   "channel": 0,
+   "index": 5,
+   "pitch": 62,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.7307692307692306,
+   "channel": 0,
+   "index": 6
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 1.7307692307692306,
+   "channel": 0,
+   "index": 6,
+   "pitch": 62,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.019230769230769,
+   "channel": 0,
+   "index": 7
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 2.019230769230769,
+   "channel": 0,
+   "index": 7,
+   "pitch": 62,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.3076923076923075,
+   "channel": 0,
+   "index": 8
+  },
+  {
+   "node": "bar",
+   "port": "tick",
+   "time": 2.3076923076923075,
+   "channel": 0,
+   "index": 1
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 2.3076923076923075,
+   "channel": 0,
+   "index": 8,
+   "pitch": 55,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.5961538461538463,
+   "channel": 0,
+   "index": 9
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 2.5961538461538463,
+   "channel": 0,
+   "index": 9,
+   "pitch": 57,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.8846153846153846,
+   "channel": 0,
+   "index": 10
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 2.8846153846153846,
+   "channel": 0,
+   "index": 10,
+   "pitch": 58,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.173076923076923,
+   "channel": 0,
+   "index": 11
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 3.173076923076923,
+   "channel": 0,
+   "index": 11,
+   "pitch": 60,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.4615384615384612,
+   "channel": 0,
+   "index": 12
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 3.4615384615384612,
+   "channel": 0,
+   "index": 12,
+   "pitch": 61,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.75,
+   "channel": 0,
+   "index": 13
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 3.75,
+   "channel": 0,
+   "index": 13,
+   "pitch": 62,
+   "velocity": 0.7,
+   "duration": 0.15
+  }
+ ],
  "pointer-notes.flowpatch": [
   {
    "node": "pointer",
