@@ -1,6 +1,6 @@
 # 0030 · Overlays draw into the Renderer's picture, in pure TS
 
-Status: Proposed · 2026-10-23
+Status: Accepted · 2026-10-23
 
 ## Context
 Orbit Rings is the first overlay: a picture drawn over the fluid rather than written into it. Ripple, Droplet, Halo, Motes, Trace and Text follow in M3 (ADR 0012). There's no contract for how an overlay reaches the canvas. Three things constrain it:
