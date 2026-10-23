@@ -836,7 +836,7 @@ export class Runtime {
   pushFellBack(nodeId: string, applied: number): void {
     const held = this.nodeWarnings.get(nodeId)?.get('push-fallback');
     this.warn(nodeId, 'push-fallback', 1, applied, held?.message
-      ?? `Live input to node "${nodeId}" arrived while the page was hidden and was too costly to apply at once, so it played late, from the end of the lookahead`);
+      ?? 'Live input came in while the page was hidden and would have cost too much to apply at once, so it played up to about a second late.');
   }
 
   /**
@@ -1262,9 +1262,14 @@ export class Runtime {
   /**
    * Rewinds for the live event `entry`, already in `injected`. If a node throws
    * while the re-run includes the event, the event is dropped: it comes out of
-   * `injected`, and the nodes are restored and re-run again without it, so
-   * state, the log and audio deliveries are as if it had never been pushed.
-   * The node that threw gets a 'rewind-error' warning. If the re-run without
+   * `injected`, and the nodes are restored and re-run again without it. Node
+   * state, cap counts, the log and deliveries to audio nodes with cancel() end
+   * up as without the event. What can't be taken back stays (ADR 0026): what an
+   * audio node without cancel() was sent, voice steals, cap warnings the failed
+   * re-run already raised through onWarning, the delivered and cancelled
+   * counters, and frame-queue entries trimmed at FRAME_QUEUE_LIMIT.
+   * The node that threw gets a 'rewind-error' warning, or the pushing node
+   * when the one that threw is no longer in the plan. If the re-run without
    * the event throws too, the node fails whatever the event, and that error
    * propagates.
    */
@@ -1276,7 +1281,9 @@ export class Runtime {
     try {
       return this.rerunFrom(first, t, affected, followed, timing, taken);
     } catch (error) {
-      const node = this.running ?? entry.node;
+      // A node only an older plan has wouldn't show in warnings(): blame the pushing node then.
+      const thrower = this.running ?? entry.node;
+      const node = this.stage.byId.has(thrower) ? thrower : entry.node;
       // What the event's re-run took back is what the log loses; the second take-back only undoes its partial output.
       const removed = taken.removed;
       const at = this.injected.indexOf(entry);
@@ -1286,8 +1293,8 @@ export class Runtime {
       const message = error instanceof Error ? error.message : String(error);
       const held = this.nodeWarnings.get(node)?.get('rewind-error');
       this.warn(node, 'rewind-error', 1, t, held?.message
-        ?? `Node "${node}" failed while re-running for a live event from "${entry.node}", so that event was dropped: ${message}`);
-      return { ...report, removed, queries: this.counters.queries - queriesBefore, dropped: { node, message } };
+        ?? `Node "${thrower}" failed while re-running for a live event from "${entry.node}", so that event was dropped: ${message}`);
+      return { ...report, removed, queries: this.counters.queries - queriesBefore, dropped: { node: thrower, message } };
     } finally {
       this.running = null;
     }
@@ -1298,6 +1305,8 @@ export class Runtime {
     const history = this.history!;
     const start = history[first]!;
     const scope: Scope = { only: affected, follow: followed };
+    // Left over from a query or swap that threw: don't blame that node for what fails here.
+    this.running = null;
 
     for (const id of [...affected, ...followed]) this.restore(id, start);
     // The re-run counts the affected nodes' events against the caps again, from the snapshot's count.

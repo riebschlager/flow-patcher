@@ -270,7 +270,10 @@ export class Scheduler {
    * falls back (ADR 0026): it is applied at the horizon, which re-queries
    * nothing, counted in `pushFallbacks` and warned on the node. The returned
    * event has the applied time, and that is what is logged, so a recorded
-   * input stream replays the same. Visible pushes always rewind.
+   * input stream replays the same. Visible pushes always rewind. If the clock
+   * hasn't moved since the horizon was set (a second push at once, or held
+   * pushes replayed by the resume wake), nothing new is queried, and the next
+   * wake delivers it.
    */
   push(nodeId: string, port: string, fields: Omit<EngineEvent, 'time'>): EngineEvent | null {
     if (this.clock.running && !this.clock.running()) {
@@ -299,6 +302,9 @@ export class Scheduler {
     const queriesBefore = this.runtime.counters.queries;
     let rewind: PushCost['rewind'] = null;
     const report = this.runtime.push(nodeId, port, event, { now, path: 'immediate' });
+    // The rewind's own cost, for the ms-per-query average: without the log update or a wake.
+    const pushed = this.clock.wallTime();
+    const pushQueries = this.runtime.counters.queries - queriesBefore;
     if (fallback) {
       this.own.pushFallbacks++;
       this.runtime.pushFellBack(nodeId, time);
@@ -318,9 +324,9 @@ export class Scheduler {
     }
     const queries = this.runtime.counters.queries - queriesBefore;
     const ms = this.clock.wallTime() - started;
-    if (report && queries > 0) {
-      const mode = hidden ? 'hidden' : 'visible', last = this.msPerQuery[mode];
-      this.msPerQuery[mode] = last === null ? ms / queries : last + COST_SMOOTHING * (ms / queries - last);
+    if (report && pushQueries > 0) {
+      const mode = hidden ? 'hidden' : 'visible', last = this.msPerQuery[mode], perQuery = (pushed - started) / pushQueries;
+      this.msPerQuery[mode] = last === null ? perQuery : last + COST_SMOOTHING * (perQuery - last);
     }
     this.own.pushes++;
     this.own.pushQueries += queries;
