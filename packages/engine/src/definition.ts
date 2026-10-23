@@ -22,6 +22,9 @@ export interface PortSpec {
   label?: string;
   /** Field ports only: a Write output feeds only a Writers input. Default 'fluid'. */
   fieldKind?: FieldKind;
+  /** Inputs only: what the editor tells the user while no cable comes in, when the node then does
+   *  something they might not expect (Progression holding its first chord with no Transport). */
+  unwiredHint?: string;
 }
 
 export type FieldKind = 'fluid' | 'write';

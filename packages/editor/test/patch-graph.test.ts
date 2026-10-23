@@ -1,9 +1,9 @@
 // Param cables in the graph: handles that can't collide with ports, and the editor's connection rules for them.
 import { describe, expect, it } from 'vitest';
-import { parsePatch, type Patch } from '@flow-patcher/engine';
+import { parsePatch, type Patch, type PortSpec } from '@flow-patcher/engine';
 import { nodeRegistry } from '@flow-patcher/nodes';
 import { readFileSync } from 'node:fs';
-import { cableFor, handleParam, handlePort, paramHandle, patchToGraph } from '../src/patch-graph';
+import { adaptersBetween, cableFor, handleParam, handlePort, loadErrors, paramHandle, patchToGraph } from '../src/patch-graph';
 import { snapTo } from '../src/drag-edit';
 import { formatParam, parseTyped } from '../src/param-format';
 
@@ -75,5 +75,44 @@ describe('number fields', () => {
     expect(formatParam({ name: 'v', kind: 'number', min: 0, max: 1, default: 0 }, 0.8)).toBe('0.800');
     expect(parseTyped('−12 MIDI')).toBe(-12);
     expect(parseTyped('abc')).toBeNaN();
+  });
+});
+
+describe('adapter offer', () => {
+  const port = (type: PortSpec['type'], direction: PortSpec['direction']): PortSpec => ({ name: 'p', type, direction });
+  const names = (from: PortSpec, to: PortSpec) => adaptersBetween(nodeRegistry, from, to).map((o) => [o.definition.type, o.input.name, o.output.name]);
+
+  it('offers the adapter that converts one type into the other, in each direction', () => {
+    expect(names(port('event', 'out'), port('signal', 'in'))).toEqual([['sample-and-hold', 'trigger', 'out']]);
+    // A Note is an Event, so it takes the same adapter.
+    expect(names(port('note', 'out'), port('signal', 'in'))).toEqual([['sample-and-hold', 'trigger', 'out']]);
+    expect(names(port('signal', 'out'), port('event', 'in'))).toEqual([['threshold-change', 'in', 'out']]);
+  });
+
+  it('offers nothing when the types connect already, or nothing converts them', () => {
+    expect(names(port('event', 'out'), port('event', 'in'))).toEqual([]);
+    expect(names(port('value', 'out'), port('signal', 'in'))).toEqual([]);
+    expect(names(port('audio', 'out'), port('event', 'in'))).toEqual([]);
+  });
+});
+
+describe('opening a file', () => {
+  it('opens a loop with no delay edge, so its nodes can show it, but refuses what else would not compile', () => {
+    const loop = example('clock-blips');
+    loop.cables.push({ from: { node: 'maybe', port: 'out' }, to: { node: 'maybe', port: 'in' } });
+    expect(loadErrors(loop, nodeRegistry)).toEqual([]);
+    const unknown = example('clock-blips');
+    unknown.nodes[0] = { ...unknown.nodes[0]!, type: 'no-such-node' };
+    expect(loadErrors(unknown, nodeRegistry)[0]).toBe('node "clock": unknown type "no-such-node"');
+  });
+});
+
+describe('unwired hints', () => {
+  it("shows an input's hint while no cable comes in", () => {
+    const doc = example('chord-progression');
+    const hints = (p: Patch) => patchToGraph(p, nodeRegistry).nodes.find((n) => n.id === 'prog')!.data.hints;
+    expect(hints(doc)).toEqual([]);
+    const unwired = { ...doc, cables: doc.cables.filter((c) => !(c.to.node === 'prog' && c.to.port === 'transport')) };
+    expect(hints(unwired)).toEqual(['No transport: holding the first chord']);
   });
 });

@@ -653,6 +653,46 @@ export class Runtime {
     return v === undefined || Number.isNaN(v) ? undefined : v;
   }
 
+  /**
+   * A Signal port at time t in the latest plan, for the editor's probes: an output as its node computes it,
+   * an input as its node reads it (every cable in, summed). Undefined for an unknown node or port. Like
+   * `paramAt`, it reads state as the latest query left it, so a stateful source can lead what you hear.
+   */
+  signalAt(nodeId: string, port: string, t: number, channel = 0): number | undefined {
+    const spec = this.portSpec(nodeId, port, 'signal');
+    if (!spec) return undefined;
+    const context = this.stage.contexts.get(nodeId)!;
+    return spec.direction === 'in' ? context.signal(port, t, channel) : (this.stage.byId.get(nodeId)!.definition.signal?.(context, port, t, channel) ?? 0);
+  }
+
+  /** A Value port at time t in the latest plan, for the editor's probes: an output as its node computes it,
+   *  an input as its node reads it (undefined with no cable in). Undefined for an unknown node or port. */
+  valueAt(nodeId: string, port: string, t: number): unknown {
+    const spec = this.portSpec(nodeId, port, 'value');
+    if (!spec) return undefined;
+    const context = this.stage.contexts.get(nodeId)!;
+    return spec.direction === 'in' ? context.value(port, t) : this.stage.byId.get(nodeId)!.definition.value?.(context, port, t);
+  }
+
+  /**
+   * What a node emitted on an output port in [t0, t1), live events included, in time order, for the
+   * editor's probes and cable flashes. Only with history (the Scheduler keeps it), and only from
+   * `retainedFrom` on: events after currentTime can still be replaced by a rewind or a swap.
+   */
+  eventsAt(nodeId: string, port: string, t0: number, t1: number): readonly Readonly<EngineEvent>[] {
+    return (this.emitted.get(nodeId)?.get(port) ?? []).filter((e) => e.time >= t0 && e.time < t1);
+  }
+
+  /** The start of the oldest retained window: `eventsAt` has nothing earlier. Null without history or before the first window. */
+  get retainedFrom(): number | null {
+    return this.history?.[0]?.t0 ?? null;
+  }
+
+  private portSpec(nodeId: string, port: string, type: PortSpec['type']): PortSpec | undefined {
+    const definition = this.stage.byId.get(nodeId)?.definition;
+    return definition?.ports.find((p) => p.name === port && p.type === type);
+  }
+
   /** Turns on window snapshots, so `push` can rewind into windows already queried.
    *  `wallTime` (milliseconds) times the snapshots for `counters.snapshotMs`. */
   keepHistory(wallTime?: () => number): void {

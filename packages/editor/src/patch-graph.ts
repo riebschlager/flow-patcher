@@ -17,6 +17,10 @@ export interface PatchNodeData extends Record<string, unknown> {
   params: Record<string, ParamValue>;
   /** Params with a cable in. */
   modulated: string[];
+  /** What the node's unwired inputs say about it (`PortSpec.unwiredHint`), in port order. */
+  hints: string[];
+  /** In a loop with no delay edge: the document doesn't compile, and the last plan that did keeps playing. */
+  inCycle?: boolean;
 }
 
 type Registry = ReadonlyMap<string, NodeDefinition>;
@@ -44,6 +48,7 @@ export function patchToGraph(patch: Patch, registry: Registry, selected: Readonl
       type: node.type,
       params: node.params,
       modulated: [...new Set(patch.cables.filter((c) => c.to.node === node.id && !portOf(registry, node.type, 'in', c.to.port) && modulatableParam(registry, node.type, c.to.port)).map((c) => c.to.port))],
+      hints: unwiredHints(patch, registry.get(node.type), node.id),
     },
   }));
   const typeOf = new Map(patch.nodes.map((node) => [node.id, node.type]));
@@ -72,6 +77,13 @@ export function patchToGraph(patch: Patch, registry: Registry, selected: Readonl
     }];
   });
   return { nodes, edges };
+}
+
+function unwiredHints(patch: Patch, definition: NodeDefinition | undefined, id: string): string[] {
+  if (!definition) return [];
+  return portsOf(definition, 'in')
+    .filter((p) => p.unwiredHint && !patch.cables.some((c) => c.to.node === id && c.to.port === p.name))
+    .map((p) => p.unwiredHint!);
 }
 
 /** A number param on `type` that takes a cable. */
@@ -108,7 +120,8 @@ export function cableFor(patch: Patch, registry: Registry, connection: Connectio
 }
 
 /** Why a document can't be opened into the editor: it doesn't compile, or two cables share both ends
- *  (each cable's edge id is its ends). Empty when it can. */
+ *  (each cable's edge id is its ends). Empty when it can. A loop with no delay edge is no reason: the
+ *  editor opens it and shows the loop on its nodes, so it can be fixed there. */
 export function loadErrors(patch: Patch, registry: Registry): string[] {
   const seen = new Set<string>();
   const duplicates = patch.cables.flatMap((cable, i) => {
@@ -118,7 +131,27 @@ export function loadErrors(patch: Patch, registry: Registry): string[] {
     return [];
   });
   const compiled = compilePatch(patch, registry);
-  return [...duplicates, ...(compiled.ok ? [] : compiled.errors)];
+  // The compiler reports loops only once everything else checks out, and then nothing but the loops.
+  return [...duplicates, ...(compiled.ok || compiled.cycles?.length ? [] : compiled.errors)];
+}
+
+/** A node type that converts between port types (`NodeDefinition.adapter`), offered for a cable that can't connect. */
+export interface AdapterOffer {
+  definition: NodeDefinition;
+  input: PortSpec;
+  output: PortSpec;
+}
+
+/** The adapters that fit between an output and an input whose types can't connect, in registry order.
+ *  Empty when the two can connect already, or nothing converts one into the other. */
+export function adaptersBetween(registry: Registry, from: PortSpec, to: PortSpec): AdapterOffer[] {
+  if (portsCompatible(from, to)) return [];
+  return [...registry.values()].flatMap((definition) => {
+    const adapter = definition.adapter;
+    const input = adapter && portsOf(definition, 'in').find((p) => p.name === adapter.input);
+    const output = adapter && portsOf(definition, 'out').find((p) => p.name === adapter.output);
+    return input && output && portsCompatible(from, input) && portsCompatible(output, to) ? [{ definition, input, output }] : [];
+  });
 }
 
 /** A port a cable was dragged from, on its way to the palette. */

@@ -249,3 +249,44 @@ describe('fan-in compile errors', () => {
     expect(result.ok ? [] : result.errors).toEqual(['cycle without a delay edge through: e1 → e2 → e1']);
   });
 });
+
+describe('probes: Runtime.signalAt, valueAt and eventsAt', () => {
+  it('reads a Signal output as its node computes it, and an input as its node reads it', () => {
+    const rt = runtime(patch([node('a', 'lfo', { level: 1 }), node('b', 'lfo', { level: 2 }), node('r', 'reader')], [cable('a', 'out', 'r', 'sig'), cable('b', 'out', 'r', 'sig')]));
+    expect(rt.signalAt('a', 'out', 0)).toBe(1);
+    expect(rt.signalAt('a', 'out', 0.5, 1)).toBe(111);
+    // The input sums both cables.
+    expect(rt.signalAt('r', 'sig', 0)).toBe(3);
+    expect(rt.signalAt('r', 'sig', 0.5, 1)).toBe(223);
+    expect(rt.signalAt('r', 'trig', 0)).toBeUndefined();
+    expect(rt.signalAt('missing', 'out', 0)).toBeUndefined();
+  });
+
+  it('reads a Value output, and an input through its cable', () => {
+    const rt = runtime(patch([node('o', 'once', { at: 0.25 }), node('ch', 'chooser'), node('r', 'reader')], [cable('o', 'out', 'ch', 'set'), cable('ch', 'out', 'r', 'chord')]));
+    rt.query(0, 1);
+    expect(rt.valueAt('ch', 'out', 0.1)).toBe('none');
+    expect(rt.valueAt('ch', 'out', 0.3)).toBe('o');
+    expect(rt.valueAt('r', 'chord', 0.3)).toBe('o');
+    expect(rt.valueAt('r', 'sig', 0.3)).toBeUndefined();
+    const unwired = runtime(patch([node('r', 'reader')], []));
+    expect(unwired.valueAt('r', 'chord', 0)).toBeUndefined();
+  });
+
+  it('gives what an output emitted in a span, only with history, and from the oldest retained window on', () => {
+    const p = patch([node('m', 'metro')], []);
+    expect(runtime(p).eventsAt('m', 'out', 0, 1)).toEqual([]);
+    const result = compilePatch(p, definitions);
+    if (!result.ok) throw new Error(result.errors.join('\n'));
+    const rt = new Runtime(result.plan, { history: true });
+    expect(rt.retainedFrom).toBeNull();
+    rt.query(0, 0.5);
+    rt.query(0.5, 1);
+    expect(rt.retainedFrom).toBe(0);
+    expect(rt.eventsAt('m', 'out', 0.2, 0.6).map((e) => e.time)).toEqual([0.25, 0.375, 0.5]);
+    expect(rt.eventsAt('m', 'nope', 0, 1)).toEqual([]);
+    rt.retain(0.6);
+    expect(rt.retainedFrom).toBe(0.5);
+    expect(rt.eventsAt('m', 'out', 0, 1).map((e) => e.time)).toEqual([0.5, 0.625, 0.75, 0.875]);
+  });
+});

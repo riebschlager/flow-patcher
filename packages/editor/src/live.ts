@@ -14,13 +14,17 @@ import {
   Runtime,
   Scheduler,
   type AudioContextLike,
+  type EngineEvent,
   type FluidHostStats,
   type HostServices,
   type NodeStatus,
+  type NodeWarning,
   type Patch,
   type Plan,
+  type PortType,
   type SchedulerStats,
   type StatusContext,
+  type VoiceStats,
 } from '@flow-patcher/engine';
 import { nodeRegistry, rendererImage } from '@flow-patcher/nodes';
 
@@ -84,10 +88,67 @@ async function fetchSample(file: string): Promise<string> {
   return response.text();
 }
 
-export type { NodeStatus };
+export type { NodeStatus, NodeWarning, VoiceStats };
 
-/** What `update` did with a document: swapped it in, or kept the last plan because it doesn't compile. */
-export type UpdateResult = { ok: true } | { ok: false; errors: string[] };
+/** What `update` did with a document: swapped it in, or kept the last plan because it doesn't compile.
+ *  `cycles` lists the node ids of each loop with no delay edge, when that's why. */
+export type UpdateResult = { ok: true } | { ok: false; errors: string[]; cycles: string[][] };
+
+/** How far back a probe's history reaches, seconds (design system Probe: "−2.0 s … now"). */
+export const PROBE_HISTORY = 2;
+
+/** What a probe shows of one port, as of `now` (the audio clock less the output latency: what you hear). */
+export interface ProbeView {
+  type: PortType;
+  now: number;
+  /** Event and Note: what sounded in the last PROBE_HISTORY seconds, oldest first. */
+  events: Readonly<EngineEvent>[];
+  /** Signal: channel 0 sampled once a frame over the last PROBE_HISTORY seconds, oldest first. */
+  samples: { t: number; v: number }[];
+  /** Value: the latest value; Signal: the latest sample. */
+  value: unknown;
+}
+
+/** An Event output's events as they sound: read ahead each frame, so what the runtime has stopped retaining
+ *  since the last frame (`Runtime.retainedFrom`) still comes from the copy read then. */
+class EventTrack {
+  /** Events past the last frame's `now`, as read then. */
+  private ahead: Readonly<EngineEvent>[] = [];
+  /** What sounded in the last frame, and over the history. */
+  sounded: Readonly<EngineEvent>[] = [];
+  readonly history: Readonly<EngineEvent>[] = [];
+  users = 0;
+
+  constructor(readonly node: string, readonly port: string, private prev: number) {}
+
+  update(runtime: Runtime, now: number): void {
+    const prev = this.prev;
+    this.prev = now;
+    if (now <= prev) {
+      this.sounded = [];
+      return;
+    }
+    const from = runtime.retainedFrom ?? -Infinity;
+    const fresh = runtime.eventsAt(this.node, this.port, prev, Infinity).filter((e) => e.time > prev);
+    // What the runtime no longer retains comes from earlier reads. It prunes by currentTime, ahead of `now` by the output latency.
+    const kept = this.ahead.filter((e) => e.time > prev && e.time < from);
+    this.sounded = [...kept.filter((e) => e.time <= now), ...fresh.filter((e) => e.time <= now)];
+    this.ahead = [...kept.filter((e) => e.time > now), ...fresh.filter((e) => e.time > now)];
+    this.history.push(...this.sounded);
+    let old = 0;
+    while (old < this.history.length && this.history[old]!.time <= now - PROBE_HISTORY) old++;
+    this.history.splice(0, old);
+  }
+}
+
+interface ProbeTrack {
+  node: string;
+  port: string;
+  view: ProbeView;
+  listeners: Set<() => void>;
+  /** The Event outputs it shows: the port itself, or for an input, every Event cable's source. */
+  sources: EventTrack[];
+}
 
 export interface LiveStatus {
   audio: AudioContextState;
@@ -128,6 +189,11 @@ export class LivePatch {
   private raf = 0;
   private workerStalled = false;
   private readonly listeners = new Set<() => void>();
+  private warningsSeen = -1;
+  /** Event outputs being followed, by `node.port`: for probes and for cable flashes. */
+  private readonly eventTracks = new Map<string, EventTrack>();
+  private readonly probes = new Map<string, ProbeTrack>();
+  private readonly firing = new Map<string, Set<() => void>>();
   private readonly onVisibility = () => this.scheduler.wake();
 
   /** Starts with an empty patch; `update` brings the document in. */
@@ -138,7 +204,8 @@ export class LivePatch {
     this.fluid = createFluidWorker();
     this.services = { fluid: this.fluid.host, samples: fetchSample };
     this.runtime = new Runtime(compiled.plan, { services: this.services });
-    this.runtime.onWarning = (message) => console.warn(`[live] ${message}`);
+    // The cards show warnings (`warnings`); the console keeps a line for each one raised.
+    this.runtime.onWarning = (message) => console.debug(`[live] warning: ${message}`);
     this.context = new AudioContext({ latencyHint: 'interactive' });
     this.audio = this.observeStarts(this.context);
     this.runtime.attachAudio(this.audio);
@@ -193,7 +260,7 @@ export class LivePatch {
     const key = JSON.stringify([patch.seed, patch.nodes.map(({ id, type, typeVersion, params }) => [id, type, typeVersion, params]), patch.cables]);
     if (key === this.planKey) return { ok: true };
     const compiled = compilePatch(patch, nodeRegistry);
-    if (!compiled.ok) return { ok: false, errors: compiled.errors };
+    if (!compiled.ok) return { ok: false, errors: compiled.errors, cycles: (compiled.cycles ?? []).map((c) => c.nodes) };
     this.scheduler.swap(compiled.plan);
     this.planKey = key;
     this.adopt(compiled.plan);
@@ -210,6 +277,65 @@ export class LivePatch {
   retry(nodeId: string): void {
     const node = this.plan.order.find((n) => n.id === nodeId);
     node?.definition.retry?.(this.statusContext(node.id, node.params));
+  }
+
+  /** A node's warnings from the running patch (event caps, voice steals), in kind order. */
+  warnings(nodeId: string): NodeWarning[] {
+    return this.runtime.warnings(nodeId);
+  }
+
+  /** Dismisses a node's warnings; one that happens again is raised again. */
+  clearWarnings(nodeId: string): void {
+    this.runtime.clearWarnings(nodeId);
+    this.emit();
+  }
+
+  /** Voices in use against the pool's limit, and steals, for the budget readout. */
+  voiceStats(): VoiceStats {
+    return this.runtime.voiceStats();
+  }
+
+  /**
+   * Follows a port for a probe until the returned function is called: `listener` runs each frame it changes,
+   * and `probe` reads it. Event and Note ports keep what sounded, Signal ports a sample a frame, over the
+   * last PROBE_HISTORY seconds; Value ports their latest value. An Event input shows every cable into it.
+   */
+  watchProbe(node: string, port: string, type: PortType, listener: () => void): () => void {
+    const key = `${node}.${port}`;
+    let track = this.probes.get(key);
+    if (!track) {
+      track = { node, port, view: { type, now: this.heard(), events: [], samples: [], value: undefined }, listeners: new Set(), sources: [] };
+      this.probes.set(key, track);
+      this.followProbe(track);
+    }
+    track.listeners.add(listener);
+    const it = track;
+    return () => {
+      it.listeners.delete(listener);
+      if (it.listeners.size || this.probes.get(key) !== it) return;
+      this.probes.delete(key);
+      for (const source of it.sources) this.release(source);
+    };
+  }
+
+  /** The latest view of a watched port, or null when nothing watches it. */
+  probe(node: string, port: string): ProbeView | null {
+    return this.probes.get(`${node}.${port}`)?.view ?? null;
+  }
+
+  /** Calls `listener` on each frame in which an Event output sent something that's now sounding, until the returned function is called. */
+  watchFiring(node: string, port: string, listener: () => void): () => void {
+    const key = `${node}.${port}`;
+    const track = this.follow(node, port);
+    let set = this.firing.get(key);
+    if (!set) this.firing.set(key, (set = new Set()));
+    set.add(listener);
+    const it = set;
+    return () => {
+      it.delete(listener);
+      if (!it.size && this.firing.get(key) === it) this.firing.delete(key);
+      this.release(track);
+    };
   }
 
   get stats(): SchedulerStats {
@@ -297,6 +423,11 @@ export class LivePatch {
   private frame(): void {
     this.frameCounts.frames++;
     this.frames.tick();
+    this.followPorts();
+    if (this.runtime.warningsVersion !== this.warningsSeen) {
+      this.warningsSeen = this.runtime.warningsVersion;
+      this.emit();
+    }
     const image = this.renderer ? rendererImage(this.runtime.stateOf(this.renderer) ?? {}) : null;
     if (image) this.frameCounts.drawn++;
     this.draw(image);
@@ -311,9 +442,71 @@ export class LivePatch {
     this.renderer = plan.order.find((node) => node.definition.type === 'renderer')?.id ?? null;
     this.hasFluid = plan.order.some((node) => node.definition.type === 'fluid');
     if (!this.renderer || !this.hasFluid) this.splashes.length = 0;
+    // An Event input's probe shows the cables into it in this plan.
+    for (const track of this.probes.values()) this.followProbe(track);
     for (const unwatch of this.unwatch) unwatch();
     this.unwatch = plan.order.flatMap((node) => node.definition.watchStatus?.(this.statusContext(node.id, node.params), () => this.emit()) ?? []);
     this.emit();
+  }
+
+  /** The audio clock as you hear it: currentTime less the output latency. */
+  private heard(): number {
+    return this.context.currentTime - outputLatencyOf(this.context);
+  }
+
+  private follow(node: string, port: string): EventTrack {
+    const key = `${node}.${port}`;
+    let track = this.eventTracks.get(key);
+    if (!track) this.eventTracks.set(key, (track = new EventTrack(node, port, this.heard())));
+    track.users++;
+    return track;
+  }
+
+  private release(track: EventTrack): void {
+    if (--track.users > 0) return;
+    const key = `${track.node}.${track.port}`;
+    if (this.eventTracks.get(key) === track) this.eventTracks.delete(key);
+  }
+
+  /** Points an Event or Note probe at the outputs it shows: its own port, or the sources of the cables into it. */
+  private followProbe(track: ProbeTrack): void {
+    if (track.view.type !== 'event' && track.view.type !== 'note') return;
+    const node = this.plan.order.find((n) => n.id === track.node);
+    const input = node?.definition.ports.some((p) => p.name === track.port && p.direction === 'in');
+    const ends = input
+      ? (this.plan.incoming.get(track.node)?.events ?? []).filter((l) => l.toPort === track.port).map((l) => l.from)
+      : [{ node: track.node, port: track.port }];
+    const before = track.sources;
+    track.sources = ends.map((end) => this.follow(end.node, end.port));
+    for (const source of before) this.release(source);
+  }
+
+  /** One frame of the probes and cable flashes: what sounded since the last frame, and each probed Signal and Value now. */
+  private followPorts(): void {
+    if (!this.eventTracks.size && !this.probes.size) return;
+    const now = this.heard();
+    for (const track of this.eventTracks.values()) track.update(this.runtime, now);
+    for (const [key, listeners] of this.firing) {
+      if (this.eventTracks.get(key)?.sounded.length) for (const listener of listeners) listener();
+    }
+    for (const track of this.probes.values()) {
+      const view = track.view;
+      const next: ProbeView = { ...view, now };
+      if (view.type === 'event' || view.type === 'note') {
+        if (track.sources.length === 1) next.events = [...track.sources[0]!.history];
+        else next.events = track.sources.flatMap((s) => s.history).sort((a, b) => a.time - b.time || a.channel - b.channel);
+        next.value = next.events.at(-1);
+      } else if (view.type === 'signal') {
+        const v = this.runtime.signalAt(track.node, track.port, now);
+        next.samples = view.samples.filter((s) => s.t > now - PROBE_HISTORY);
+        if (v !== undefined) next.samples.push({ t: now, v });
+        next.value = v;
+      } else if (view.type === 'value') {
+        next.value = this.runtime.valueAt(track.node, track.port, now);
+      }
+      track.view = next;
+      for (const listener of track.listeners) listener();
+    }
   }
 
   private statusContext(nodeId: string, params: StatusContext['params']): StatusContext {
