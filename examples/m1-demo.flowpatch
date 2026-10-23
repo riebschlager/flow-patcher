@@ -18,7 +18,7 @@
       "type": "clock",
       "typeVersion": 3,
       "params": {
-        "bpm": 96,
+        "bpm": 120,
         "division": "1/16"
       },
       "position": {
@@ -32,7 +32,7 @@
       "typeVersion": 1,
       "params": {
         "beats": 4,
-        "chords": "Cmaj7, Am7, Fmaj7, G"
+        "chords": "Cmaj9 Am9 Dm7 G7sus4"
       },
       "position": {
         "x": 260,
@@ -46,7 +46,7 @@
       "params": {
         "hits": 5,
         "rotate": 0,
-        "steps": 8
+        "steps": 16
       },
       "position": {
         "x": 260,
@@ -72,7 +72,6 @@
       "typeVersion": 1,
       "params": {
         "down": 1,
-        "length": 0.35,
         "up": 1
       },
       "position": {
@@ -85,8 +84,7 @@
       "type": "sampled-voice",
       "typeVersion": 1,
       "params": {
-        "instrument": "vibes",
-        "release": 0.8
+        "instrument": "vibes"
       },
       "position": {
         "x": 820,
