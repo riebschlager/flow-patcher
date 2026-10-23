@@ -16,7 +16,7 @@ export interface ProbeTarget {
   title: string;
 }
 
-const keyOf = (t: Pick<ProbeTarget, 'node' | 'port'>) => `${t.node}.${t.port}`;
+const keyOf = (t: Pick<ProbeTarget, 'node' | 'port' | 'direction'>) => `${t.node}.${t.direction}.${t.port}`;
 
 /** Which probes show: the port under the pointer, and those pinned. UI state: not in the document, not undone. */
 export const probeStore = createStore<{
@@ -44,40 +44,40 @@ export const probeStore = createStore<{
 
 /** How long the pointer rests on a port before its probe shows, ms. */
 export const HOVER_DELAY = 250;
-/** Card widths, px: a pinned probe (design system Probe) and the lighter hover one. */
+/** Card widths, px: a pinned probe (the design system Probe's width) and the lighter hover one. */
 const PINNED_W = 300, HOVER_W = 220;
-/** Space between a node and a probe beside it, and between stacked probes, px. */
-const GAP = 12, STACK = 168;
 
 /** A port's live view while the card shows: re-renders each frame it changes. */
 function useProbe(live: LivePatch | null, target: ProbeTarget): ProbeView | null {
-  const subscribe = useCallback((listener: () => void) => live?.watchProbe(target.node, target.port, target.type, listener) ?? (() => {}), [live, target.node, target.port, target.type]);
-  return useSyncExternalStore(subscribe, () => live?.probe(target.node, target.port) ?? null);
+  const subscribe = useCallback((listener: () => void) => live?.watchProbe(target.node, target.port, target.direction, target.type, listener) ?? (() => {}), [live, target.node, target.port, target.direction, target.type]);
+  return useSyncExternalStore(subscribe, () => live?.probe(target.node, target.port, target.direction) ?? null);
 }
 
-/** Probes in the graph's own coordinates, beside their ports, so they pan and zoom with their nodes. */
+/** Probes in the graph's own coordinates, beside their ports, so they pan and zoom with their nodes. Probes on
+ *  one side of a node stack in a column from the first one's port down, each as tall as its content. */
 export function ProbeLayer({ anchor }: { anchor: (target: ProbeTarget) => { x: number; y: number; width: number } | null }) {
   const hover = useStore(probeStore, (s) => s.hover);
   const pinned = useStore(probeStore, (s) => s.pinned);
-  const placed = useMemo(() => {
-    const stacks = new Map<string, number>();
-    const at = (target: ProbeTarget, width: number) => {
-      const box = anchor(target);
-      if (!box) return null;
-      const side = `${target.node}:${target.direction}`;
-      const n = stacks.get(side) ?? 0;
-      stacks.set(side, n + 1);
-      return { x: target.direction === 'out' ? box.x + box.width + GAP : box.x - width - GAP, y: box.y + n * STACK };
-    };
-    const cards = pinned.map((target) => ({ target, pinned: true, at: at(target, PINNED_W) }));
-    if (hover && !pinned.some((p) => keyOf(p) === keyOf(hover))) cards.push({ target: hover, pinned: false, at: at(hover, HOVER_W) });
-    return cards;
+  const stacks = useMemo(() => {
+    const cards = pinned.map((target) => ({ target, pinned: true }));
+    if (hover && !pinned.some((p) => keyOf(p) === keyOf(hover))) cards.push({ target: hover, pinned: false });
+    const bySide = new Map<string, { at: { x: number; y: number }; side: 'in' | 'out'; cards: typeof cards }>();
+    for (const card of cards) {
+      const side = `${card.target.node}:${card.target.direction}`;
+      const stack = bySide.get(side);
+      if (stack) stack.cards.push(card);
+      else {
+        const box = anchor(card.target);
+        if (box) bySide.set(side, { at: { x: card.target.direction === 'out' ? box.x + box.width : box.x, y: box.y }, side: card.target.direction, cards: [card] });
+      }
+    }
+    return [...bySide.entries()];
   }, [anchor, hover, pinned]);
   return (
     <ViewportPortal>
-      {placed.map(({ target, pinned, at }) => at && (
-        <div key={`${pinned ? 'pin' : 'hover'}:${keyOf(target)}`} className="probe-anchor nodrag nopan nowheel" style={{ transform: `translate(${at.x}px, ${at.y}px)` }}>
-          <ProbeCard target={target} pinned={pinned} />
+      {stacks.map(([side, stack]) => (
+        <div key={side} className={`probe-stack probe-stack--${stack.side} nodrag nopan nowheel`} style={{ transform: `translate(${stack.at.x}px, ${stack.at.y}px)` }}>
+          {stack.cards.map(({ target, pinned }) => <ProbeCard key={`${pinned ? 'pin' : 'hover'}:${keyOf(target)}`} target={target} pinned={pinned} />)}
         </div>
       ))}
     </ViewportPortal>

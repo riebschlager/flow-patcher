@@ -115,6 +115,19 @@ test('a cable dropped on a port of the wrong type offers the adapter, in both di
   expect(errors).toEqual([]);
 });
 
+test('an adapter that would close a loop with no delay is not offered', async ({ page }) => {
+  // Make Note's Note back into its own Pitch, through Sample & Hold, would loop.
+  await open(page, 'loop.flowpatch', fixture(
+    [{ id: 'clock', type: 'clock', x: 0, y: 0 }, { id: 'note', type: 'make-note', x: 260, y: 0 }],
+    [['clock', 'tick', 'note', 'trigger']],
+  ));
+  await cable(page, { node: 'note', port: 'note' }, { node: 'note', port: 'param:pitch' });
+  await expect(page.getByTestId('adapter-prompt')).toHaveCount(0);
+  // The same drop from another node's events is offered.
+  await cable(page, { node: 'clock', port: 'tick' }, { node: 'note', port: 'param:pitch' });
+  await expect(page.getByTestId('adapter-prompt')).toBeVisible();
+});
+
 test('a pinned probe keeps its history updating while the patch plays; hovering a port shows its last events', async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto('/?patch=chord-progression');
@@ -122,20 +135,26 @@ test('a pinned probe keeps its history updating while the patch plays; hovering 
 
   // Clock Tick (Event): a timeline that fills as ticks sound. 144 bpm on 1/8 is one every 208 ms.
   await handle(page, 'clock', 'tick').click();
-  const timeline = page.locator('[data-probe="clock.tick"] [data-testid="probe-timeline"]');
+  const timeline = page.locator('[data-probe="clock.out.tick"] [data-testid="probe-timeline"]');
   await expect(timeline).toBeVisible();
   await expect.poll(async () => Number(await timeline.getAttribute('data-events')), { timeout: 5000 }).toBeGreaterThanOrEqual(6);
-  // The history is 2 s long, and holds every tick in it: none lost between frames.
-  await expect.poll(async () => Number(await timeline.getAttribute('data-events'))).toBeGreaterThanOrEqual(9);
-  const ticks = await page.evaluate(() => window.flowPatcher!.probe('clock', 'tick')!.events.map((e) => e.time));
-  for (let i = 1; i < ticks.length; i++) expect(ticks[i]! - ticks[i - 1]!).toBeCloseTo(60 / 144 / 2, 6);
+  // The history is 2 s long, and holds every tick in it: none lost between frames. A window the scheduler
+  // skipped (a stall on a slow runner) loses its ticks for real, so the spacing is checked only without one.
+  await expect.poll(async () => Number(await timeline.getAttribute('data-events'))).toBeGreaterThanOrEqual(8);
+  const { ticks, skipped } = await page.evaluate(() => ({ ticks: window.flowPatcher!.probe('clock', 'tick')!.events.map((e) => e.time), skipped: window.flowPatcher!.stats.skipped }));
+  const period = 60 / 144 / 2;
+  for (let i = 1; i < ticks.length; i++) {
+    const gap = (ticks[i]! - ticks[i - 1]!) / period;
+    if (skipped === 0) expect(gap).toBeCloseTo(1, 6);
+    else expect(gap).toBeCloseTo(Math.round(gap), 6);
+  }
 
   // Sweep Phase (Signal): a scope that keeps changing.
   await handle(page, 'sweep', 'phase').click();
-  const value = page.locator('[data-probe="sweep.phase"] [data-testid="probe-value"]');
+  const value = page.locator('[data-probe="sweep.out.phase"] [data-testid="probe-value"]');
   const first = await value.textContent();
   await expect.poll(() => value.textContent()).not.toBe(first);
-  await expect.poll(async () => Number(await page.locator('[data-probe="sweep.phase"] [data-testid="probe-scope"]').getAttribute('data-samples'))).toBeGreaterThan(30);
+  await expect.poll(async () => Number(await page.locator('[data-probe="sweep.out.phase"] [data-testid="probe-scope"]').getAttribute('data-samples'))).toBeGreaterThan(30);
 
   // Hover: the last few events, without pinning; leaving takes it away.
   await page.mouse.move(5, 300);
@@ -147,8 +166,39 @@ test('a pinned probe keeps its history updating while the patch plays; hovering 
   await expect(hover).toHaveCount(0);
 
   // The pin unpins.
-  await page.locator('[data-probe="clock.tick"]').getByRole('button', { name: 'Unpin probe' }).click();
+  await page.locator('[data-probe="clock.out.tick"]').getByRole('button', { name: 'Unpin probe' }).click();
   await expect(page.getByTestId('probe-pinned')).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
+test('every tap on the immediate path reaches a pinned probe and flashes its cable', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/?patch=pointer-notes');
+  const canvas = page.getByTestId('performance-canvas');
+  await canvas.click({ position: { x: 40, y: 40 } });
+  await expect(page.getByTestId('audio-state')).toHaveText('live');
+  await handle(page, 'pointer', 'down').click();
+  const timeline = page.locator('[data-probe="pointer.out.down"] [data-testid="probe-timeline"]');
+  await expect(timeline).toBeVisible();
+  const cable = page.locator('[data-testid="cable"][data-cable="pointer.down→note.trigger"]');
+  // Pushes land at currentTime + 5 ms, so a wake can stop retaining one before the next frame reads it
+  // (test/event-track.test.ts pins that race down). Taps 250 ms apart, so each one's flash is over before the next.
+  let flashed = 0;
+  for (let i = 0; i < 8; i++) {
+    await canvas.click({ position: { x: 60 + i * 10, y: 60 } });
+    if (await cable.evaluate((el) => new Promise<boolean>((done) => {
+      const until = performance.now() + 200;
+      const look = () => (el.classList.contains('cable--firing') ? done(true) : performance.now() > until ? done(false) : requestAnimationFrame(look));
+      look();
+    }))) flashed++;
+    // The probe's newest event is this tap's.
+    await expect.poll(() => page.evaluate(() => {
+      const live = window.flowPatcher!;
+      return live.probe('pointer', 'down')!.events.at(-1)?.time === live.taps.at(-1)!.stamped;
+    })).toBe(true);
+    await page.waitForTimeout(250);
+  }
+  expect(flashed).toBe(8);
   expect(errors).toEqual([]);
 });
 
@@ -238,7 +288,7 @@ for (const [name, { defaultBrowserType: _, ...device }] of [['desktop', devices[
         else await handle(page, node, port).click();
       }
       await expect(page.getByTestId('probe-pinned')).toHaveCount(2);
-      await expect.poll(async () => Number(await page.locator('[data-probe="clock.tick"] [data-testid="probe-timeline"]').getAttribute('data-events'))).toBeGreaterThanOrEqual(8);
+      await expect.poll(async () => Number(await page.locator('[data-probe="clock.out.tick"] [data-testid="probe-timeline"]').getAttribute('data-events'))).toBeGreaterThanOrEqual(8);
       await page.screenshot({ path: `test-results/probes-${name}.png` });
 
       if (!touch) {

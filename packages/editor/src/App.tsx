@@ -100,6 +100,29 @@ interface AdapterState {
   options: AdapterOffer[];
 }
 
+/** The edits that put `offer` between two ends, wired both ways: halfway between the nodes, a little below.
+ *  Null when a cable is refused, or when they'd close a loop with no delay, which the editor never makes. */
+function adapterEdits(doc: Patch, from: AdapterState['from'], to: AdapterState['to'], offer: AdapterOffer): PatchEdit[] | null {
+  const a = doc.nodes.find((n) => n.id === from.node), b = doc.nodes.find((n) => n.id === to.node);
+  if (!a || !b) return null;
+  const { definition } = offer;
+  const id = nextNodeId(doc, definition.type);
+  const edits: PatchEdit[] = [{
+    op: 'add-node',
+    node: { id, type: definition.type, typeVersion: definition.version, params: defaultParams(definition), position: { x: snap((a.position.x + b.position.x) / 2), y: snap((a.position.y + b.position.y) / 2) + GRID * 4 } },
+  }];
+  const added = applyPatchEdits(doc, edits);
+  const into = cableFor(added, nodeRegistry, { source: from.node, sourceHandle: from.port.name, target: id, targetHandle: offer.input.name });
+  const out = cableFor(added, nodeRegistry, { source: id, sourceHandle: offer.output.name, target: to.node, targetHandle: to.port.name });
+  if (!into || !out) return null;
+  edits.push({ op: 'add-cable', cable: into }, { op: 'add-cable', cable: out });
+  const loops = (p: Patch) => {
+    const compiled = compilePatch(p, nodeRegistry);
+    return compiled.ok ? 0 : (compiled.cycles?.length ?? 0);
+  };
+  return loops(applyPatchEdits(doc, edits)) > loops(doc) ? null : edits;
+}
+
 /** The palette, open: where it shows, where a picked node goes, and the cable it would take. */
 interface PaletteState {
   at: { x: number; y: number };
@@ -265,7 +288,7 @@ function Editor() {
       const port = handlePort(doc, nodeRegistry, other.nodeId, other.id ?? null, other.type === 'source' ? 'out' : 'in');
       if (state.isValid || !port || port.direction === end.port.direction || other.nodeId === end.node) return;
       const [from, to] = end.port.direction === 'out' ? [end, { node: other.nodeId, port }] : [{ node: other.nodeId, port }, end];
-      const options = adaptersBetween(nodeRegistry, from.port, to.port);
+      const options = adaptersBetween(nodeRegistry, from.port, to.port).filter((offer) => adapterEdits(doc, from, to, offer));
       const box = area.current?.getBoundingClientRect();
       if (options.length && box) setAdapter({ at: { x: at.x - box.left, y: at.y - box.top }, from, to, options });
       return;
@@ -301,24 +324,13 @@ function Editor() {
     setPalette(null);
   }, [palette]);
 
-  /** Puts an adapter between the two ends, wired both ways, as one undo step. It goes halfway between the nodes. */
+  /** Puts an adapter between the two ends, wired both ways, as one undo step. */
   const insertAdapter = useCallback((offer: AdapterOffer) => {
     if (!adapter) return;
     setAdapter(null);
     const { doc, apply } = store.getState();
-    const a = doc.nodes.find((n) => n.id === adapter.from.node), b = doc.nodes.find((n) => n.id === adapter.to.node);
-    if (!a || !b) return;
-    const { definition } = offer;
-    const id = nextNodeId(doc, definition.type);
-    const edits: PatchEdit[] = [{
-      op: 'add-node',
-      node: { id, type: definition.type, typeVersion: definition.version, params: defaultParams(definition), position: { x: snap((a.position.x + b.position.x) / 2), y: snap((a.position.y + b.position.y) / 2) + GRID * 4 } },
-    }];
-    const added = applyPatchEdits(doc, edits);
-    const into = cableFor(added, nodeRegistry, { source: adapter.from.node, sourceHandle: adapter.from.port.name, target: id, targetHandle: offer.input.name });
-    const out = cableFor(added, nodeRegistry, { source: id, sourceHandle: offer.output.name, target: adapter.to.node, targetHandle: adapter.to.port.name });
-    if (!into || !out) return;
-    apply([...edits, { op: 'add-cable', cable: into }, { op: 'add-cable', cable: out }]);
+    const edits = adapterEdits(doc, adapter.from, adapter.to, offer);
+    if (edits) apply(edits);
   }, [adapter]);
   const closeAdapter = useCallback(() => setAdapter(null), []);
 
