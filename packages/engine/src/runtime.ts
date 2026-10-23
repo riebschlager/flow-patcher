@@ -1328,9 +1328,11 @@ export class Runtime {
       const report = this.rerunFrom(first, t, affected, followed, timing, taken);
       this.counters.droppedPushes++;
       const message = error instanceof Error ? error.message : String(error);
+      // A push onto several sources (one browser event) names every one.
+      const origins = [...new Set(entries.map((e) => e.node))].map((id) => `"${id}"`).join(', ');
       const held = this.nodeWarnings.get(node)?.get('rewind-error');
       this.warn(node, 'rewind-error', 1, t, held?.message
-        ?? `Node "${thrower}" failed while re-running for a live event from "${entry.node}", so that event was dropped: ${message}`);
+        ?? `Node "${thrower}" failed while re-running for a live event from ${origins}, so that event was dropped: ${message}`);
       return { ...report, removed, queries: this.counters.queries - queriesBefore, dropped: { node: thrower, message } };
     } finally {
       this.running = null;

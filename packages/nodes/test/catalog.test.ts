@@ -138,7 +138,6 @@ describe('example patches', () => {
       expectCatalogTypes(patch, file);
     });
 
-
     it(`${file} compiles with catalog node types at their current versions`, () => {
       const compiled = compilePatch(patch, nodeRegistry);
       expect(compiled.ok ? [] : compiled.errors).toEqual([]);

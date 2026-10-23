@@ -257,8 +257,12 @@ export class Scheduler {
       this.runtime.retain(now);
     }
     // Pushes made while the clock was suspended are stamped now, relative to the resume.
-    // One at a time, so a push that throws leaves the rest held for the next wake.
-    while (this.deferred.length) this.pushAll(this.deferred.shift()!);
+    // One at a time, so a push that throws leaves the rest held for the next wake. A swap
+    // while suspended may have removed some of a push's targets: the rest still get it, at one stamp.
+    while (this.deferred.length) {
+      const targets = this.deferred.shift()!.filter((t) => this.hasEventOutput(t.node, t.port));
+      if (targets.length) this.pushAll(targets);
+    }
   }
 
   /**
@@ -292,17 +296,15 @@ export class Scheduler {
    * all of them together, so it can't split them (ADR 0026). Otherwise as
    * `push`: returns one event per target, in order, all at the applied time;
    * or null while the clock is suspended, when the targets are held together
-   * (every node and port checked first). It counts as one push in the stats;
+   * (every node and port checked first; a target a swap removes before the
+   * resume is left out, the rest keep one stamp). It counts as one push in the stats;
    * a fallback warns on every target's node. No targets: nothing happens, and
    * it returns [].
    */
   pushAll(targets: readonly PushTarget[]): EngineEvent[] | null {
     if (!targets.length) return [];
     if (this.clock.running && !this.clock.running()) {
-      for (const { node: nodeId, port } of targets) {
-        const spec = this.runtime.plan.order.find((n) => n.id === nodeId)?.definition.ports.find((p) => p.name === port && p.direction === 'out');
-        if (!spec || (spec.type !== 'event' && spec.type !== 'note')) throw new Error(`push: node "${nodeId}" has no event output "${port}"`);
-      }
+      for (const { node, port } of targets) if (!this.hasEventOutput(node, port)) throw new Error(`push: node "${node}" has no event output "${port}"`);
       this.deferred.push([...targets]);
       this.own.deferredPushes++;
       return null;
@@ -359,6 +361,12 @@ export class Scheduler {
     this.own.pushMsMax = Math.max(this.own.pushMsMax, ms);
     this.options.onPush?.({ time, fallback, rewind, queries, ms });
     return events;
+  }
+
+  /** Whether the latest plan has `nodeId` with an Event or Note output `port`, so it can be pushed onto. */
+  private hasEventOutput(nodeId: string, port: string): boolean {
+    const spec = this.runtime.plan.order.find((n) => n.id === nodeId)?.definition.ports.find((p) => p.name === port && p.direction === 'out');
+    return spec !== undefined && (spec.type === 'event' || spec.type === 'note');
   }
 
   /**
