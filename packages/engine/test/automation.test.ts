@@ -345,6 +345,28 @@ describe('editRamp', () => {
     expect(worst).toBeLessThanOrEqual((1 / EDIT_RAMP) * 1e-4 + 1e-9);
   });
 
+  it('a second edit exactly as the first ramp ends restores its end, with no step', () => {
+    const p = new FakeParam();
+    p.value = 0;
+    const ramp = editRamp(p, 0);
+    const T1 = 0.3, T2 = 0.3 + EDIT_RAMP;
+    ramp.set(1, T1);
+    ramp.set(0.5, T2);
+    expect(p.at(T2)).toBeCloseTo(1, 12);
+    expect(p.at(T2 + EDIT_RAMP)).toBeCloseTo(0.5, 12);
+    let worst = 0;
+    for (let t = T1 - 0.005; t < T2 + EDIT_RAMP + 0.005; t += 1e-4) worst = Math.max(worst, Math.abs(p.at(t + 1e-4) - p.at(t)));
+    expect(worst).toBeLessThanOrEqual((1 / EDIT_RAMP) * 1e-4 + 1e-9);
+  });
+
+  it('an edit before the previous one is taken at the previous one\'s time', () => {
+    const p = new FakeParam();
+    const ramp = editRamp(p, 0);
+    ramp.set(1, 0.3);
+    ramp.set(0.5, 0.25);
+    expect(p.events).toEqual([{ kind: 'set', value: 0, time: 0.3 }, { kind: 'linear', value: 0.5, time: 0.3 + EDIT_RAMP }]);
+  });
+
   it('two edits at the same time: the second replaces the first, which never started', () => {
     const p = new FakeParam();
     const ramp = editRamp(p, 0.4);

@@ -49,7 +49,8 @@ export function automateParam(target: AudioParamLike, t0: number, t1: number, va
 
 /** A param's knob edits made in place, one ramp after another (`editRamp`). */
 export interface EditRamp {
-  /** Ramps linearly to `value` over the ramp's duration, starting at audio-clock `time`. Times must not go backwards. */
+  /** Ramps linearly to `value` over the ramp's duration, starting at audio-clock `time`. Times must not go
+   *  backwards: one before the previous edit's is taken as that edit's time. */
   set(value: number, time: number): void;
   /** Where the edits put the param at `time`. */
   valueAt(time: number): number;
@@ -74,8 +75,10 @@ export function editRamp(target: AudioParamLike, initial: number, duration = EDI
     valueAt,
     set(value, time) {
       if (!Number.isFinite(value) || !Number.isFinite(time)) return;
+      time = Math.max(time, ramp.start);
       const from = valueAt(time);
-      const running = time > ramp.start && time < ramp.start + span;
+      // Up to and including the previous ramp's end: the cancel below takes that end event too.
+      const running = time > ramp.start && time <= ramp.start + span;
       target.cancelScheduledValues(time);
       // Mid-ramp: the cancel took the ramp's end, so ramp on to where it had got; else hold from here.
       if (running) target.linearRampToValueAtTime(from, time);
