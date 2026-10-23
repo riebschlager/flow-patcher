@@ -21,8 +21,10 @@ export const LOOKAHEAD = 0.12;
 export const HIDDEN_LOOKAHEAD = 1.25;
 /** A wake at most this far past its horizon catches up; a later one is a stall. *(tune)* */
 export const CATCH_UP_LIMIT = 0.1;
-/** Live input is stamped this far after currentTime. *(tune)* */
+/** Live input is stamped at least this far after currentTime. *(tune)* */
 export const IMMEDIATE_OFFSET = 0.005;
+/** Live input is stamped at least one audio callback plus this after currentTime (ADR 0027). *(tune)* */
+export const IMMEDIATE_MARGIN = 0.001;
 /** While the page is hidden, a push whose rewind is estimated to take longer than this many
  *  milliseconds is applied from the horizon instead (ADR 0026). Visible pushes always rewind. *(tune)* */
 export const HIDDEN_PUSH_BUDGET_MS = 16;
@@ -42,6 +44,11 @@ export interface SchedulerClock {
   /** True while the page is hidden, for the long lookahead. Default false. The
    *  host should also call `wake()` when visibility changes. */
   hidden?(): boolean;
+  /** One audio callback in seconds: AudioContext.baseLatency. currentTime moves in steps
+   *  this long, so a push is stamped at least this plus IMMEDIATE_MARGIN ahead (ADR 0027).
+   *  Read at each push; 0, negative or non-finite (before the context runs) counts as 0.
+   *  Without it the offset is `immediateOffset` alone (headless runs, tests). */
+  callback?(): number;
 }
 
 export interface SchedulerTimer {
@@ -168,6 +175,16 @@ export class Scheduler {
     return this.next;
   }
 
+  /**
+   * The immediate-path offset in force: a push now is stamped currentTime + this. The larger
+   * of `immediateOffset` and one audio callback (`clock.callback`) + IMMEDIATE_MARGIN (ADR 0027).
+   */
+  get offset(): number {
+    if (!this.clock.callback) return this.immediateOffset;
+    const callback = this.clock.callback();
+    return Math.max(this.immediateOffset, (Number.isFinite(callback) && callback > 0 ? callback : 0) + IMMEDIATE_MARGIN);
+  }
+
   get stats(): SchedulerStats {
     return { ...this.runtime.counters, ...this.own, msPerQuery: { ...this.msPerQuery } };
   }
@@ -259,12 +276,12 @@ export class Scheduler {
 
   /**
    * The immediate path: `nodeId` emits an event on its output `port`, stamped
-   * currentTime + immediateOffset, and the nodes downstream of it run now,
+   * currentTime + `offset`, and the nodes downstream of it run now,
    * without waiting for a wake. Returns the stamped event.
    *
    * While the audio clock is suspended there is no currentTime to stamp
    * against, so the push is held and returns null: the first running wake
-   * stamps it at its own currentTime + immediateOffset and runs it then.
+   * stamps it at its own currentTime + `offset` and runs it then.
    * The node and port are checked at once either way.
    *
    * While the page is hidden, a push whose rewind is estimated (rewindCost ×
@@ -288,7 +305,7 @@ export class Scheduler {
     const started = this.clock.wallTime();
     const now = this.clock.audioTime();
     const hidden = this.clock.hidden?.() ?? false;
-    const stamped = now + this.immediateOffset;
+    const stamped = now + this.offset;
     let time = stamped, fallback: PushCost['fallback'] = null;
     const perQuery = this.msPerQuery.hidden;
     if (hidden && perQuery !== null) {

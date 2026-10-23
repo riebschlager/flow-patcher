@@ -49,7 +49,7 @@ The graph runs on one clock, the Web Audio clock. Musical nodes are pure functio
 
 **Window queries.** A single scheduler wakes every 25 ms. It asks the graph for every event in the next window, from `now` to `now + 120 ms` (the lookahead Flow already uses). Each Event node implements `query(t0, t1, inputs) → events[]`, similar to Strudel/Tidal patterns. A node never owns a timer. Generators such as Clock, Euclidean and Arpeggio compute their events from absolute time, so seeking, looping and live edits are deterministic.
 
-**Live input is already in the past.** A pointerdown arrives at `now`, while the scheduler is working 120 ms ahead. Input events are stamped with `ctx.currentTime` plus a small safety offset (5 ms) and pushed straight down their cables. The scheduler does not wait for them. They pass through the same node code: a pushed event is merged into the pushing node's output, and that node and everything downstream of it re-run from the event's time to the horizon (below). A push into a stateless chain re-runs that whole stretch too: up to 120 ms normally, and up to 1.25 s while the tab is hidden. As a result, a tap is scheduled within 20 ms of the touch: the offset plus the platform's input delay, which the M0 spike measured at up to about 11 ms on Android. Generated material keeps its full lookahead ([ADR 0017](decisions/0017-immediate-offset-and-catch-up.md)).
+**Live input is already in the past.** A pointerdown arrives at `now`, while the scheduler is working 120 ms ahead. Input events are stamped with `ctx.currentTime` plus a small safety offset (5 ms, or one audio callback + 1 ms, whichever is larger: `currentTime` moves in callback-sized steps, and the note must still be ahead of it when Web Audio gets it, [ADR 0027](decisions/0027-immediate-offset-covers-a-callback.md)) and pushed straight down their cables. The scheduler does not wait for them. They pass through the same node code: a pushed event is merged into the pushing node's output, and that node and everything downstream of it re-run from the event's time to the horizon (below). A push into a stateless chain re-runs that whole stretch too: up to 120 ms normally, and up to 1.25 s while the tab is hidden. As a result, a tap is scheduled within 20 ms of the touch: the offset plus the platform's input delay, which the M0 spike measured at up to about 11 ms on Android. Generated material keeps its full lookahead ([ADR 0017](decisions/0017-immediate-offset-and-catch-up.md)).
 
 **Live and scheduled events meet out of order.** Immediate events carry times earlier than the scheduler's horizon, so a node fed by both a Clock and live input sees time go backwards. Stateless nodes don't care. For stateful nodes the engine rewinds: it snapshots their state at window boundaries, and when an immediate event lands at time t it restores the latest snapshot at or before t, replays the affected downstream nodes up to t to rebuild their state, re-runs them from t to the horizon with the event included, and replaces the events they had scheduled after t. Signal, Value and param sources upstream of those nodes are restored and re-queried alongside them for their state only, so their reads match each re-run window; their own events are not replaced. Results then depend only on event times, not on when the scheduler woke, so recordings replay exactly. Node authors write nothing special, but node state must be cloneable plain data. A visible push always re-runs. While the page is hidden, a push whose re-run is estimated to take over 16 ms is applied from the horizon instead, and its applied time is what's logged, so wake timing can change only those pushes. A live event whose re-run makes a node throw is dropped with a warning on that node ([ADR 0019](decisions/0019-live-events-rewind.md), [ADR 0026](decisions/0026-hidden-push-fallback.md)).
 
@@ -327,8 +327,8 @@ sends patch diffs                      cycles checked
 │                                             ▼                                  │
 │  Canvas sources                         Scheduler                Audio nodes   │
 │  pointer, touch, key, wheel             wakes every 25 ms,       voices,       │
-│  stamped now + 5 ms                     asks for next 120 ms     effects,      │
-│        │                                      │                  Output on the │
+│  stamped now + 5 ms or                  asks for next 120 ms     effects,      │
+│        │ 1 callback + 1 ms                    │                  Output on the │
 │        │                                      │ query(t0, t1)    Web Audio     │
 │        │                                      ▼                  clock         │
 │        └──── immediate path ──────────▶ Event nodes ── notes ──▶      ▲        │
@@ -343,7 +343,7 @@ sends patch diffs                      cycles checked
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Generated material goes through the scheduler's 120 ms lookahead. Canvas input takes the immediate path into the same event nodes. Feedback from the fluid always arrives one frame late, which is why cycles are safe.
+Generated material goes through the scheduler's 120 ms lookahead. Canvas input takes the immediate path into the same event nodes, stamped 5 ms or one audio callback + 1 ms ahead, whichever is larger ([ADR 0027](decisions/0027-immediate-offset-covers-a-callback.md)). Feedback from the fluid always arrives one frame late, which is why cycles are safe.
 
 ### Stack
 
