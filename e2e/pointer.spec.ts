@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { IMMEDIATE_OFFSET } from '../packages/engine/src/scheduler';
 import type { LivePatch } from '../packages/editor/src/live';
 import { audioCallback } from './audio-clock';
 
@@ -41,7 +42,9 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
   const msOf = (s: number | null) => (s === null ? 'null' : (s * 1000).toFixed(2));
   console.log(`[tap timing] baseLatency ${msOf(baseLatency)} ms, callback ${msOf(callback)} ms, largest step ${msOf(largestStep)} ms`);
   for (const tap of taps) {
-    console.log(`[tap timing] stamp−at ${msOf(tap.stamped! - tap.at)}, note−stamp ${msOf(tap.note === null ? null : tap.note - tap.stamped!)}, clock moved ${msOf(tap.after - tap.at)} during a ${tap.pushMs.toFixed(2)} ms push`);
+    // From the push's own clock read (stamp less the offset): past the offset at start(), the note is late.
+    const read = tap.stamped! - IMMEDIATE_OFFSET;
+    console.log(`[tap timing] clock moved ${msOf(read - tap.at)} before the push's read, ${msOf(tap.startClock === null ? null : tap.startClock - read)} by start(), ${msOf(tap.after - read)} by its end; note−stamp ${msOf(tap.note === null ? null : tap.note - tap.stamped!)}; push ${tap.pushMs.toFixed(1)} ms (0.1 ms resolution)`);
   }
   expect(taps).toHaveLength(10);
   for (const tap of taps) {

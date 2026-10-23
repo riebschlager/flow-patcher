@@ -92,9 +92,13 @@ export interface Tap {
   note: number | null;
   /** The push had to start the AudioContext, so its timing includes startup. */
   cold: boolean;
-  /** currentTime right after the push: `after − at` is how far the clock moved while the push re-ran (#97). */
+  /** currentTime when the push's first start() was called, or null with none (#97). Against `stamped`
+   *  less the immediate offset (the push's own clock read), it is how far the clock moved before the
+   *  note reached Web Audio: past the offset, the note is late (ADR 0027). */
+  startClock: number | null;
+  /** currentTime right after the push, the upper bound on `startClock` (#97). */
   after: number;
-  /** Wall time the push took, ms (#97). */
+  /** Wall time the push took, ms, at performance.now()'s resolution (#97). */
   pushMs: number;
   /** The tap's splash (ADR 0020), null until it is drawn, or with no Renderer:
    *  - `handed`: frames after the push until a frame handed the tap's own event to a visual node (1 = the
@@ -201,6 +205,8 @@ export class LivePatch {
   private readonly unwatchPermissions: () => void;
   /** Oscillator starts scheduled while a push runs, collected for its Tap. */
   private starts: number[] | null = null;
+  /** currentTime at the first start() during a push (#97). */
+  private startClock: number | null = null;
   /** A cold tap still waiting for its held push to run. */
   private coldTap: Tap | null = null;
   private readonly frames: FrameLoop;
@@ -471,13 +477,14 @@ export class LivePatch {
     try {
       pushed = this.scheduler.pushAll(targets);
     } finally {
-      const after = this.context.currentTime, pushMs = performance.now() - wall;
+      const after = down ? this.context.currentTime : 0, pushMs = down ? performance.now() - wall : 0;
       this.refreshTracks();
-      const starts = this.starts;
+      const starts = this.starts, startClock = this.startClock;
       this.starts = null;
+      this.startClock = null;
       if (down) {
         const stamped = pushed?.[0]?.time ?? null;
-        const tap: Tap = { at, down: at - waited, stamped, note: starts.length ? Math.min(...starts) : null, cold, after, pushMs, splash: null, splashLost: false };
+        const tap: Tap = { at, down: at - waited, stamped, note: starts.length ? Math.min(...starts) : null, cold, startClock, after, pushMs, splash: null, splashLost: false };
         if (cold && tap.note === null) this.coldTap = tap;
         if (this.renderer && this.hasFluid && stamped !== null) {
           this.splashes.push({ tap, time: stamped, downWall: wall - waited * 1000, frame: this.frameCounts.frames, carried: null });
@@ -690,7 +697,8 @@ export class LivePatch {
         const osc = context.createOscillator();
         const start = osc.start.bind(osc);
         osc.start = (when = 0) => {
-          this.noteStart(Math.max(when, context.currentTime));
+          const now = context.currentTime;
+          this.noteStart(Math.max(when, now), now);
           start(when);
         };
         return osc;
@@ -699,7 +707,8 @@ export class LivePatch {
         const source = context.createBufferSource();
         const start = source.start.bind(source);
         source.start = (when = 0, offset?: number, duration?: number) => {
-          this.noteStart(Math.max(when, context.currentTime));
+          const now = context.currentTime;
+          this.noteStart(Math.max(when, now), now);
           start(when, offset, duration);
         };
         return source;
@@ -707,9 +716,12 @@ export class LivePatch {
     };
   }
 
-  private noteStart(time: number): void {
-    if (this.starts) this.starts.push(time);
-    else if (this.coldTap) {
+  /** `clock`: currentTime when start() was called. */
+  private noteStart(time: number, clock: number): void {
+    if (this.starts) {
+      this.starts.push(time);
+      this.startClock ??= clock;
+    } else if (this.coldTap) {
       this.coldTap.note = time;
       this.coldTap = null;
     }
