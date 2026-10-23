@@ -90,7 +90,10 @@ export const simpleSynth: NodeDefinition = {
         return end;
       },
       dispose() {
-        for (const voice of voices.values()) pool.release(voice.handle);
+        for (const voice of voices.values()) {
+          for (const node of voice.nodes) node.disconnect();
+          pool.release(voice.handle);
+        }
         voices.clear();
         out.disconnect();
       },

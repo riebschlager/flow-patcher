@@ -215,10 +215,27 @@ describe('simple-synth', () => {
         instance.schedule!('note', [note(Number.NaN), note(0.1, Number.NaN), note(Number.POSITIVE_INFINITY), { ...note(0.1), velocity: Number.NaN, duration: Number.NaN }]);
         inUse = pool.inUse();
       });
+      // The same note with velocity 1 and no duration: what the NaN fields should fall back to.
+      const reference = await renderShared(0.5, (ctx, pool) => synth(ctx, pool).schedule!('note', [{ ...note(0.1), velocity: 1, duration: 0 }]));
       // Only the last one sounds: velocity defaults to 1, and a NaN duration holds for the attack.
       expect(inUse).toBe(1);
       expect(rms(audio, 0.1, 0.05)).toBeGreaterThan(0.001);
+      expect(rms(audio, 0.1, 0.05) / rms(reference, 0.1, 0.05)).toBeCloseTo(1, 6);
       expect(rms(audio, 0.2, 0.3)).toBe(0);
+    });
+
+    it('releases every slot and silences its notes on dispose', async () => {
+      const counts: number[] = [];
+      const audio = await renderShared(1, (ctx, pool) => {
+        const instance = synth(ctx, pool);
+        instance.schedule!('note', [note(0.1), note(0.2, 64), note(0.5, 67, 0.3, 1)]);
+        counts.push(pool.inUse());
+        instance.dispose!();
+        counts.push(pool.inUse());
+        expect(instance.idleAt!()).toBe(0);
+      });
+      expect(counts).toEqual([3, 0]);
+      expect(rms(audio, 0, 1)).toBe(0);
     });
   });
 });
