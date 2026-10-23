@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import type { LivePatch, PointerPort } from './live';
 
 const MIN = { width: 200, height: 120 };
@@ -39,7 +39,11 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
   const send = (port: PointerPort) => (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (!live) return;
     const box = event.currentTarget.getBoundingClientRect();
-    if (port === 'down') event.currentTarget.setPointerCapture(event.pointerId);
+    if (port === 'down') {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      // Playing the canvas gives it the keyboard (focus rules), without scrolling the page to it.
+      event.currentTarget.focus({ preventScroll: true });
+    }
     live.pointer(port, {
       channel: event.pointerId,
       x: clamp01((event.clientX - box.left) / box.width),
@@ -48,6 +52,18 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
       pressure: event.pressure,
       pointerType: event.pointerType,
     }, event.timeStamp);
+  };
+
+  // Focus rules (Platform rules): while the canvas has focus its keys stay with it, so the editor's
+  // shortcuts (undo, Delete, Tab for the palette) don't fire. Escape always returns to the editor.
+  const keep = (event: ReactKeyboardEvent<HTMLCanvasElement>) => {
+    if (event.key === 'Escape') event.currentTarget.blur();
+    else event.stopPropagation();
+  };
+
+  // The context menu stays unless a source in the patch reads right-clicks (Platform rules).
+  const contextMenu = (event: ReactMouseEvent<HTMLCanvasElement>) => {
+    if (live?.reads('contextmenu')) event.preventDefault();
   };
 
   const resize = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -82,6 +98,11 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
           ref={canvas}
           className="preview__canvas"
           data-testid="performance-canvas"
+          tabIndex={0}
+          aria-label="Performance canvas"
+          onKeyDown={keep}
+          onKeyUp={keep}
+          onContextMenu={contextMenu}
           onPointerDown={send('down')}
           onPointerMove={send('move')}
           onPointerUp={send('up')}
