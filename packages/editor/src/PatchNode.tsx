@@ -1,12 +1,10 @@
-import { createContext, useCallback, useContext, useSyncExternalStore } from 'react';
+import { useCallback, useContext, useSyncExternalStore } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { portsOf, type PortSpec } from '@flow-patcher/engine';
 import type { PatchNodeData } from './patch-graph';
-import type { LivePatch, NodeStatus } from './live';
+import type { NodeStatus } from './live';
 import { nodeIcon, PORT_SIZE } from './ports';
-
-/** The running patch, for the inline statuses node cards show. */
-export const LivePatchContext = createContext<LivePatch | null>(null);
+import { LivePatchContext, ParamRow } from './ParamField';
 
 /** A node's inline status from the running patch, kept current. Compared by content, so an unchanged status doesn't re-render. */
 function useNodeStatus(id: string): NodeStatus | null {
@@ -86,6 +84,13 @@ export function PatchNode({ id, data, selected }: NodeProps<Node<PatchNodeData>>
         {/* Below the port rows, so the handles' fixed offsets (portTop) still line up. */}
         {status && <StatusBanner id={id} status={status} />}
       </div>
+      {definition.params.length > 0 && (
+        <div className="patch-node__params">
+          {definition.params.map((spec) => (
+            <ParamRow key={spec.name} node={id} spec={spec} value={data.params[spec.name]} modulated={data.modulated.includes(spec.name)} />
+          ))}
+        </div>
+      )}
       {inputs.map((port, i) => <PortHandle key={port.name} port={port} index={i} />)}
       {outputs.map((port, i) => <PortHandle key={port.name} port={port} index={i} />)}
     </div>

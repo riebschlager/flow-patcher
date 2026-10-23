@@ -1,14 +1,33 @@
 import type { Connection, Edge, Node } from '@xyflow/react';
-import { compilePatch, portsCompatible, portsOf, type NodeDefinition, type Patch, type PatchCable, type PortSpec } from '@flow-patcher/engine';
-import type { CableEdgeData } from './CableEdge';
+import { compilePatch, isModulatable, portsCompatible, portsOf, type NodeDefinition, type NumberParamSpec, type ParamValue, type Patch, type PatchCable, type PortSpec, type PortType } from '@flow-patcher/engine';
+/** What a cable edge draws from. */
+export type CableEdgeData = {
+  portType: PortType;
+  /** The cable in the document; absent on a refused cable. */
+  cable?: PatchCable;
+  /** The number param a cable modulates, when it ends on one. */
+  param?: NumberParamSpec;
+  /** A cable the editor refused, drawn in red with this reason until it fades. */
+  refused?: string;
+};
 
 export interface PatchNodeData extends Record<string, unknown> {
   definition: NodeDefinition | null;
   type: string;
-  params: Record<string, unknown>;
+  params: Record<string, ParamValue>;
+  /** Params with a cable in. */
+  modulated: string[];
 }
 
 type Registry = ReadonlyMap<string, NodeDefinition>;
+
+/** React Flow z-index above every node, selected ones included. */
+export const ABOVE_NODES = 2000;
+
+/** A param's handle id. Port names are identifiers, so the colon keeps it from colliding with one. */
+export const paramHandle = (name: string) => `param:${name}`;
+/** The param a handle id stands for, or undefined for a port handle. */
+export const handleParam = (handle: string | null | undefined) => (handle?.startsWith('param:') ? handle.slice(6) : undefined);
 
 /** A cable's edge id: its two ends, so it stays the same as other cables come and go. */
 export const cableId = (cable: Pick<PatchCable, 'from' | 'to'>) => `${cable.from.node}.${cable.from.port}→${cable.to.node}.${cable.to.port}`;
@@ -20,24 +39,45 @@ export function patchToGraph(patch: Patch, registry: Registry, selected: Readonl
     type: 'patch',
     position: node.position,
     selected: selected.has(node.id),
-    data: { definition: registry.get(node.type) ?? null, type: node.type, params: node.params },
+    data: {
+      definition: registry.get(node.type) ?? null,
+      type: node.type,
+      params: node.params,
+      modulated: [...new Set(patch.cables.filter((c) => c.to.node === node.id && !portOf(registry, node.type, 'in', c.to.port) && modulatableParam(registry, node.type, c.to.port)).map((c) => c.to.port))],
+    },
   }));
   const typeOf = new Map(patch.nodes.map((node) => [node.id, node.type]));
-  // Cables into a parameter have no handle to end on until knobs take cables (#31), so they aren't drawn yet.
-  const edges = patch.cables.filter((cable) => portOf(registry, typeOf.get(cable.to.node), 'in', cable.to.port)).map((cable) => {
+  const edges = patch.cables.flatMap((cable): Edge<CableEdgeData>[] => {
+    const type = typeOf.get(cable.to.node);
+    // A cable ends on the port of that name, or on the handle of a param that takes a cable.
+    const param = portOf(registry, type, 'in', cable.to.port) ? undefined : modulatableParam(registry, type, cable.to.port);
+    if (!param && !portOf(registry, type, 'in', cable.to.port)) return [];
     const id = cableId(cable);
-    return {
+    const isSelected = selected.has(id);
+    return [{
       id,
       type: 'cable',
       source: cable.from.node,
       sourceHandle: cable.from.port,
       target: cable.to.node,
-      targetHandle: cable.to.port,
-      selected: selected.has(id),
-      data: { portType: portOf(registry, typeOf.get(cable.from.node), 'out', cable.from.port)?.type ?? 'signal' },
-    };
+      targetHandle: param ? paramHandle(param.name) : cable.to.port,
+      selected: isSelected,
+      // A selected cable is drawn above the nodes, so its whole path and remove control can be reached.
+      ...(isSelected ? { zIndex: ABOVE_NODES } : {}),
+      data: {
+        portType: portOf(registry, typeOf.get(cable.from.node), 'out', cable.from.port)?.type ?? 'signal',
+        cable,
+        ...(param ? { param } : {}),
+      },
+    }];
   });
   return { nodes, edges };
+}
+
+/** A number param on `type` that takes a cable. */
+function modulatableParam(registry: Registry, type: string | undefined, name: string | undefined): NumberParamSpec | undefined {
+  const spec = type === undefined ? undefined : registry.get(type)?.params.find((p) => p.name === name);
+  return isModulatable(spec) ? spec : undefined;
 }
 
 function portOf(registry: Registry, type: string | undefined, direction: 'in' | 'out', name: string | null | undefined): PortSpec | undefined {
@@ -53,13 +93,14 @@ export function nextNodeId(patch: Patch, type: string): string {
 
 /** The cable a React Flow connection makes, or null when the editor refuses it: an unknown port,
  *  types that can't connect, a cable that's already there, or a second cable into a Value input.
+ *  A param handle takes a Signal cable when the param is a number that can be modulated.
  *  A cycle without a delay edge is left to the compiler, so the editor can show it. */
 export function cableFor(patch: Patch, registry: Registry, connection: Connection | Edge): PatchCable | null {
   const typeOf = (id: string) => patch.nodes.find((node) => node.id === id)?.type;
   const out = portOf(registry, typeOf(connection.source), 'out', connection.sourceHandle);
-  const into = portOf(registry, typeOf(connection.target), 'in', connection.targetHandle);
+  const into = handlePort(patch, registry, connection.target, connection.targetHandle ?? null, 'in');
   if (!out || !into || !portsCompatible(out, into)) return null;
-  const cable = { from: { node: connection.source, port: out.name }, to: { node: connection.target, port: into.name } };
+  const cable = { from: { node: connection.source, port: out.name }, to: { node: connection.target, port: handleParam(into.name) ?? into.name } };
   const id = cableId(cable);
   if (patch.cables.some((c) => cableId(c) === id)) return null;
   if (into.type === 'value' && patch.cables.some((c) => c.to.node === cable.to.node && c.to.port === cable.to.port)) return null;
@@ -92,7 +133,11 @@ export function matchingPort(definition: NodeDefinition, end: CableEnd): PortSpe
   return portsOf(definition, from ? 'in' : 'out').find((p) => (from ? portsCompatible(end.port, p) : portsCompatible(p, end.port)));
 }
 
-/** The port a handle stands for. */
+/** The port a handle stands for. A param handle stands for a Signal input named by its handle id. */
 export function handlePort(patch: Patch, registry: Registry, node: string, handle: string | null, direction: 'in' | 'out'): PortSpec | undefined {
-  return portOf(registry, patch.nodes.find((n) => n.id === node)?.type, direction, handle);
+  const type = patch.nodes.find((n) => n.id === node)?.type;
+  const param = direction === 'in' ? handleParam(handle) : undefined;
+  if (param === undefined) return portOf(registry, type, direction, handle);
+  const spec = modulatableParam(registry, type, param);
+  return spec && { name: paramHandle(spec.name), type: 'signal', direction: 'in', label: spec.label ?? spec.name };
 }
