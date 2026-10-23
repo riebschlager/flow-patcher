@@ -11,11 +11,12 @@ Two fixes were tried on #33 and dropped:
 
 ## Decision
 - The offset stays 5 ms everywhere (0017).
-- A tap's own note may reach Web Audio up to one audio clock step behind `currentTime`. The runtime clamps an event that is behind the clock at hand-over to `currentTime` and counts it (`lateImmediate`). Web Audio plays a `start()` time in the past at the next render quantum, so the note sounds within one step of where it was meant to.
+- A tap's own note may reach Web Audio up to one audio clock step behind `currentTime`. The runtime moves an event that is behind the clock at hand-over to that clock reading, counts it (`lateImmediate`) and records the most it moved one (`lateImmediateMaxMs`). Web Audio plays a `start()` time in the past at the next render quantum.
+- That lateness is the clock's step plus the time the push's re-run takes, so a slow re-run can exceed one step. The runtime doesn't prevent that; the gate measures it. `lateImmediate` covers the push's whole re-run, so Clock-driven events it re-delivers count too.
 - Scheduled events must never be late (`lateScheduled` stays 0).
 - The M1 gate's **No late events** box is reworded to say this.
 
 ## Consequences
 - Tap-to-sound stays at 0017's figures on every platform.
-- The e2e edit run checks that `lateScheduled` is 0 and that every late `start()` is at most one step behind. One step there is the larger of `baseLatency` and the largest step the spec measures.
+- The e2e edit run checks that `lateScheduled` is 0 and that `lateImmediateMaxMs` is at most one step. One step there is the larger of `baseLatency` and the largest step the spec measures. It also checks that no `start()` call lands more than a step behind after hand-over.
 - The pointer and fluid-load specs keep 0017's fixed 5 ms and their gate bounds (5 ± 2 ms; 12 ms under load).

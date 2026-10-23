@@ -252,6 +252,7 @@ test('a node over the event cap shows its warning until dismissed', async ({ pag
       }
     }).observe(el, { childList: true, subtree: true });
   });
+  expect(await page.evaluate(() => (window as Window & { warningRemoved?: boolean }).warningRemoved)).toBe(false);
   await warning.getByTestId('dismiss-warnings').click();
   await expect.poll(() => page.evaluate(() => (window as Window & { warningRemoved?: boolean }).warningRemoved)).toBe(true);
   // It keeps going over, so the warning comes back.

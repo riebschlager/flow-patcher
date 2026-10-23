@@ -311,6 +311,8 @@ describe('late counters read the audio clock at hand-over', () => {
     expect(event!.time).toBe(1.0123 + IMMEDIATE_OFFSET);
     expect(deliveries.map((d) => [d.at, d.event.time])).toEqual([[1.0223, 1.0223]]);
     expect(scheduler.stats).toMatchObject({ pushes: 1, rewinds: 1, pushFallbacks: 0, lateImmediate: 1, lateScheduled: 0 });
+    // Stamped at +5 ms, handed over at +10 ms: 5 ms late.
+    expect(scheduler.stats.lateImmediateMaxMs).toBeCloseTo(5, 9);
     expect(scheduler.events().map((e) => [e.node, e.time])).toEqual([['t', event!.time], ['s', event!.time]]);
   });
 });

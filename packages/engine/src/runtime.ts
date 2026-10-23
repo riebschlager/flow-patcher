@@ -349,8 +349,11 @@ export interface RuntimeCounters {
    *  the call began, and were moved to it. */
   lateScheduled: number;
   /** Events a push handed over (its rewind's re-run) that were before the audio
-   *  clock at hand-over, read as for lateScheduled, and were moved to it. */
+   *  clock at hand-over, read as for lateScheduled, and were moved to it. This covers the
+   *  push's whole re-run, so Clock-driven events it re-delivers count too. */
   lateImmediate: number;
+  /** The most any of those was moved, in ms: how late a push's notes reached Web Audio (ADR 0027). */
+  lateImmediateMaxMs: number;
   /** Events withdrawn from audio nodes because a rewind replaced them. */
   cancelled: number;
   /** Withdrawals an audio node couldn't make, because it has no cancel(). */
@@ -581,7 +584,7 @@ interface Retiring {
 }
 
 export class Runtime {
-  readonly counters: RuntimeCounters = { delivered: 0, caughtUp: 0, lateScheduled: 0, lateImmediate: 0, cancelled: 0, uncancelled: 0, outOfWindow: 0, droppedNodeLimit: 0, droppedPatchLimit: 0, queries: 0, snapshots: 0, snapshotMs: 0, voiceSteals: 0, droppedPushes: 0 };
+  readonly counters: RuntimeCounters = { delivered: 0, caughtUp: 0, lateScheduled: 0, lateImmediate: 0, lateImmediateMaxMs: 0, cancelled: 0, uncancelled: 0, outOfWindow: 0, droppedNodeLimit: 0, droppedPatchLimit: 0, queries: 0, snapshots: 0, snapshotMs: 0, voiceSteals: 0, droppedPushes: 0 };
   /** The latest plan: what the next window runs. */
   private stage: Stage;
   /** The plan the chunk being run belongs to: `stage`, except while a rewind replays older windows. */
@@ -1563,9 +1566,11 @@ export class Runtime {
       this.counters.caughtUp++;
     }
     if (!(time >= floor)) {
+      if (timing.path === 'immediate') {
+        this.counters.lateImmediate++;
+        if (Number.isFinite(time)) this.counters.lateImmediateMaxMs = Math.max(this.counters.lateImmediateMaxMs, (floor - time) * 1000);
+      } else this.counters.lateScheduled++;
       time = floor;
-      if (timing.path === 'immediate') this.counters.lateImmediate++;
-      else this.counters.lateScheduled++;
     }
     return time === event.time ? event : { ...event, time };
   }
