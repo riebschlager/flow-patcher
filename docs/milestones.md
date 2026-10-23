@@ -2,7 +2,7 @@
 
 Six milestones. Each one starts only after the previous gate passes. The source is the roadmap in [design.md](design.md#milestones); this file turns each gate into checks an agent can run, plus a human sign-off for the parts no test can judge.
 
-**Current milestone: M1.**
+**Current milestone: M2.**
 
 ## How to use this file
 
@@ -64,25 +64,25 @@ Human
 **Gate: live edits never glitch the audio**
 
 Automated
-- [ ] `pnpm check` and `pnpm e2e` are green in CI.
-- [ ] **Determinism:** the same patch and seed, run twice headless, gives byte-identical event logs.
-- [ ] **Window independence:** querying 0–10 s in 25 ms steps, in 100 ms steps and in one call gives identical events for every generator node.
-- [ ] **Hot swap:** a headless run of a Clock → Euclidean → Probability → Make Note → Sampled Voice patch with 100 scripted edits (knob change, cable add/remove, node add/remove) shows no duplicated events, no missing events from nodes the edit didn't touch, no events from removed nodes after the swap, and preserved state for surviving ids.
-- [ ] **No late events:** across the e2e edit run, no event is handed to Web Audio with `time < ctx.currentTime`.
-- [ ] **Stalls:** a simulated 500 ms main-thread stall skips the missed windows; no burst of more than one window's events afterwards.
-- [ ] **Catch-up:** a simulated 150 ms stall loses no events, and no two caught-up events from one stream land on the same time.
-- [ ] **Offline audio:** an `OfflineAudioContext` render of a sustained patch with edits applied via `suspend()` has no silent gap longer than 5 ms *(tune)* and no peak above the Output ceiling.
-- [ ] **Immediate path:** a scripted pointerdown produces a note at `currentTime + 5 ms ± 2 ms` *(tune)*, without waiting for the next scheduler wake.
-- [ ] **Immediate path under load:** with a Fluid stepping and a Renderer drawing, the worst of 30 scripted taps is ≤ offset + 7 ms from pointerdown to the note's time *(tune)*. That bound fails if the fluid runs on the main thread ([ADR 0016](decisions/0016-main-thread-budget.md)).
-- [ ] **Transport:** across a tempo change mid-run, Phase is continuous and the beat count never repeats or skips; Progression gives the same chords queried in 25 ms windows and in one call.
-- [ ] **Output guard:** in an offline render of a hot patch (four full-scale saws), under 0.1 % of samples reach the Output ceiling *(tune)*.
-- [ ] **Compiler:** a cycle with no delay edge is rejected; the same cycle through Delay Edge compiles.
-- [ ] **Limits:** a node emitting 1,000 events per window is capped at 256 with a warning; a patch over 2,048 is capped.
-- [ ] **Format:** every example patch survives save → load → save byte-identical, with format and node type versions present.
-- [ ] **Boundary:** the lint rule fails on a deliberate DOM import in `packages/engine` (tested), and passes on the real code.
+- [x] `pnpm check` and `pnpm e2e` are green in CI.
+- [x] **Determinism:** the same patch and seed, run twice headless, gives byte-identical event logs.
+- [x] **Window independence:** querying 0–10 s in 25 ms steps, in 100 ms steps and in one call gives identical events for every generator node.
+- [x] **Hot swap:** a headless run of a Clock → Euclidean → Probability → Make Note → Sampled Voice patch with 100 scripted edits (knob change, cable add/remove, node add/remove) shows no duplicated events, no missing events from nodes the edit didn't touch, no events from removed nodes after the swap, and preserved state for surviving ids.
+- [x] **No late events:** across the e2e edit run, no event is handed to Web Audio with `time < ctx.currentTime`.
+- [x] **Stalls:** a simulated 500 ms main-thread stall skips the missed windows; no burst of more than one window's events afterwards.
+- [x] **Catch-up:** a simulated 150 ms stall loses no events, and no two caught-up events from one stream land on the same time.
+- [x] **Offline audio:** an `OfflineAudioContext` render of a sustained patch with edits applied via `suspend()` has no silent gap longer than 5 ms *(tune)* and no peak above the Output ceiling.
+- [x] **Immediate path:** a scripted pointerdown produces a note at `currentTime + 5 ms ± 2 ms` *(tune)*, without waiting for the next scheduler wake.
+- [x] **Immediate path under load:** with a Fluid stepping and a Renderer drawing, the worst of 30 scripted taps is ≤ offset + 7 ms from pointerdown to the note's time *(tune)*. That bound fails if the fluid runs on the main thread ([ADR 0016](decisions/0016-main-thread-budget.md)).
+- [x] **Transport:** across a tempo change mid-run, Phase is continuous and the beat count never repeats or skips; Progression gives the same chords queried in 25 ms windows and in one call.
+- [x] **Output guard:** in an offline render of a hot patch (four full-scale saws), under 0.1 % of samples reach the Output ceiling *(tune)*.
+- [x] **Compiler:** a cycle with no delay edge is rejected; the same cycle through Delay Edge compiles.
+- [x] **Limits:** a node emitting 1,000 events per window is capped at 256 with a warning; a patch over 2,048 is capped.
+- [x] **Format:** every example patch survives save → load → save byte-identical, with format and node type versions present.
+- [x] **Boundary:** the lint rule fails on a deliberate DOM import in `packages/engine` (tested), and passes on the real code.
 
 Human
-- [ ] Chris edits a playing patch in the editor for 10 minutes and hears no glitch.
+- [x] Chris edits a playing patch in the editor for 10 minutes and hears no glitch.
 
 ---
 
