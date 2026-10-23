@@ -3,6 +3,7 @@
 // The fan-out from an event to the source nodes that read it lives here too,
 // and both the editor's live host and the headless runner use it, so a stream
 // can't replay differently from how it was played.
+import type { NodeDefinition } from './definition';
 import type { EngineEvent, EventField } from './events';
 import type { LivePush, Plan, Runtime } from './runtime';
 import type { PushTarget } from './scheduler';
@@ -160,9 +161,30 @@ export function serializeInputStream(stream: InputStream): string {
  * each event type it reads, and the Event output the host pushes it on.
  */
 export interface InputSpec {
+  /** Event type → the port its events are pushed on: an Event output, or on a node that `rewrites`,
+   *  also a push-only name that isn't a port (Pointer's `enter` and `leave`), which only its query sees. */
   reads: Readonly<Partial<Record<InputEventType, string>>>;
   /** Narrows the events of a type it reads (Pointer skips coalesced moves, ADR 0029). Pure. Default: all of them. */
   accepts?(event: Readonly<InputFields>): boolean;
+  /**
+   * The node rewrites its pushes (ADR 0028, 0029): the runtime doesn't pass `QueryContext.pushed`
+   * through to the outputs, and `query()` returns its own version of each pushed event instead,
+   * such as Pointer's with a slot channel and derived fields. The events it returns should keep
+   * the pushes' times: an event at a push's time on the push's node counts as the tap's own, so it
+   * stays on the immediate path (ADR 0020). Needs a `query()`. Default false: pushes pass through.
+   */
+  rewrites?: boolean;
+}
+
+/**
+ * Whether live events may be pushed onto `port` of a node: an Event or Note output, or a push-only
+ * port its `input.reads` names when it rewrites its pushes. `Runtime.pushAll` and `Scheduler.pushAll` check it.
+ */
+export function pushable(definition: Pick<NodeDefinition, 'ports' | 'input'>, port: string): boolean {
+  const spec = definition.ports.find((p) => p.name === port && p.direction === 'out');
+  if (spec) return spec.type === 'event' || spec.type === 'note';
+  const input = definition.input;
+  return input?.rewrites === true && !definition.ports.some((p) => p.name === port) && Object.values(input.reads).includes(port);
 }
 
 /** The event fields a source gets for an input event: its channel (0 when it has none) and its payload, without `time` and `type`. */

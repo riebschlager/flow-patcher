@@ -30,6 +30,7 @@ import {
 } from './definition';
 import { compareEvents, type EngineEvent, type EventField, type EventPath } from './events';
 import { FRAME_BACKLOG, FRAME_QUEUE_LIMIT } from './frame-loop';
+import { pushable } from './input';
 import { LIMIT_WINDOW, limitWindowOf, NODE_EVENT_LIMIT, PATCH_EVENT_LIMIT, VOICE_LIMIT, WARNING_KINDS, type NodeWarning, type NodeWarningKind } from './limits';
 import type { Patch, PortRef } from './patch';
 import { clonePlain, restoreState } from './state';
@@ -846,8 +847,7 @@ export class Runtime {
     for (const { node: nodeId, port, event } of pushes) {
       const node = this.stage.byId.get(nodeId);
       if (!node) throw new Error(`push: no node "${nodeId}"`);
-      const spec = node.definition.ports.find((p) => p.name === port && p.direction === 'out');
-      if (!spec || (spec.type !== 'event' && spec.type !== 'note')) throw new Error(`push: node "${nodeId}" has no event output "${port}"`);
+      if (!pushable(node.definition, port)) throw new Error(`push: node "${nodeId}" has no event output "${port}"`);
       if (!Number.isFinite(event.time)) throw new RangeError(`push: event time must be finite, got ${event.time}`);
       if (timing && event.time < timing.now) throw new RangeError(`push: event time ${event.time} is before currentTime ${timing.now}`);
       t = Math.min(t, event.time);
@@ -1519,8 +1519,9 @@ export class Runtime {
           if (inside.length) result[port] = inside;
         }
       }
-      // Live events pass through after the query, which saw them as `pushed` and doesn't return them.
-      for (const [port, events] of Object.entries(pushed)) (result[port] ??= []).push(...events);
+      // Live events pass through after the query, which saw them as `pushed` and doesn't return them,
+      // unless the node rewrites them (InputSpec.rewrites): then its query returned its own versions.
+      if (!definition.input?.rewrites) for (const [port, events] of Object.entries(pushed)) (result[port] ??= []).push(...events);
       for (const events of Object.values(result)) events.sort(compareEvents);
       this.applyLimits(id, result, emit !== null);
       outputs.set(id, result);
