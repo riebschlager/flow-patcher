@@ -73,7 +73,7 @@ Every browser event that is useful on a performance canvas becomes a source node
 
 | Node | Browser events | Outputs |
 | --- | --- | --- |
-| Pointer | pointerdown, pointermove, pointerup, pointercancel, pointerenter, pointerleave | Down, Move, Up, Cancel events per channel; X, Y, Pressure, Speed signals per channel; Count of active pointers |
+| Pointer | pointerdown, pointermove, pointerup, pointercancel, pointerenter, pointerleave | Down, Move, Up, Cancel events per channel, and All, every event tagged with its phase; X, Y, Pressure, Speed signals per channel; Count of active pointers |
 | Pointer (high rate) | `getCoalescedEvents()`, `pointerrawupdate` where supported | Every sub-frame move sample, for smooth strokes and fast flicks |
 | Click | click, dblclick, auxclick, contextmenu | Click, Double, Middle, Right events with position |
 | Wheel | wheel (including macOS trackpad pinch, sent as wheel + ctrlKey) | DeltaX, DeltaY, Zoom events; accumulated X/Y/Zoom signals with a decay knob |
@@ -81,6 +81,8 @@ Every browser event that is useful on a performance canvas becomes a source node
 | Touch extras | Touch contact size; Safari `gesturechange` | Contact width/height; native Scale and Rotation (Safari only) |
 | Key | keydown, keyup while the canvas has focus | Down/Up events with `key`, `code`, `repeat`; a Held signal for each chosen key; a Keyboard → Note mode (two-row piano layout) |
 | Canvas | resize, focus, blur, visibilitychange | Size signals and Focus/Blur/Hidden/Visible events, so patches can fade or pause cleanly |
+
+The contact sources (Pointer, Pointer (high rate), Pen and Key) also have an All output that carries every event tagged with its phase, for recognizers to read ([ADR 0028](decisions/0028-recognizers-pass-claim-cancel.md)).
 
 Web MIDI in (notes and CCs) ships in v1, behind its own permission. Later sources in the same family, each also behind a permission: Gamepad (buttons and axes, polled each frame), Device motion and orientation (tilt as a controller on phones), and Microphone (level, onset and pitch).
 
@@ -119,7 +121,7 @@ Recognizers consume raw events and emit higher-level ones. They are ordinary nod
 
 ### Who owns a pointer
 
-In the original Flow, a pinch shouldn't also paint and a right-drag shouldn't drop notes. In a graph, every recognizer has two outputs: its gesture events, and a **Pass** output carrying the raw events it did not claim. A recognizer claims a channel once it is confident, for example when a pinch passes its threshold. From then on, that channel's events stop flowing out of Pass, and a Cancel goes to everything downstream of Pass. Chaining recognizers through Pass outputs sets priority: Pinch → Circle → Paint means pinch wins, circle next, and painting gets what's left. Flow's tool modes (Paint, Conduct, Space, Orbit) become a Switch node fed by a menu, a key or a Modifier Router.
+In the original Flow, a pinch shouldn't also paint and a right-drag shouldn't drop notes. In a graph, every recognizer has two outputs: its gesture events, and a **Pass** output carrying the raw events it did not claim. Both a recognizer's input and its Pass are one stream of events tagged with their `phase` (down, move, up, cancel). A recognizer claims a channel once it is confident, for example when a pinch passes its threshold. From then on, that channel's events stop flowing out of Pass, and a single `cancel` event for the channel goes out on Pass to everything downstream ([ADR 0028](decisions/0028-recognizers-pass-claim-cancel.md)). Chaining recognizers through Pass outputs sets priority: Pinch → Circle → Paint means pinch wins, circle next, and painting gets what's left. Flow's tool modes (Paint, Conduct, Space, Orbit) become a Switch node fed by a menu, a key or a Modifier Router.
 
 ### Platform rules the runtime handles
 
@@ -302,7 +304,7 @@ Every node type has its own version number and, from M4 on, a migration function
 
 ### Performance recordings
 
-All randomness is seeded and all generators are pure window queries. So a performance can be recorded as the patch plus its **input event streams**: pointer, key and wheel events with timestamps. Replaying the inputs through the same patch reproduces the performance. This needs no note capture, unlike Flow's session format. One exception: patches that use live sources from outside the canvas (MIDI, mic, motion) also record those streams, and any fluid-feedback path is non-deterministic across machines. For those, Flow's approach of capturing emitted notes stays available as a fallback. WAV and video export render locally in real time, as Flow does today.
+All randomness is seeded and all generators are pure window queries. So a performance can be recorded as the patch plus its **input event streams**: canvas events (pointer, key, wheel and the rest) with timestamps, in a format any patch can replay ([ADR 0029](decisions/0029-input-stream-format.md)). Replaying the inputs through the same patch reproduces the performance. This needs no note capture, unlike Flow's session format. One exception: patches that use live sources from outside the canvas (MIDI, mic, motion) also record those streams, and any fluid-feedback path is non-deterministic across machines. For those, Flow's approach of capturing emitted notes stays available as a fallback. WAV and video export render locally in real time, as Flow does today.
 
 ### Storage and community
 
@@ -380,7 +382,7 @@ There are six milestones, and each one starts only after the previous gate passe
 | M0 · Spike | Eight node types, one patch, throwaway code: Pointer, Clock, Euclidean, Progression, Chord Tone, Sampled Voice, Output, Fluid with Splat and Renderer | Patching feels fun, and taps sound immediately |
 | M1 · Engine core | Typed ports and channels, graph compiler, window scheduler, hot patching, probes, undo/redo | Live edits never glitch the audio |
 | M2 · Canvas event sources | Every raw source node and payload field, the recognizers with Pass and claim, Zone, Modifier Router | Flow's Paint, Conduct, Space and Orbit rebuilt from recognizers |
-| M3 · Flow as a patch | Port every starred node with its tests; ship the original Flow as the flagship example patch | The Flow patch feels like Flow |
+| M3 · Flow as a patch | Port every starred node not built yet with its tests; ship the original Flow as the flagship example patch | The Flow patch feels like Flow |
 | M4 · Play and keep | Play view, pinned knobs, local library, input recordings, WAV and video export | Someone else can open a shared file, play it and remix it |
 | M5 · Community | Publish, browse, play and remix patches, with Flow's moderation gates and quotas | — |
 

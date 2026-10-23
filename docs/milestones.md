@@ -94,15 +94,17 @@ Human
 - Every raw source node: Pointer, Pointer (high rate), Click, Wheel, Pen, Touch extras, Key, Canvas, and Web MIDI in (v1 decision), each with every payload field in the design.
 - All recognizers: Drag, Tap, Hold, Flick, Circle, Pinch, Stroke, Dwell, Zone, Modifier Router, each with a Pass output, claim and Cancel.
 - Platform rules: `touch-action: none`, pointer capture, context menu suppressed only when a patch uses right-click, the first pointerdown unlocks audio and still sounds, keyboard focus rules, permission prompts on first play with a blocked state on the node.
-- **Input stream format:** timestamped canvas events as JSON. Tests use it now; M4 recordings reuse it.
+- **Input stream format:** timestamped canvas events as JSON ([ADR 0029](decisions/0029-input-stream-format.md)). Tests use it now; M4 recordings reuse it.
+- Recognizers chain on one phase-tagged stream, and a claim is a Cancel on Pass ([ADR 0028](decisions/0028-recognizers-pass-claim-cancel.md)).
 - Port `gestures.js` / `performance.js` tests where they map onto a recognizer.
+- The nodes the mode patches need: Switch/Select, Filter, Pan/Gain/Mixer, Math/Map Range/Curve/Smooth, Get Field and Force (unstarred, so they land here), and the ★ nodes Reverb, Delay and Orbit Rings, brought forward from M3 because Space and Orbit need them.
 
 **Gate: Flow's Paint, Conduct, Space and Orbit rebuilt from recognizers**
 
 Automated
 - [ ] Four example patches, `examples/modes/{paint,conduct,space,orbit}.flowpatch`, use only catalog node types (checked by a test that rejects any node type not in `packages/nodes`).
 - [ ] Each mode patch has scripted input streams and an expected event log, and replay matches it exactly, twice in a row.
-- [ ] **Ownership:** a stream that starts painting and then pinches with a second finger yields no paint events from the claimed channels after the claim, and exactly one Cancel downstream of Pass.
+- [ ] **Ownership:** a stream that starts painting and then pinches with a second finger yields no paint events from the claimed channels after the claim, and exactly one Cancel per claimed channel downstream of Pass ([ADR 0028](decisions/0028-recognizers-pass-claim-cancel.md)).
 - [ ] **Payload:** Playwright drives synthetic mouse, touch, pen, wheel and key input; every source node emits every documented field, with `x`, `y` in 0–1 and `y = 0` at the top.
 - [ ] **First touch:** in e2e, the first pointerdown on a fresh page both resumes the AudioContext and produces its note.
 - [ ] **Permissions:** with MIDI denied, the MIDI node shows its blocked state and the rest of the patch plays.
@@ -118,8 +120,8 @@ Human
 **Goal:** the acceptance test for the whole design. If today's Flow can't be rebuilt from nodes, the vocabulary is wrong: fix the vocabulary (and `design.md`) before going on. This tests the vocabulary, not compatibility: the patch has to feel like Flow, not match it.
 
 **Scope**
-- Port every ★ node with its Flow tests, following the Reuse-from-Flow table and adapting the code freely: Euclidean, Step Sequencer, Probability, Quantize, Humanize, Progression, Chord Tone, Arpeggio, Sampled Voice, Drum Voice, Atmosphere, Reverb, Delay, Output, Ripple, Droplet, Halo, Motes, Orbit Rings, Text, Palette, Lighting, Renderer.
-- Fluid on the GPU (WebGL2 passes) with the CPU solver kept as the test reference and fallback; Splat, Force, Stir, Clear/Fade; Probe, Region Stats, Density Onset with async readback one frame late.
+- Port every ★ node not built yet (M1 and M2 built some, e.g. Euclidean, Output, Reverb, Delay, Orbit Rings) with its Flow tests, following the Reuse-from-Flow table and adapting the code freely: Euclidean, Step Sequencer, Probability, Quantize, Humanize, Progression, Chord Tone, Arpeggio, Sampled Voice, Drum Voice, Atmosphere, Output, Ripple, Droplet, Halo, Motes, Text, Palette, Lighting, Renderer.
+- Fluid on the GPU (WebGL2 passes) with the CPU solver kept as the test reference and fallback; Splat, Force, Stir, Clear/Fade on the GPU; Probe, Region Stats, Density Onset with async readback one frame late.
 - Rewrite `ArpEngine` / `RhythmEngine` logic as pure `query()` nodes.
 - Every unstarred catalog node not built yet, so the v1 catalog is complete.
 - `examples/flow.flowpatch`, the flagship, plus the one-idea examples: "tap to play chords", "drag to sweep a filter", "Euclidean drums that stir the fluid", "the fluid plays itself".
