@@ -1,3 +1,4 @@
+export * from './audio/automation';
 export * from './audio/output';
 export type * from './audio/types';
 export * from './audio/voices';

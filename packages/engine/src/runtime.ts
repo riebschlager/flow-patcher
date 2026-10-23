@@ -538,6 +538,9 @@ export interface SwapReport {
   /** Changed nodes whose state started over at `time` (type or version
    *  changed, or `keepState` said no). Every other surviving id kept its state. */
   reset: string[];
+  /** Changed audio nodes that kept their instance and took the edit in place
+   *  (`AudioInstance.update`, ADR 0031), in plan order. */
+  updated: string[];
   /** Nodes re-run from `time`: the added and changed nodes and everything downstream of them. */
   affected: ReadonlySet<string>;
   /** Signal and Value sources of the affected nodes, re-queried for their state only. */
@@ -917,14 +920,17 @@ export class Runtime {
    * whose type, params, seed or param cables changed gets a new instance, and
    * the old one, like a removed node's, has its events from the swap on
    * cancelled and is disposed once its sounding notes have finished
-   * (`AudioInstance.idleAt`, checked in `retain`). Audio cables are rewired
+   * (`AudioInstance.idleAt`, checked in `retain`). The exception (ADR 0031):
+   * when only params in the definition's `liveParams` changed and the
+   * instance has `update`, it keeps the instance and calls `update` with the
+   * new params at the swap time (never before the clock). Audio cables are rewired
    * now, not at the swap time: Web Audio can't schedule connect/disconnect.
    */
   swap(plan: Plan, timing?: DeliveryTiming): SwapReport {
     const prev = this.stage;
     const seedChanged = plan.seed !== prev.plan.seed;
     const added: string[] = [], changed: string[] = [], reset: string[] = [];
-    const kept = new Set<string>(), rebuild = new Set<string>(), retyped = new Set<string>();
+    const kept = new Set<string>(), rebuild = new Set<string>(), retyped = new Set<string>(), inPlace = new Set<string>();
     for (const node of plan.order) {
       const before = prev.byId.get(node.id);
       if (!before) {
@@ -937,7 +943,13 @@ export class Runtime {
       const links = plan.incoming.get(node.id), linksBefore = prev.plan.incoming.get(node.id);
       const sameNode = sameType && sameParams && !seedChanged && before.definition === node.definition;
       if (!sameNode || !sameJson(links, linksBefore)) changed.push(node.id);
-      if (!sameNode || !sameJson(links?.params, linksBefore?.params)) rebuild.add(node.id);
+      const sameParamLinks = sameJson(links?.params, linksBefore?.params);
+      // A knob edit the definition takes in place (ADR 0031): same type, version, definition,
+      // seed and cables into params, and only liveParams changed.
+      const live = node.definition.liveParams;
+      if (sameType && !sameParams && !seedChanged && before.definition === node.definition && sameParamLinks && live
+        && changedKeys(before.params, node.params).every((key) => live.includes(key))) inPlace.add(node.id);
+      if (!sameNode || !sameParamLinks) rebuild.add(node.id);
       if (sameType && (sameParams || node.definition.keepState?.(before.params, node.params) !== false)) kept.add(node.id);
       else reset.push(node.id);
     }
@@ -963,17 +975,28 @@ export class Runtime {
 
     const next = this.makeStage(plan, time, prev, kept);
     let cancelled = 0;
+    const updated: string[] = [];
     if (this.audioContext) {
       for (const node of plan.order) {
         if (!node.definition.audio) continue;
         const old = prev.audio.get(node.id);
-        next.audio.set(node.id, old && !rebuild.has(node.id) ? old : this.buildAudio(node, next));
+        const keep = old && (!rebuild.has(node.id) || (inPlace.has(node.id) && old.update));
+        if (keep) next.audio.set(node.id, old);
+        else next.audio.set(node.id, this.buildAudio(node, next));
+        if (keep && rebuild.has(node.id)) updated.push(node.id);
       }
       for (const instance of prev.audio.values()) {
         if (![...next.audio.values()].includes(instance)) cancelled += this.retire(instance, time);
       }
     }
     this.stage = this.active = next;
+    if (updated.length) {
+      // On the audio clock, never before it; without a clock, at the horizon (or now, before any query).
+      const floor = timing ? clockAt(timing) : -Infinity;
+      let at = Math.max(time, floor);
+      if (!Number.isFinite(at)) at = Number.isFinite(this.audioContext!.currentTime) ? this.audioContext!.currentTime : 0;
+      for (const id of updated) next.audio.get(id)!.update!(next.byId.get(id)!.params, at);
+    }
     // A swap to the same time as the last one replaces its ranks; that plan never ran.
     while (this.ranks.length > 1 && this.ranks.at(-1)!.from >= time) this.ranks.pop();
     this.ranks.push({ from: time, position: next.position, outPosition: next.outPosition });
@@ -993,7 +1016,7 @@ export class Runtime {
     for (const id of [...added, ...changed]) for (const d of this.downstreamOf(id, next)) affected.add(d);
     const followed = this.signalSourcesOf(affected, next);
     const replaced = new Set([...affected, ...removed]);
-    const report: SwapReport = { time, windows: 0, added, removed, changed, reset, affected, followed, replaced, queries: 0, withdrawn: 0, events: [], cancelled };
+    const report: SwapReport = { time, windows: 0, added, removed, changed, reset, updated, affected, followed, replaced, queries: 0, withdrawn: 0, events: [], cancelled };
     if (first >= 0) for (let j = first; j < history!.length; j++) history![j]!.stage = next;
     // A swap to the same boundary as the last one, or a second one at the horizon before a
     // query, leaves the stage before with no window: a replay crossing from the window
@@ -1197,10 +1220,18 @@ export class Runtime {
   }
 
   private buildAudio(node: PlanNode, stage: Stage): AudioInstance {
-    const { param } = stage.contexts.get(node.id)!;
-    return node.definition.audio!({
-      audio: this.audioContext!, params: node.params, state: stage.states.get(node.id)!, param, voices: this.voicePool!.forNode(node.id), services: this.services,
+    // The plan running the chunk, once it runs this instance: after an in-place edit
+    // (ADR 0031) param() adds modulation to the new base; a rewind into windows before
+    // the edit reads the old one. Before that (setup), the plan it was built for.
+    const built: { instance?: AudioInstance } = {};
+    const context = () => (built.instance && this.active.audio.get(node.id) === built.instance ? this.active : stage).contexts.get(node.id)!;
+    built.instance = node.definition.audio!({
+      audio: this.audioContext!, params: node.params, state: stage.states.get(node.id)!,
+      param: (name, t, channel) => context().param(name, t, channel),
+      connected: (name) => context().connected(name),
+      voices: this.voicePool!.forNode(node.id), services: this.services,
     });
+    return built.instance;
   }
 
   /** Withdraws what an old audio instance was handed from `time` on, and keeps it until its notes finish. Returns the count withdrawn. */
@@ -1496,6 +1527,7 @@ export class Runtime {
       for (const [port, events] of Object.entries(result)) for (const event of events) emit.log.push({ node: id, port, ...event });
       if (this.history) this.record(id, result);
       this.deliver(id, inputs, c0, c1, emit);
+      this.automate(id, c0, c1, emit.timing);
       if (definition.frame) this.queueForFrame(id, outputs, taps ??= this.tapsIn(c0, c1), emit.rewind === true);
     }
     // Delay nodes get this chunk's inputs in the next chunk (or the next query).
@@ -1568,9 +1600,29 @@ export class Runtime {
     }
   }
 
+  /**
+   * The chunk's automation call (ADR 0031), on the audio clock the way `send`
+   * hands over events: a chunk starting in a catch-up's missed stretch moves by
+   * its shift, and t0 is never before the clock at hand-over. A chunk wholly
+   * behind the clock has nothing left to automate.
+   */
+  private automate(id: string, c0: number, c1: number, timing: DeliveryTiming | undefined): void {
+    const instance = this.active.audio.get(id);
+    if (!instance?.automate) return;
+    let t0 = c0, t1 = c1;
+    if (timing) {
+      if (timing.catchUp && c0 < timing.catchUp.until) {
+        t0 += timing.catchUp.shift;
+        t1 += timing.catchUp.shift;
+      }
+      t0 = Math.max(t0, clockAt(timing));
+    }
+    if (t1 > t0) instance.automate(t0, t1);
+  }
+
   private send(instance: AudioInstance, port: string, events: readonly EngineEvent[], timing: DeliveryTiming | undefined): void {
     // The clock at hand-over: a long re-run may have moved it past `now`.
-    const floor = timing && (timing.currentTime ? Math.max(timing.now, timing.currentTime()) : timing.now);
+    const floor = timing && clockAt(timing);
     const sent = events.map((event) => this.timed(event, timing, floor!));
     instance.schedule!(port, sent);
     this.counters.delivered += sent.length;
@@ -2018,6 +2070,14 @@ function insertInOrder(queue: Pending[], item: Pending): void {
 /** A copy of a held warning without its internal `seq`. */
 function publicWarning({ seq: _seq, ...warning }: HeldWarning): NodeWarning {
   return warning;
+}
+
+/** The audio clock at hand-over: a long call may have moved it past `timing.now`. */
+const clockAt = (timing: DeliveryTiming): number => (timing.currentTime ? Math.max(timing.now, timing.currentTime()) : timing.now);
+
+/** The keys whose values differ, compared with Object.is. */
+function changedKeys(a: ParamValues, b: ParamValues): string[] {
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((key) => !Object.hasOwn(a, key) || !Object.hasOwn(b, key) || !Object.is(a[key], b[key]));
 }
 
 /** Same keys and values, compared with Object.is. */

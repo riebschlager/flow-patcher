@@ -86,7 +86,7 @@ export function audioSetup(
   { voices = new VoicePool(() => audio.currentTime), ...options }: ContextOptions & { voices?: VoicePool } = {},
 ): AudioSetupContext {
   const ctx = context(definition, options);
-  return { audio, params: ctx.params, state: ctx.state, param: ctx.param, voices, services: ctx.services };
+  return { audio, params: ctx.params, state: ctx.state, param: ctx.param, connected: ctx.connected, voices, services: ctx.services };
 }
 
 /** Queries [0, end) in windows of `step` and concatenates one output port. Each window sees only
