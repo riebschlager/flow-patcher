@@ -143,6 +143,8 @@ export class Scheduler {
   private fresh = true;
   /** Pushes held while the audio clock is suspended. */
   private readonly deferred: { nodeId: string; port: string; fields: Omit<EngineEvent, 'time'> }[] = [];
+  /** A live clock read for the runtime's hand-overs (`DeliveryTiming.currentTime`). */
+  private readonly audioTime = (): number => this.clock.audioTime();
   private stop: (() => void) | null = null;
   private log: LoggedEvent[] | null;
   private readonly own = { windows: 0, skipped: 0, stalls: 0, catchUps: 0, catchUpMaxMs: 0, pushes: 0, rewinds: 0, pushQueries: 0, pushMsMax: 0, pushMsTotal: 0, deferredPushes: 0, swaps: 0, pushFallbacks: 0 };
@@ -240,7 +242,7 @@ export class Scheduler {
     const t1 = now + (this.clock.hidden?.() ? this.hiddenLookahead : this.lookahead);
     // An extra wake (a visibility change, a push, a resume) may find the window already queried.
     if (t1 > t0) {
-      const events = this.runtime.query(t0, t1, { now, catchUp, path: 'scheduled' });
+      const events = this.runtime.query(t0, t1, { now, currentTime: this.audioTime, catchUp, path: 'scheduled' });
       this.log?.push(...events);
       this.next = t1;
       this.own.windows++;
@@ -301,7 +303,7 @@ export class Scheduler {
     const event = { time, ...fields } as EngineEvent;
     const queriesBefore = this.runtime.counters.queries;
     let rewind: PushCost['rewind'] = null;
-    const report = this.runtime.push(nodeId, port, event, { now, path: 'immediate' });
+    const report = this.runtime.push(nodeId, port, event, { now, currentTime: this.audioTime, path: 'immediate' });
     // The rewind's own cost, for the ms-per-query average: without the log update or a wake.
     const pushed = this.clock.wallTime();
     const pushQueries = this.runtime.counters.queries - queriesBefore;
@@ -345,7 +347,7 @@ export class Scheduler {
    */
   swap(plan: Plan): SwapReport {
     const now = this.clock.audioTime();
-    const report = this.runtime.swap(plan, { now, path: 'scheduled' });
+    const report = this.runtime.swap(plan, { now, currentTime: this.audioTime, path: 'scheduled' });
     this.own.swaps++;
     if (this.log && report.windows > 0) {
       const { replaced, time } = report;
