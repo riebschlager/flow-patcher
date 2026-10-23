@@ -1,0 +1,198 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261024,
+  "nodes": [
+    {
+      "id": "beat",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 100,
+        "division": "1/4"
+      },
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "sweep",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 100,
+        "division": "1/1"
+      },
+      "position": {
+        "x": 0,
+        "y": 380
+      }
+    },
+    {
+      "id": "fast",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 100,
+        "division": "1/16"
+      },
+      "position": {
+        "x": 0,
+        "y": 660
+      }
+    },
+    {
+      "id": "tone",
+      "type": "chord-tone",
+      "typeVersion": 1,
+      "params": {
+        "down": 0,
+        "length": 0.4,
+        "symbol": "Am7",
+        "up": 1,
+        "velocity": 0.7
+      },
+      "position": {
+        "x": 240,
+        "y": 100
+      }
+    },
+    {
+      "id": "pitch",
+      "type": "get-field",
+      "typeVersion": 1,
+      "params": {
+        "field": "pitch"
+      },
+      "position": {
+        "x": 480,
+        "y": 380
+      }
+    },
+    {
+      "id": "echo",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.08,
+        "pitch": 12,
+        "velocity": 0.35
+      },
+      "position": {
+        "x": 720,
+        "y": 380
+      }
+    },
+    {
+      "id": "synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.005,
+        "level": 0.3,
+        "release": 0.3,
+        "wave": "triangle"
+      },
+      "position": {
+        "x": 960,
+        "y": 100
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 1200,
+        "y": 100
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "beat",
+        "port": "tick"
+      },
+      "to": {
+        "node": "tone",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "sweep",
+        "port": "phase"
+      },
+      "to": {
+        "node": "tone",
+        "port": "position"
+      }
+    },
+    {
+      "from": {
+        "node": "tone",
+        "port": "note"
+      },
+      "to": {
+        "node": "pitch",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "fast",
+        "port": "tick"
+      },
+      "to": {
+        "node": "echo",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "pitch",
+        "port": "out"
+      },
+      "to": {
+        "node": "echo",
+        "port": "pitch"
+      },
+      "depth": 1
+    },
+    {
+      "from": {
+        "node": "tone",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "echo",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    }
+  ]
+}
