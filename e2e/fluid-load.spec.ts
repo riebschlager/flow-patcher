@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { LivePatch } from '../packages/editor/src/live';
+import { audioCallback } from './audio-clock';
 
 declare global {
   interface Window {
@@ -46,11 +47,12 @@ test('taps stay on time with the fluid stepping and the renderer drawing', async
 
   const taps = await page.evaluate(() => window.flowPatcher!.taps.filter((tap) => !tap.cold));
   const stats = await page.evaluate(() => window.flowPatcher!.frameStats);
+  const { callback, largestStep } = await audioCallback(page);
   const late = taps.map((tap) => tap.note! - tap.down);
   const worst = Math.max(...late);
   const splashes = taps.map((tap) => tap.splash!);
   console.log(
-    `worst tap ${(worst * 1000).toFixed(2)} ms (bound ${(BOUND * 1000).toFixed(0)} ms); ` +
+    `worst tap ${(worst * 1000).toFixed(2)} ms (bound ${(BOUND * 1000).toFixed(0)} ms); audio callback ${(callback * 1000).toFixed(2)} ms (largest clock step ${(largestStep * 1000).toFixed(2)} ms); ` +
       `splash handed after ${Math.max(...splashes.map((s) => s.handed))} frame(s), drawn after ${Math.min(...splashes.map((s) => s.frames))}–${Math.max(...splashes.map((s) => s.frames))}, ` +
       `ms ${Math.min(...splashes.map((s) => s.ms)).toFixed(1)}–${Math.max(...splashes.map((s) => s.ms)).toFixed(1)}; ` +
       `fluid step ${stats.fluid!.stepMs.toFixed(2)} ms, color ${stats.fluid!.colorMs.toFixed(2)} ms, ${stats.fluid!.merged} merged, ${stats.drawn}/${stats.frames} frames drawn`,
@@ -59,7 +61,9 @@ test('taps stay on time with the fluid stepping and the renderer drawing', async
   expect(taps).toHaveLength(30);
   for (const tap of taps) {
     expect(tap.note).not.toBeNull();
-    expect(tap.stamped! - tap.at).toBeCloseTo(OFFSET, 6);
+    // push reads the clock again after the handler did, and an audio callback can land between the two reads.
+    expect(tap.stamped! - tap.at).toBeGreaterThanOrEqual(OFFSET - 1e-6);
+    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(OFFSET + callback + 1e-6);
   }
   expect(worst).toBeLessThanOrEqual(BOUND);
   // ADR 0020: each tap's own event reaches the visual nodes on the very next frame, without the

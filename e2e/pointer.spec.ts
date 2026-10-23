@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { LivePatch } from '../packages/editor/src/live';
+import { audioCallback } from './audio-clock';
 
 declare global {
   interface Window {
@@ -34,11 +35,15 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
     await page.waitForTimeout(37);
   }
   const taps = await page.evaluate(() => window.flowPatcher!.taps.filter((tap) => !tap.cold));
+  const { callback } = await audioCallback(page);
   expect(taps).toHaveLength(10);
   for (const tap of taps) {
-    expect(tap.stamped! - tap.at).toBeCloseTo(0.005, 6);
+    // push reads currentTime again after the handler did, and an audio callback can land between the
+    // two reads. The +5 ms is the lower bound here; the gate's ±2 ms is then measured from push's read.
+    expect(tap.stamped! - tap.at).toBeGreaterThanOrEqual(0.005 - 1e-6);
+    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(0.005 + callback + 1e-6);
     expect(tap.note).not.toBeNull();
-    expect(Math.abs(tap.note! - tap.at - 0.005)).toBeLessThanOrEqual(0.002);
+    expect(Math.abs(tap.note! - tap.stamped!)).toBeLessThanOrEqual(0.002);
   }
   const stats = await page.evaluate(() => window.flowPatcher!.stats);
   expect(stats.pushes).toBeGreaterThanOrEqual(11);
