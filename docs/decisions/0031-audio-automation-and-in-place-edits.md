@@ -1,6 +1,6 @@
 # 0031 · Audio instances automate per chunk and take knob edits in place
 
-Status: Proposed · 2026-10-23 · Amends [0023](0023-hot-swap-reruns-from-next-boundary.md)
+Status: Accepted · 2026-10-23 · Amends [0023](0023-hot-swap-reruns-from-next-boundary.md)
 
 ## Context
 The runtime calls an audio instance only through `schedule()`, and only when the node got Event or Note input in the chunk. A node with only an Audio input (Filter, Gain, Pan, Mixer in #88; Reverb ★, Delay ★ in #81) is never called again after `audio()` builds it, so a Signal cable into its params never reaches Web Audio. ADR 0023 rebuilds an audio node whose params changed, so a knob edit swaps in a new Web Audio graph and jumps. effects-mix.md requires that modulated params ramp and never jump. Chris asked for knob edits to update params in place (2026-10-23).
