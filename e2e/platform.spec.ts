@@ -35,6 +35,9 @@ test('the canvas keeps touches and, once played, the keyboard; Escape returns to
   await expect(page.getByTestId('compile-status')).toHaveText('4 nodes compiled');
   const canvas = page.getByTestId('performance-canvas');
   expect(await canvas.evaluate((el) => getComputedStyle(el).touchAction)).toBe('none');
+  // No source here reads right-clicks, so the browser's context menu stays (suppressing it is tested with Click, #75).
+  const suppressed = await canvas.evaluate((el) => !el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })));
+  expect(suppressed).toBe(false);
 
   // Select a node, then play the canvas: Backspace goes to the canvas, not to the editor's delete.
   const nodes = page.getByTestId('patch-node');
