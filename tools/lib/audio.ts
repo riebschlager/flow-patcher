@@ -56,11 +56,18 @@ export interface RenderOptions {
  * which makes the race rarer but doesn't remove it: under parallel test load
  * it still happens. Callers render again from scratch (`attempts`, or
  * runPatch's own retry).
+ *
+ * It outranks an edit's error in the same render: a skipped edit can make a
+ * later one throw, and that must not hide the race from the retry (#93). The
+ * edit's error comes along as `editError`, in case it was a real bug.
  */
 export class SuspendRaceError extends Error {
-  constructor(missed: number, total: number, cause?: unknown) {
-    super(`renderOffline: ${missed} of ${total} suspends never took effect`, { cause });
+  readonly editError: unknown;
+  constructor(missed: number, total: number, cause?: unknown, editError?: unknown) {
+    const also = editError === undefined ? '' : ` (an edit also failed: ${editError instanceof Error ? editError.message : String(editError)})`;
+    super(`renderOffline: ${missed} of ${total} suspends never took effect${also}`, { cause });
     this.name = 'SuspendRaceError';
+    this.editError = editError;
   }
 }
 
@@ -131,8 +138,10 @@ async function renderOnce(
   // Let the background registrations land before rendering takes the suspend list (see SuspendRaceError).
   if (quanta.length) await new Promise((resolve) => setTimeout(resolve, 1));
   const buffer = await context.startRendering();
+  // A lost suspend first: the edits it skipped can make later ones throw (a scripted edit removing a node
+  // the skipped one would have added), and that error must not hide the race from the caller's retry.
+  if (suspendError || applied < expected) throw new SuspendRaceError(expected - applied, expected, suspendError ?? undefined, editError ?? undefined);
   if (editError) throw editError;
-  if (suspendError || applied < expected) throw new SuspendRaceError(expected - applied, expected, suspendError ?? undefined);
   return {
     sampleRate,
     channels: Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i).slice()),
