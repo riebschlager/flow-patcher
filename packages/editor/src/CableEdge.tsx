@@ -2,9 +2,10 @@ import { useContext, useEffect, useRef, useState, type KeyboardEvent, type Point
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type Edge, type EdgeProps } from '@xyflow/react';
 import type { NumberParamSpec, PatchCable, PatchEdit, PortType } from '@flow-patcher/engine';
 import { CABLE_STYLES, PORT_COLORS } from './ports';
-import { ABOVE_NODES, cableId } from './patch-graph';
+import { ABOVE_NODES, cableId, type CableEdgeData } from './patch-graph';
 import { snapTo, startDrag } from './drag-edit';
-import { EditorStoreContext, formatParam, parseTyped } from './ParamField';
+import { EditorStoreContext } from './ParamField';
+import { formatParam, parseTyped } from './param-format';
 
 /** How long a refused cable shows before it's gone, ms; its fade runs over the same time. */
 export const REFUSED_MS = 900;
@@ -16,16 +17,6 @@ const INTERACTION_WIDTH = typeof matchMedia === 'function' && matchMedia('(point
 const DEPTH_DRAG = 160, FINE = 5;
 /** How long a cable's controls stay after the pointer leaves it, ms, so the pointer can cross onto them. */
 const HOVER_GRACE = 200;
-
-export type CableEdgeData = {
-  portType: PortType;
-  /** The cable in the document; absent on a refused cable. */
-  cable?: PatchCable;
-  /** The number param a cable modulates, when it ends on one. */
-  param?: NumberParamSpec;
-  /** A cable the editor refused, drawn in red with this reason until it fades. */
-  refused?: string;
-};
 
 /** A cable styled by the type it carries: color, width and dash all come from the source port. */
 export function CableEdge({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, selected }: EdgeProps<Edge<CableEdgeData>>) {

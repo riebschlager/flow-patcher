@@ -7,6 +7,7 @@ import { CUSTOM_PRESET, isModulatable, presetFor, resolveParam, type NumberParam
 import { paramHandle } from './patch-graph';
 import { PORT_SIZE } from './ports';
 import { snapTo, startDrag } from './drag-edit';
+import { formatParam, parseTyped } from './param-format';
 import type { EditorStore } from './store';
 import type { LivePatch } from './live';
 
@@ -17,19 +18,6 @@ export const LivePatchContext = createContext<LivePatch | null>(null);
 
 /** Pixels of drag that cross a field's whole range is its width; Shift makes it this many times finer. */
 const FINE = 5;
-
-/** A number as its field shows it: the step's decimals, or enough for the range, with the unit. */
-export function formatParam(spec: NumberParamSpec, value: number): string {
-  const range = spec.max - spec.min;
-  const decimals = spec.step !== undefined ? Math.max(0, -Math.floor(Math.log10(spec.step) + 1e-9)) : range <= 2 ? 3 : range <= 20 ? 2 : range <= 200 ? 1 : 0;
-  const text = value.toFixed(decimals).replace('-', '−');
-  return spec.unit ? `${text} ${spec.unit}` : text;
-}
-
-/** Reads a typed number: a leading number, any unit after it ignored, a typographic minus allowed. */
-export function parseTyped(text: string): number {
-  return Number.parseFloat(text.trim().replace('−', '-'));
-}
 
 /** Where a value sits in a number param's range, 0–1. */
 const ratio = (spec: NumberParamSpec, v: number) => (spec.max > spec.min ? (v - spec.min) / (spec.max - spec.min) : 0);

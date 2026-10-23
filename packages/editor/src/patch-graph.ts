@@ -1,6 +1,15 @@
 import type { Connection, Edge, Node } from '@xyflow/react';
-import { compilePatch, isModulatable, portsCompatible, portsOf, type NodeDefinition, type NumberParamSpec, type ParamValue, type Patch, type PatchCable, type PortSpec } from '@flow-patcher/engine';
-import type { CableEdgeData } from './CableEdge';
+import { compilePatch, isModulatable, portsCompatible, portsOf, type NodeDefinition, type NumberParamSpec, type ParamValue, type Patch, type PatchCable, type PortSpec, type PortType } from '@flow-patcher/engine';
+/** What a cable edge draws from. */
+export type CableEdgeData = {
+  portType: PortType;
+  /** The cable in the document; absent on a refused cable. */
+  cable?: PatchCable;
+  /** The number param a cable modulates, when it ends on one. */
+  param?: NumberParamSpec;
+  /** A cable the editor refused, drawn in red with this reason until it fades. */
+  refused?: string;
+};
 
 export interface PatchNodeData extends Record<string, unknown> {
   definition: NodeDefinition | null;

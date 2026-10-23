@@ -18,10 +18,10 @@ import {
 import { useStore } from 'zustand';
 import { applyPatchEdits, compilePatch, defaultParams, parsePatch, serializePatch, type NodeDefinition, type Patch, type PatchEdit } from '@flow-patcher/engine';
 import { nodeDefinitions, nodeRegistry } from '@flow-patcher/nodes';
-import { ABOVE_NODES, cableFor, cableId, handlePort, loadErrors, matchingPort, nextNodeId, patchToGraph, type CableEnd } from './patch-graph';
+import { ABOVE_NODES, type CableEdgeData, cableFor, cableId, handlePort, loadErrors, matchingPort, nextNodeId, patchToGraph, type CableEnd } from './patch-graph';
 import { PatchNode } from './PatchNode';
 import { EditorStoreContext, LivePatchContext } from './ParamField';
-import { CableEdge, REFUSED_MS, connectionLineStyle, type CableEdgeData } from './CableEdge';
+import { CableEdge, REFUSED_MS, connectionLineStyle } from './CableEdge';
 import { LivePatch } from './live';
 import { PreviewPane } from './PreviewPane';
 import { NodePalette, type PaletteItem } from './NodePalette';
