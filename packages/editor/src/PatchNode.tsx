@@ -71,8 +71,9 @@ function StatusBanner({ id, status }: { id: string; status: NodeStatus }) {
       </div>
     );
   }
+  // A denied permission is an inline error (design.md, Inline errors): the same banner, with its own kind for tests.
   return (
-    <div className="patch-node__error" data-testid="node-status" data-status="error" role="alert">
+    <div className="patch-node__error" data-testid="node-status" data-status={status.kind} role="alert">
       {status.message}
       {status.action && <button type="button" className="patch-node__action nodrag" onClick={() => live?.retry(id)}>{status.action}</button>}
     </div>
@@ -120,9 +121,9 @@ export function PatchNode({ id, data, selected }: NodeProps<Node<PatchNodeData>>
   const rows = Math.max(inputs.length, outputs.length);
   const icon = nodeIcon(definition);
   return (
-    <div className={`patch-node${selected ? ' patch-node--selected' : ''}${status?.kind === 'error' ? ' patch-node--error' : ''}`} data-testid="patch-node" data-node-type={definition.type}>
+    <div className={`patch-node${selected ? ' patch-node--selected' : ''}${status && status.kind !== 'loading' ? ' patch-node--error' : ''}`} data-testid="patch-node" data-node-type={definition.type}>
       <div className="patch-node__header">
-        <i className={`icon-${status?.kind === 'error' ? 'circle-alert' : icon} patch-node__icon`} />
+        <i className={`icon-${status?.kind === 'error' ? 'circle-alert' : status?.kind === 'blocked' ? 'lock' : icon} patch-node__icon`} />
         <span className="patch-node__title">{definition.label}</span>
       </div>
       <div className="patch-node__ports">

@@ -24,7 +24,9 @@ import {
   type NodeStatus,
   type NodeWarning,
   type Patch,
+  type Permission,
   type Plan,
+  type PlanNode,
   type PortType,
   type SchedulerStats,
   type StatusContext,
@@ -32,6 +34,7 @@ import {
 } from '@flow-patcher/engine';
 import { nodeRegistry, rendererImage } from '@flow-patcher/nodes';
 import { EventTrack, PROBE_HISTORY } from './event-track';
+import { browserRequesters, neededPermissions, Permissions } from './permissions';
 
 /** Pointer events the canvas forwards, by phase. */
 export type PointerPort = 'down' | 'move' | 'up' | 'cancel';
@@ -134,6 +137,8 @@ export interface LiveStatus {
 export class LivePatch {
   readonly scheduler: Scheduler;
   readonly taps: Tap[] = [];
+  /** Browser permissions the running patch's sources need, asked when it first plays. */
+  readonly permissions = new Permissions(browserRequesters());
   private readonly context: AudioContext;
   /** The context as the runtime sees it: the instrument cache is keyed by this object. */
   private readonly audio: AudioContextLike;
@@ -150,6 +155,9 @@ export class LivePatch {
   private router: InputRouter = inputRouter({ order: [] });
   /** Source nodes that read pointerdown, for the canvas's hint. */
   private pointers = 0;
+  /** Permissions the running plan's nodes declare. */
+  private needed: Permission[] = [];
+  private readonly unwatchPermissions: () => void;
   /** Oscillator starts scheduled while a push runs, collected for its Tap. */
   private starts: number[] | null = null;
   /** A cold tap still waiting for its held push to run. */
@@ -210,6 +218,7 @@ export class LivePatch {
       this.emit();
     });
     document.addEventListener('visibilitychange', this.onVisibility);
+    this.unwatchPermissions = this.permissions.subscribe(() => this.emit());
     this.scheduler.start();
     this.frames = new FrameLoop(this.runtime, {
       clock: {
@@ -250,13 +259,13 @@ export class LivePatch {
   /** What a node's card shows inline, from its definition's status hook (an instrument loading, say). Null when there's nothing to say. */
   nodeStatus(nodeId: string): NodeStatus | null {
     const node = this.plan.order.find((n) => n.id === nodeId);
-    return node?.definition.status?.(this.statusContext(node.id, node.params)) ?? null;
+    return node?.definition.status?.(this.statusContext(node)) ?? null;
   }
 
   /** The action on an error status, such as loading an instrument again. */
   retry(nodeId: string): void {
     const node = this.plan.order.find((n) => n.id === nodeId);
-    node?.definition.retry?.(this.statusContext(node.id, node.params));
+    if (node) node.definition.retry?.(this.statusContext(node));
   }
 
   /** A node's warnings from the running patch (event caps, voice steals), in kind order. */
@@ -382,7 +391,11 @@ export class LivePatch {
     const cold = this.context.state !== 'running';
     const down = event.type === 'pointerdown';
     // The first pointerdown starts audio. Its push is held until then, so the first touch still sounds (Platform rules).
-    if (cold && down) void this.context.resume();
+    // It also asks for the permissions the patch's sources need: a patch asks when it first plays.
+    if (cold && down) {
+      void this.context.resume();
+      this.permissions.request(this.needed);
+    }
     const targets = this.router.route(event);
     // Pushes are held while audio is stopped, so hover moves before the first tap would pile up and
     // replay as a burst that the event cap can cut the Down out of. Down carries the position anyway.
@@ -420,6 +433,7 @@ export class LivePatch {
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.runtime.dispose();
     for (const unwatch of this.unwatch) unwatch();
+    this.unwatchPermissions();
     void this.context.close();
     this.listeners.clear();
   }
@@ -447,11 +461,14 @@ export class LivePatch {
     this.pointers = plan.order.filter((node) => node.definition.input?.reads.pointerdown !== undefined).length;
     this.renderer = plan.order.find((node) => node.definition.type === 'renderer')?.id ?? null;
     this.hasFluid = plan.order.some((node) => node.definition.type === 'fluid');
+    this.needed = neededPermissions(plan.order);
+    // A source added while the patch plays asks now; before the first tap, the tap asks.
+    if (this.context.state === 'running') this.permissions.request(this.needed);
     if (!this.renderer || !this.hasFluid) this.splashes.length = 0;
     // An Event input's probe shows the cables into it in this plan.
     for (const track of this.probes.values()) this.followProbe(track);
     for (const unwatch of this.unwatch) unwatch();
-    this.unwatch = plan.order.flatMap((node) => node.definition.watchStatus?.(this.statusContext(node.id, node.params), () => this.emit()) ?? []);
+    this.unwatch = plan.order.flatMap((node) => node.definition.watchStatus?.(this.statusContext(node), () => this.emit()) ?? []);
     this.emit();
   }
 
@@ -520,8 +537,8 @@ export class LivePatch {
     }
   }
 
-  private statusContext(nodeId: string, params: StatusContext['params']): StatusContext {
-    return { nodeId, params, audio: this.audio, services: this.services };
+  private statusContext(node: PlanNode): StatusContext {
+    return { nodeId: node.id, params: node.params, audio: this.audio, services: this.services, permission: this.permissions.of(node.definition) };
   }
 
   /** Warns once per stall when the fluid Worker hasn't answered a step for a couple of seconds (it may have hung). */

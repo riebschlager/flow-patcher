@@ -242,10 +242,27 @@ export interface AudioSetupContext {
 
 /** An inline status on a node's card (design system: Node `status`), such as an instrument loading or failing to load. */
 export interface NodeStatus {
-  kind: 'loading' | 'error';
+  /** `blocked`: the browser denied the node's permission (`blockedStatus`). */
+  kind: 'loading' | 'error' | 'blocked';
   message: string;
   /** Label of the action that `NodeDefinition.retry` performs, such as "Retry". */
   action?: string;
+}
+
+/** A browser permission a source node needs before it can read anything (MIDI In; later motion and mic). */
+export type Permission = 'midi';
+
+/** Where the host's request for a permission stands. `unsupported`: the browser has no such API. */
+export type PermissionState = 'unasked' | 'pending' | 'granted' | 'denied' | 'unsupported';
+
+const PERMISSION_LABELS: Record<Permission, string> = { midi: 'MIDI' };
+
+/** The card status for a node whose permission isn't granted, or null when it is (or hasn't been asked yet). */
+export function blockedStatus(permission: Permission, state: PermissionState | undefined): NodeStatus | null {
+  const label = PERMISSION_LABELS[permission];
+  if (state === 'denied') return { kind: 'blocked', message: `${label} blocked — Allow in browser settings` };
+  if (state === 'unsupported') return { kind: 'blocked', message: `${label} isn't available in this browser` };
+  return null;
 }
 
 /**
@@ -260,6 +277,8 @@ export interface StatusContext {
   readonly audio: AudioContextLike;
   /** The host's platform resources, the same object the node's other hooks see. */
   readonly services: HostServices;
+  /** Where the request for the node's `permission` stands; undefined when it declares none. */
+  readonly permission?: PermissionState;
 }
 
 export interface NodeImage {
@@ -299,6 +318,10 @@ export interface NodeDefinition {
   /** At most one node of this type per patch (Fluid, ADR 0003; Renderer, ADR 0005).
    *  The compiler rejects a second; the editor can grey it out in the palette. */
   unique?: boolean;
+  /** A source behind a browser permission. The editor asks the first time a patch
+   *  containing the node plays, and passes the answer to `status` as
+   *  `StatusContext.permission`; `blockedStatus` gives the card's blocked state. */
+  permission?: Permission;
   /** Event and Note outputs. Pure: the same inputs and window give the same events. */
   query?(ctx: QueryContext): QueryResult;
   /** Signal outputs: a pure function of time per channel, sampled at event times. */
