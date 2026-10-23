@@ -36,6 +36,8 @@ export interface VoiceClaim {
    * Cuts the voice short: fade it out from `at` and stop it. The pool calls it
    * once, when it steals the voice. It may run inside `claim` itself, for this
    * claim (when the new voice is the oldest at a later start) or for an older one.
+   * It must not call back into the pool (claim, release, setEnd): the pool is
+   * mid-sweep, with cursors into its arrays that a change would invalidate.
    */
   stop(at: number): void;
 }
@@ -127,14 +129,14 @@ const startOf = (v: Voice) => v.start;
  * five sessions), 2,048 claims in one 120 ms window take about 0.3 ms with
  * short notes and 0.4 ms with long ones that steal from the 65th claim on.
  * The case ADR 0024 measured at about 9 ms, 1,024 short notes and then 1,024
- * long ones after them, takes 0.4 ms (3.9 ms before, on this laptop). On the same starts it took 66 ms before
- * these shortcuts (every long claim swept every later short start) and takes
- * about 1 ms now; claimed latest start first, 1.8 to 3.3 ms. The worst found
- * is that last case with short notes 60 deep, so nearly every start is one
- * short of full and the sweep steps through all of them: 3.1 to 3.5 ms, 3.9
- * at worst (ADR 0025). The main thread has scheduling and UI to run (ADR
- * 0016's ~4 ms), so keep it there. Going lower needs a range-max structure
- * over the starts.
+ * long ones after them, takes 0.4 ms (3.9 ms before, on this laptop). On the
+ * same starts it took 66 ms before these shortcuts (every long claim swept
+ * every later short start) and takes about 1 ms now; claimed latest start
+ * first, 1.8 to 3.3 ms. The worst found is that last case with short notes
+ * 60 deep, so nearly every start is one short of full and the sweep steps
+ * through all of them: 3.1 to 3.5 ms, 3.9 at worst (ADR 0025). The main
+ * thread has scheduling and UI to run (ADR 0016's ~4 ms), so keep it there.
+ * Going lower needs a range-max structure over the starts.
  */
 export class VoicePool implements Voices {
   /** Pooled voices by start, then claim order. */
@@ -150,6 +152,8 @@ export class VoicePool implements Voices {
    * Called on every steal, after the voice's stop: `owner` is the node whose
    * claim or later end caused it (null for a claim made on the pool itself),
    * `at` the time the voice was cut. The runtime raises its warning from here.
+   * Like `VoiceClaim.stop`, it must not call back into the pool (claim,
+   * release, setEnd): the sweep that stole keeps cursors into its arrays.
    */
   onSteal: ((owner: string | null, at: number) => void) | null = null;
 

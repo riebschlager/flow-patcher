@@ -310,9 +310,13 @@ describe('VoicePool', () => {
   });
 });
 
-/** An instrument that claims a voice per event, ringing `ring` seconds, and releases it when the event is withdrawn. */
+/**
+ * An instrument that claims a voice per event, ringing `ring` seconds, and releases it when the event is
+ * withdrawn; each steal is logged in `stops` as `time@at` (the note's time, the time it was cut). Also a
+ * 25 ms metro, a tap that only fires through push, and a counter that numbers the events it passes.
+ */
 const RING = 0.5;
-function pooledTypes(pools: Voices[], ring = RING): NodeDefinition[] {
+function pooledTypes(pools: Voices[], ring = RING, stops: string[] = []): NodeDefinition[] {
   const metro: NodeDefinition = {
     type: 'metro', version: 1, label: 'Metro', category: 'time-rhythm', description: '',
     ports: [{ name: 'out', type: 'event', direction: 'out' }],
@@ -335,7 +339,7 @@ function pooledTypes(pools: Voices[], ring = RING): NodeDefinition[] {
       const held = new Map<EngineEvent, VoiceHandle>();
       return {
         schedule: (_port, events) => {
-          for (const e of events) held.set(e, voices.claim({ start: e.time, end: e.time + ring, stop: () => {} }));
+          for (const e of events) held.set(e, voices.claim({ start: e.time, end: e.time + ring, stop: (at) => void stops.push(`${e.time}@${at}`) }));
         },
         cancel: (_port, events) => {
           for (const e of events) {
@@ -347,7 +351,20 @@ function pooledTypes(pools: Voices[], ring = RING): NodeDefinition[] {
       };
     },
   };
-  return [metro, voice];
+  const tap: NodeDefinition = {
+    type: 'tap', version: 1, label: 'Tap', category: 'canvas-sources', description: '',
+    ports: [{ name: 'out', type: 'event', direction: 'out' }],
+    params: [],
+  };
+  const counter: NodeDefinition = {
+    type: 'counter', version: 1, label: 'Counter', category: 'control-logic', description: '',
+    ports: [{ name: 'in', type: 'event', direction: 'in' }, { name: 'out', type: 'event', direction: 'out' }],
+    params: [],
+    query: ({ inputs, state }) => ({
+      out: (inputs.in ?? []).map((e) => ({ time: e.time, channel: e.channel, count: (state.count = ((state.count as number | undefined) ?? 0) + 1) })),
+    }),
+  };
+  return [metro, voice, tap, counter];
 }
 
 const node = (id: string, type: string, params = {}) => ({ id, type, typeVersion: 1, params, position: { x: 0, y: 0 } });
@@ -356,12 +373,13 @@ const patch = (tone: number): Patch => ({
   nodes: [node('m', 'metro'), node('v', 'pooled', { tone })],
   cables: [{ from: { node: 'm', port: 'out' }, to: { node: 'v', port: 'in' } }],
 });
+const cable = (from: string, to: string) => ({ from: { node: from, port: 'out' }, to: { node: to, port: 'in' } });
 const fakeContext = (clock: ManualClock): AudioContextLike => ({ get currentTime() { return clock.audio; } }) as AudioContextLike;
 
 describe('Runtime voice pool', () => {
-  function setup(ring = RING) {
+  function setup(ring = RING, stops: string[] = []) {
     const pools: Voices[] = [];
-    const definitions = new Map(pooledTypes(pools, ring).map((d) => [d.type, d]));
+    const definitions = new Map(pooledTypes(pools, ring, stops).map((d) => [d.type, d]));
     const compile = (p: Patch) => {
       const compiled = compilePatch(p, definitions);
       if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
@@ -463,7 +481,8 @@ describe('Runtime voice pool', () => {
 
   it('steals the same voices for the same run, however long its windows', () => {
     const stealsWith = (window: number) => {
-      const { compile } = setup(5);
+      const stops: string[] = [];
+      const { compile } = setup(5, stops);
       const clock = new ManualClock();
       const runtime = new Runtime(compile(patch(0.5)));
       runtime.attachAudio(fakeContext(clock));
@@ -479,11 +498,95 @@ describe('Runtime voice pool', () => {
       const { steals } = runtime.voiceStats();
       const warning = runtime.warnings('v')[0];
       runtime.dispose();
-      return { steals, time: warning?.time };
+      expect(stops).toHaveLength(steals);
+      return { steals, stops, time: warning?.time };
     };
+    // Which notes were cut, and when, not just how many.
     const base = stealsWith(0.12);
     expect(base.steals).toBeGreaterThan(0);
+    expect(base.stops[0]).toBe('0@1.6');
     expect(stealsWith(0.05)).toEqual(base);
     expect(stealsWith(0.3)).toEqual(base);
+  });
+
+  it("counts a removed node's retiring steals in the totals, but raises nothing for it and keeps it out of byNode", () => {
+    // Two instruments on one metro, each note ringing 5 s: from 0.8 s on the pool is full and steals.
+    const { pools, compile } = setup(5);
+    const both: Patch = {
+      format: 'flowpatch', version: 1, seed: 1,
+      nodes: [node('m', 'metro'), node('v', 'pooled'), node('w', 'pooled')],
+      cables: [cable('m', 'v'), cable('m', 'w')],
+    };
+    const clock = new ManualClock();
+    const runtime = new Runtime(compile(both));
+    const heard: NodeWarning[] = [];
+    runtime.onWarning = (_message, warning) => void heard.push(warning);
+    runtime.attachAudio(fakeContext(clock));
+    const scheduler = new Scheduler(runtime, { clock });
+    for (let k = 0; k < 60; k++) {
+      clock.set(k * 0.025);
+      scheduler.wake();
+    }
+    const before = runtime.voiceStats();
+    expect(before.byNode.v).toBeGreaterThan(0);
+    expect(before.byNode.w).toBeGreaterThan(0);
+    const v = pools.find((p) => (p as unknown as { owner: string }).owner === 'v')!;
+
+    // Remove `v`: its notes from the swap on are withdrawn, but the ones already sounding ring on.
+    scheduler.swap(compile({ ...both, nodes: both.nodes.filter((n) => n.id !== 'v'), cables: [cable('m', 'w')] }));
+    const swapped = runtime.voiceStats();
+    expect(swapped.byNode).toEqual({ w: before.byNode.w });
+    expect(runtime.warnings('v')).toEqual([]);
+
+    // The retiring instance still claims (a late delivery) and holds a voice on (a later end): both steal.
+    // Withdrawing its notes from the swap on left 4 slots free by the last start scheduled (1.575 s),
+    // so the 5th late claim steals there.
+    const at = clock.audio + 0.01;
+    Array.from({ length: 5 }, () => v.claim({ start: at, end: at + 5, stop: () => {} }));
+    expect(runtime.counters.voiceSteals).toBe(swapped.steals + 1);
+    // A short one fits; held on past 1.575 s, it steals there too.
+    const short = v.claim({ start: at, end: at + 0.01, stop: () => {} });
+    expect(runtime.counters.voiceSteals).toBe(swapped.steals + 1);
+    v.setEnd(short, at + 6);
+    expect(runtime.counters.voiceSteals).toBe(swapped.steals + 2);
+    const after = runtime.voiceStats();
+    expect(after.steals).toBe(runtime.counters.voiceSteals);
+    // None of it is on a node: `v` is gone, and `w` caused none of these.
+    expect(after.byNode).toEqual(swapped.byNode);
+    expect(runtime.warnings('v')).toEqual([]);
+    expect(heard.filter((w) => w.node === 'v')).toHaveLength(1); // the one raised before the swap
+    runtime.dispose();
+  });
+
+  it("doesn't take steals back when a live event rewinds over the windows they happened in", () => {
+    // Metro and tap feed a counter, which numbers the notes for the instrument. A tap renumbers every
+    // note after it, so the rewind withdraws them (freeing their slots) and claims new ones, which steal again.
+    const { compile } = setup(5);
+    const clock = new ManualClock();
+    const runtime = new Runtime(compile({
+      format: 'flowpatch', version: 1, seed: 1,
+      nodes: [node('m', 'metro'), node('t', 'tap'), node('c', 'counter'), node('v', 'pooled')],
+      cables: [cable('m', 'c'), cable('t', 'c'), cable('c', 'v')],
+    }));
+    runtime.attachAudio(fakeContext(clock));
+    const scheduler = new Scheduler(runtime, { clock });
+    for (let k = 0; k < 80; k++) {
+      clock.set(k * 0.025);
+      scheduler.wake();
+    }
+    const [before] = runtime.warnings('v');
+    expect(before).toMatchObject({ kind: 'voice-steal' });
+    const steals = runtime.counters.voiceSteals;
+
+    clock.set(1.99);
+    const tapped = scheduler.push('t', 'out', { channel: 0 })!;
+    // The rewind re-ran windows that had stolen, and withdrew notes that had.
+    expect(before!.time).toBeGreaterThan(tapped.time);
+    expect(runtime.counters.cancelled).toBeGreaterThan(0);
+    const [after] = runtime.warnings('v');
+    expect(after!.count).toBeGreaterThan(before!.count);
+    expect(after!.count).toBe(runtime.voiceStats().byNode.v);
+    expect(runtime.counters.voiceSteals).toBeGreaterThan(steals);
+    runtime.dispose();
   });
 });
