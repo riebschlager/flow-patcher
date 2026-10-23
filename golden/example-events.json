@@ -3583,6 +3583,378 @@
    "duration": 0.15
   }
  ],
+ "midi-in.flowpatch": [
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "bass",
+   "port": "note",
+   "time": 0,
+   "channel": 0,
+   "index": 0,
+   "pitch": 36,
+   "velocity": 0.5,
+   "duration": 0.15
+  },
+  {
+   "node": "midi",
+   "port": "midi",
+   "time": 0.25,
+   "channel": 0,
+   "status": 144,
+   "data1": 60,
+   "data2": 100
+  },
+  {
+   "node": "midi",
+   "port": "note",
+   "time": 0.25,
+   "channel": 1,
+   "pitch": 60,
+   "velocity": 0.7874015748031497,
+   "duration": 0.4
+  },
+  {
+   "node": "midi",
+   "port": "on",
+   "time": 0.25,
+   "channel": 1,
+   "pitch": 60,
+   "velocity": 0.7874015748031497
+  },
+  {
+   "node": "midi",
+   "port": "midi",
+   "time": 0.5,
+   "channel": 0,
+   "status": 128,
+   "data1": 60,
+   "data2": 64
+  },
+  {
+   "node": "midi",
+   "port": "off",
+   "time": 0.5,
+   "channel": 1,
+   "pitch": 60,
+   "velocity": 0.5039370078740157
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0.625,
+   "channel": 0,
+   "index": 1
+  },
+  {
+   "node": "bass",
+   "port": "note",
+   "time": 0.625,
+   "channel": 0,
+   "index": 1,
+   "pitch": 36,
+   "velocity": 0.5,
+   "duration": 0.15
+  },
+  {
+   "node": "midi",
+   "port": "midi",
+   "time": 0.75,
+   "channel": 0,
+   "status": 176,
+   "data1": 1,
+   "data2": 96
+  },
+  {
+   "node": "midi",
+   "port": "midi",
+   "time": 0.75,
+   "channel": 0,
+   "status": 144,
+   "data1": 64,
+   "data2": 90
+  },
+  {
+   "node": "midi",
+   "port": "midi",
+   "time": 0.75,
+   "channel": 0,
+   "status": 144,
+   "data1": 67,
+   "data2": 90
+  },
+  {
+   "node": "midi",
+   "port": "note",
+   "time": 0.75,
+   "channel": 1,
+   "pitch": 64,
+   "velocity": 0.7086614173228346,
+   "duration": 0.4
+  },
+  {
+   "node": "midi",
+   "port": "note",
+   "time": 0.75,
+   "channel": 1,
+   "pitch": 67,
+   "velocity": 0.7086614173228346,
+   "duration": 0.4
+  },
+  {
+   "node": "midi",
+   "port": "on",
+   "time": 0.75,
+   "channel": 1,
+   "pitch": 64,
+   "velocity": 0.7086614173228346
+  },
+  {
+   "node": "midi",
+   "port": "on",
+   "time": 0.75,
+   "channel": 1,
+   "pitch": 67,
+   "velocity": 0.7086614173228346
+  },
+  {
+   "node": "midi",
+   "port": "midi",
+   "time": 1,
+   "channel": 0,
+   "status": 153,
+   "data1": 36,
+   "data2": 127
+  },
+  {
+   "node": "midi",
+   "port": "note",
+   "time": 1,
+   "channel": 10,
+   "pitch": 36,
+   "velocity": 1,
+   "duration": 0.4
+  },
+  {
+   "node": "midi",
+   "port": "on",
+   "time": 1,
+   "channel": 10,
+   "pitch": 36,
+   "velocity": 1
+  },
+  {
+   "node": "midi",
+   "port": "midi",
+   "time": 1.2,
+   "channel": 0,
+   "status": 144,
+   "data1": 64,
+   "data2": 0
+  },
+  {
+   "node": "midi",
+   "port": "midi",
+   "time": 1.2,
+   "channel": 0,
+   "status": 144,
+   "data1": 67,
+   "data2": 0
+  },
+  {
+   "node": "midi",
+   "port": "off",
+   "time": 1.2,
+   "channel": 1,
+   "pitch": 64,
+   "velocity": 0
+  },
+  {
+   "node": "midi",
+   "port": "off",
+   "time": 1.2,
+   "channel": 1,
+   "pitch": 67,
+   "velocity": 0
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.25,
+   "channel": 0,
+   "index": 2
+  },
+  {
+   "node": "bass",
+   "port": "note",
+   "time": 1.25,
+   "channel": 0,
+   "index": 2,
+   "pitch": 36,
+   "velocity": 0.5,
+   "duration": 0.15
+  },
+  {
+   "node": "midi",
+   "port": "midi",
+   "time": 1.5,
+   "channel": 0,
+   "status": 224,
+   "data1": 0,
+   "data2": 80
+  },
+  {
+   "node": "midi",
+   "port": "midi",
+   "time": 1.75,
+   "channel": 0,
+   "status": 176,
+   "data1": 1,
+   "data2": 20
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.875,
+   "channel": 0,
+   "index": 3
+  },
+  {
+   "node": "bass",
+   "port": "note",
+   "time": 1.875,
+   "channel": 0,
+   "index": 3,
+   "pitch": 36,
+   "velocity": 0.5,
+   "duration": 0.15
+  },
+  {
+   "node": "midi",
+   "port": "midi",
+   "time": 2,
+   "channel": 0,
+   "status": 145,
+   "data1": 72,
+   "data2": 64
+  },
+  {
+   "node": "midi",
+   "port": "note",
+   "time": 2,
+   "channel": 2,
+   "pitch": 72,
+   "velocity": 0.5039370078740157,
+   "duration": 0.4
+  },
+  {
+   "node": "midi",
+   "port": "on",
+   "time": 2,
+   "channel": 2,
+   "pitch": 72,
+   "velocity": 0.5039370078740157
+  },
+  {
+   "node": "midi",
+   "port": "midi",
+   "time": 2.5,
+   "channel": 0,
+   "status": 129,
+   "data1": 72,
+   "data2": 0
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.5,
+   "channel": 0,
+   "index": 4
+  },
+  {
+   "node": "bass",
+   "port": "note",
+   "time": 2.5,
+   "channel": 0,
+   "index": 4,
+   "pitch": 36,
+   "velocity": 0.5,
+   "duration": 0.15
+  },
+  {
+   "node": "midi",
+   "port": "off",
+   "time": 2.5,
+   "channel": 2,
+   "pitch": 72,
+   "velocity": 0
+  },
+  {
+   "node": "midi",
+   "port": "midi",
+   "time": 3,
+   "channel": 0,
+   "status": 144,
+   "data1": 48,
+   "data2": 127
+  },
+  {
+   "node": "midi",
+   "port": "note",
+   "time": 3,
+   "channel": 1,
+   "pitch": 48,
+   "velocity": 1,
+   "duration": 0.4
+  },
+  {
+   "node": "midi",
+   "port": "on",
+   "time": 3,
+   "channel": 1,
+   "pitch": 48,
+   "velocity": 1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.125,
+   "channel": 0,
+   "index": 5
+  },
+  {
+   "node": "bass",
+   "port": "note",
+   "time": 3.125,
+   "channel": 0,
+   "index": 5,
+   "pitch": 36,
+   "velocity": 0.5,
+   "duration": 0.15
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.75,
+   "channel": 0,
+   "index": 6
+  },
+  {
+   "node": "bass",
+   "port": "note",
+   "time": 3.75,
+   "channel": 0,
+   "index": 6,
+   "pitch": 36,
+   "velocity": 0.5,
+   "duration": 0.15
+  }
+ ],
  "orbit-rings.flowpatch": [
   {
    "node": "clock",

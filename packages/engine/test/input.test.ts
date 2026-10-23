@@ -92,6 +92,20 @@ describe('parseInputStream', () => {
     ]);
   });
 
+  it('checks MIDI status, data1 and data2 as numbers (#77)', () => {
+    const noteOn = { time: 0.4, type: 'midi', status: 0x90, data1: 60, data2: 100 };
+    expect(errorsOf(stream([noteOn]))).toEqual([]);
+    expect(errorsOf(stream([
+      { ...noteOn, data1: '60' },
+      { ...noteOn, data2: NaN },
+      { ...noteOn, status: '144' },
+    ]))).toEqual([
+      'events[0].data1: expected a finite number',
+      'events[1].data2: expected a finite number',
+      'events[2].status: expected a finite number',
+    ]);
+  });
+
   it('rejects derived fields, and coalesced on anything but a move', () => {
     expect(errorsOf(stream([{ ...down, dx: 0.1, age: 0 }, { ...down, coalesced: true }, { ...down, type: 'pointermove', coalesced: true }]))).toEqual([
       "events[0].dx: derived field; the source nodes compute it, so streams don't record it",

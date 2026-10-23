@@ -34,6 +34,7 @@ import {
 } from '@flow-patcher/engine';
 import { nodeRegistry, rendererImage } from '@flow-patcher/nodes';
 import { EventTrack, PROBE_HISTORY } from './event-track';
+import { MidiHost } from './midi';
 import { browserRequesters, neededPermissions, Permissions } from './permissions';
 
 /** Pointer events the canvas forwards, by phase. */
@@ -138,7 +139,9 @@ export class LivePatch {
   readonly scheduler: Scheduler;
   readonly taps: Tap[] = [];
   /** Browser permissions the running patch's sources need, asked when it first plays. */
-  readonly permissions = new Permissions(browserRequesters());
+  readonly permissions = new Permissions(browserRequesters({ midi: (access) => this.midi.attach(access) }));
+  /** MIDI inputs, once the midi permission is granted: each message is one input event, as a pointer event is (ADR 0004, 0029). */
+  readonly midi = new MidiHost((event, timeStamp) => this.input(event, timeStamp));
   private readonly context: AudioContext;
   /** The context as the runtime sees it: the instrument cache is keyed by this object. */
   private readonly audio: AudioContextLike;
@@ -434,6 +437,7 @@ export class LivePatch {
     this.runtime.dispose();
     for (const unwatch of this.unwatch) unwatch();
     this.unwatchPermissions();
+    this.midi.dispose();
     void this.context.close();
     this.listeners.clear();
   }

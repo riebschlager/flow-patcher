@@ -82,6 +82,8 @@ export const INPUT_FIELD_TYPES: Readonly<Record<string, 'number' | 'string' | 'b
   canvasWidth: 'number',
   canvasHeight: 'number',
   status: 'number',
+  data1: 'number',
+  data2: 'number',
 };
 
 /** Fields the source nodes compute from the sequence, so a stream never records them (ADR 0029). */

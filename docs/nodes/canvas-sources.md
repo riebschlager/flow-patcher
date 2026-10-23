@@ -12,7 +12,7 @@ Raw source nodes turn browser events on the performance canvas into events and s
 | Touch extras | Touch contact size; Safari `gesturechange` | Contact width/height; native Scale and Rotation (Safari only) | M2 |
 | Key | keydown, keyup while the canvas has focus | Down/Up events with `key`, `code`, `repeat`, one channel per `code`; All (no repeats); a Held signal for each chosen key; a Keyboard → Note mode (two-row piano layout) | M2 |
 | Canvas | resize, focus, blur, visibilitychange | Size signals and Focus/Blur/Hidden/Visible events, so patches can fade or pause cleanly | M2 |
-| MIDI In | Web MIDI note and CC messages | Note events per MIDI channel; CC signals | M2 ([ADR 0004](../decisions/0004-web-midi-in-v1.md)) |
+| MIDI In | Web MIDI note and CC messages | Note at each note-on, with a **Length** knob for its duration; Note On and Note Off events with pitch and velocity; a CC signal for one CC number; all per MIDI channel (channel = MIDI channel + 1), filtered by a **Channel** menu (All, 1–16); the raw MIDI messages | M2 ([ADR 0004](../decisions/0004-web-midi-in-v1.md)) |
 
 Later, each behind a permission and not in v1: Gamepad (buttons and axes, polled each frame), Device motion and orientation, Microphone (level, onset, pitch).
 
@@ -42,4 +42,5 @@ Every input event carries these base fields, so any node can read them through G
   - The first pointerdown also unlocks the AudioContext and is still delivered, so it makes a sound.
 - **Focus.** In Play view the canvas has keyboard focus. In Patch view, keys go to the editor unless the preview canvas is focused. Escape always returns to the editor.
 - **Permissions.** Sources that need permission (MIDI, later motion and mic) ask only when a patch containing them first plays. If denied, they show a blocked state on the node.
+- **MIDI.** The host pushes each MIDI message as `{ type: 'midi', status, data1, data2 }`: the status byte and both data bytes as numbers, on channel 0, so the MIDI channel is in `status`, not `channel`. MIDI In decodes note-on, note-off and CC from it; velocity is 0–1 (data2 / 127), and a note-on with velocity 0 counts as a note-off. Notes carry their own duration ([ADR 0028](../decisions/0028-recognizers-pass-claim-cancel.md)), so MIDI In's Note comes at note-on with the Length knob's duration, and a note-off ends nothing; patches that need the off read Note Off. The CC signal holds the chosen controller's latest value (data2 / 127) per MIDI channel, and channel 0 reads the latest on any.
 - **Recordings.** Every event a source emits must be replayable from an input stream ([ADR 0029](../decisions/0029-input-stream-format.md)), so recordings reproduce performances.

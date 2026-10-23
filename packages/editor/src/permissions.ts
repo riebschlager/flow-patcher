@@ -9,10 +9,20 @@ import type { NodeDefinition, Permission, PermissionState } from '@flow-patcher/
  *  for MIDI; a gesture-gated API (iOS motion) must wait for the next pointerdown instead of being denied. */
 export type PermissionRequesters = Partial<Record<Permission, () => Promise<boolean>>>;
 
-/** The real browser APIs behind each permission. */
-export function browserRequesters(): PermissionRequesters {
+/** What a granted request hands over, so the host can use it without asking twice (MIDI In's MIDIAccess). */
+export interface PermissionGrants {
+  midi?(access: MIDIAccess): void;
+}
+
+/** The real browser APIs behind each permission. `granted` receives what each one gives when it's allowed. */
+export function browserRequesters(granted: PermissionGrants = {}): PermissionRequesters {
   return {
-    midi: typeof navigator.requestMIDIAccess === 'function' ? () => navigator.requestMIDIAccess().then(() => true) : undefined,
+    midi: typeof navigator.requestMIDIAccess === 'function'
+      ? () => navigator.requestMIDIAccess().then((access) => {
+        granted.midi?.(access);
+        return true;
+      })
+      : undefined,
   };
 }
 
