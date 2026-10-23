@@ -828,6 +828,18 @@ export class Runtime {
   }
 
   /**
+   * The scheduler applied a live event from `nodeId` at `applied`, the horizon,
+   * instead of rewinding to its stamp, because the rewind was over budget while
+   * the page was hidden (ADR 0026). Raises or adds to the node's 'push-fallback'
+   * warning; the scheduler counts it in `SchedulerStats.pushFallbacks`.
+   */
+  pushFellBack(nodeId: string, applied: number): void {
+    const held = this.nodeWarnings.get(nodeId)?.get('push-fallback');
+    this.warn(nodeId, 'push-fallback', 1, applied, held?.message
+      ?? `Live input to node "${nodeId}" arrived while the page was hidden and was too costly to apply at once, so it played late, from the end of the lookahead`);
+  }
+
+  /**
    * The node queries a `push` of an event at `time` on `nodeId` would make to
    * rewind, without making them: the affected and followed query nodes times
    * the chunks from the restored snapshot to the horizon, window by window

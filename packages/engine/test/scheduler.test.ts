@@ -581,6 +581,93 @@ describe('a node that throws during a rewind', () => {
   });
 });
 
+describe('hidden push fallback (ADR 0026)', () => {
+  // The rewind patch: a stateful counter fed by a metro and the tap, into the recorder.
+  const p = patch(
+    [node('m', 'metro', { period: 0.05 }), node('t', 'tap'), node('c', 'counter'), node('r', 'recorder')],
+    [cable('m', 'c'), cable('t', 'c'), cable('c', 'r')],
+  );
+  /** A wall clock where every node query costs `perQuery` ms, so push costs are known. */
+  function costed(options: Partial<SchedulerOptions>, perQuery = 1) {
+    const run = setup(p, options);
+    run.clock.wallTime = () => run.clock.wall + run.runtime.counters.queries * perQuery;
+    const heard: string[] = [];
+    run.runtime.onWarning = (message) => heard.push(message);
+    return { ...run, heard };
+  }
+
+  it('applies a hidden push over budget from the horizon, counts it and warns', () => {
+    const costs: PushCost[] = [];
+    const run = costed({ hiddenPushBudgetMs: 1, onPush: (cost) => costs.push(cost) });
+    run.clock.isHidden = true;
+    run.wakeAt(0);
+    // The first hidden push has no measured cost to go by, so it rewinds, and seeds the average.
+    run.clock.set(0.3);
+    run.scheduler.push('t', 'out', { channel: 0 });
+    expect(run.scheduler.stats).toMatchObject({ rewinds: 1, pushFallbacks: 0 });
+    expect(run.scheduler.stats.msPerQuery.hidden).toBeCloseTo(1, 9);
+    // The next one would re-run the rest of a 1.25 s window: over 1 ms at 1 ms a query.
+    run.clock.set(0.6);
+    const horizon = run.scheduler.horizon!;
+    const predicted = run.runtime.rewindCost('t', 0.6 + IMMEDIATE_OFFSET)!;
+    expect(predicted * 1).toBeGreaterThan(1);
+    const before = run.deliveries.length, cancelled = run.scheduler.stats.cancelled;
+    const event = run.scheduler.push('t', 'out', { channel: 0 })!;
+    expect(event.time).toBe(horizon);
+    expect(run.scheduler.stats).toMatchObject({ pushes: 2, rewinds: 1, pushFallbacks: 1, cancelled });
+    expect(costs[1]!.fallback!.stamped).toBe(0.6 + IMMEDIATE_OFFSET);
+    expect(costs[1]!.fallback!.estimatedMs).toBeCloseTo(predicted * 1, 9);
+    expect(costs[1]!).toMatchObject({ time: horizon, rewind: null });
+    // Nothing already sent was withdrawn: the wake that queried past the horizon delivered it.
+    expect(run.deliveries.slice(before).some((d) => d.event.time === horizon && d.event.channel === 0)).toBe(true);
+    expect(run.scheduler.events().filter((e) => e.node === 't').map((e) => e.time)).toEqual([0.3 + IMMEDIATE_OFFSET, horizon]);
+    // On the pushed node, raised once, counted every time.
+    run.clock.set(0.9);
+    run.scheduler.push('t', 'out', { channel: 0 });
+    expect(run.scheduler.stats.pushFallbacks).toBe(2);
+    expect(run.heard).toEqual([expect.stringMatching(/^Live input to node "t" arrived while the page was hidden and was too costly to apply at once, so it played late/)]);
+    expect(run.runtime.warnings()).toEqual([expect.objectContaining({ node: 't', kind: 'push-fallback', count: 2, time: run.scheduler.events().filter((e) => e.node === 't').at(-1)!.time })]);
+  });
+
+  it('always rewinds a visible push, whatever its cost', () => {
+    const run = costed({ hiddenPushBudgetMs: 1 });
+    // Measure hidden costs first, then go visible with a rewind that costs more than the budget.
+    run.clock.isHidden = true;
+    run.wakeAt(0);
+    run.clock.set(0.3);
+    run.scheduler.push('t', 'out', { channel: 0 });
+    run.clock.isHidden = false;
+    run.clock.set(0.35);
+    const predicted = run.runtime.rewindCost('t', 0.35 + IMMEDIATE_OFFSET)!;
+    expect(predicted * run.scheduler.stats.msPerQuery.hidden!).toBeGreaterThan(1);
+    const event = run.scheduler.push('t', 'out', { channel: 0 })!;
+    expect(event.time).toBe(0.35 + IMMEDIATE_OFFSET);
+    expect(run.scheduler.stats).toMatchObject({ rewinds: 2, pushFallbacks: 0 });
+    expect(run.scheduler.stats.msPerQuery.visible).toBeCloseTo(1, 9);
+    expect(run.runtime.warnings()).toEqual([]);
+  });
+
+  it('logs the applied time, so replaying the recorded pushes gives the same events', () => {
+    const run = costed({ hiddenPushBudgetMs: 1 });
+    run.clock.isHidden = true;
+    const recorded: EngineEvent[] = [];
+    for (let k = 0; k < 4; k++) {
+      run.wakeAt(k);
+      run.clock.set(k + 0.4);
+      recorded.push(run.scheduler.push('t', 'out', { channel: 0 })!);
+    }
+    expect(run.scheduler.stats.pushFallbacks).toBeGreaterThan(0);
+    // Replay: the recorded events pushed at their recorded times, known in advance.
+    const replay = setup(p, { lookahead: 0.004 });
+    for (let k = 0; k * 0.002 < 5; k++) {
+      replay.wakeAt(k * 0.002);
+      for (const event of recorded) if (event.time >= replay.scheduler.horizon! && event.time < replay.scheduler.horizon! + 0.002) replay.runtime.push('t', 'out', event);
+    }
+    const upTo = (events: LoggedEvent[]) => json(events.filter((e) => e.time < 4.5));
+    expect(upTo(replay.scheduler.events())).toBe(upTo(run.scheduler.events()));
+  });
+});
+
 describe('rewind cost', () => {
   it('predicts the queries a push makes, before it makes them', () => {
     const p = patch(

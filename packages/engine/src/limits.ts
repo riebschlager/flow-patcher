@@ -61,7 +61,9 @@ export type NodeWarningKind =
   /** The node's notes pushed the voice pool past VOICE_LIMIT, and it stole voices (ADR 0025). */
   | 'voice-steal'
   /** The node threw while a rewind re-ran it for a live event; the live event was dropped and the re-run repeated without it. */
-  | 'rewind-error';
+  | 'rewind-error'
+  /** A live event on the node came in while the page was hidden, its rewind was over budget, and it was applied from the horizon instead (ADR 0026). */
+  | 'push-fallback';
 
 /** A problem one node is having at run time, for the editor to show on the node. */
 export interface NodeWarning {
@@ -70,12 +72,13 @@ export interface NodeWarning {
   /** One line, for the node's tooltip or a log. */
   message: string;
   /** Events affected so far: dropped by a cap (net of rewinds that re-ran them), or left uncancelled; for
-   *  'voice-steal', voices stolen; for 'rewind-error', live events dropped. */
+   *  'voice-steal', voices stolen; for 'rewind-error', live events dropped; for 'push-fallback', live events applied late. */
   count: number;
   /** Audio-clock time of the latest affected event still counted (a rewind that takes drops back moves it
-   *  back); for 'voice-steal', the latest time a voice was cut; for 'rewind-error', the latest dropped event's time. */
+   *  back); for 'voice-steal', the latest time a voice was cut; for 'rewind-error', the latest dropped event's time;
+   *  for 'push-fallback', the latest time a late live event was applied at. */
   time: number;
 }
 
 /** Display order of warning kinds on one node. */
-export const WARNING_KINDS: readonly NodeWarningKind[] = ['node-event-limit', 'patch-event-limit', 'no-cancel', 'voice-steal', 'rewind-error'];
+export const WARNING_KINDS: readonly NodeWarningKind[] = ['node-event-limit', 'patch-event-limit', 'no-cancel', 'voice-steal', 'rewind-error', 'push-fallback'];
