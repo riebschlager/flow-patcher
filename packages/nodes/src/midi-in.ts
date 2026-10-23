@@ -65,7 +65,8 @@ function filterOf(param: unknown): number | null {
  * `input` maps the stream's `midi` events (ADR 0029) to the raw **MIDI** output.
  * The host pushes each MIDI message as `{ status, data1, data2 }` on channel 0,
  * one stamp per message, and the runtime merges it into MIDI unchanged, every
- * message and every MIDI channel, unfiltered. `query` derives the rest from
+ * channel message the host sends, from every MIDI channel, whatever the
+ * Channel menu says. `query` derives the rest from
  * those pushes (`ctx.pushed`), at the push's time:
  * - **Note**, at each note-on: `pitch` = data1, `velocity` = data2 / 127 and
  *   `duration` from the Length knob, read at the note's time. Notes carry

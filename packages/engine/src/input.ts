@@ -114,6 +114,11 @@ function eventProblems(raw: unknown, where: string, previous: number | null): st
     }
   }
   if (raw.coalesced !== undefined && type !== 'pointermove') errors.push(`${where}.coalesced: only pointermove samples are coalesced`);
+  if (type === 'midi') {
+    // MIDI is channel 0; its MIDI channel is in status (ADR 0029).
+    if (channel !== undefined) errors.push(`${where}.channel: midi events have none; the MIDI channel is in status`);
+    if (raw.status === undefined) errors.push(`${where}.status: midi events need the status byte`);
+  }
   return errors;
 }
 

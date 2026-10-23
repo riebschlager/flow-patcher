@@ -6,13 +6,24 @@
 import type { InputFields } from '@flow-patcher/engine';
 
 /** What the host needs of a MIDIAccess: its inputs and their connect/disconnect events. */
-export type MidiAccessLike = Pick<MIDIAccess, 'inputs' | 'addEventListener' | 'removeEventListener'>;
+export interface MidiAccessLike {
+  readonly inputs: ReadonlyMap<string, MidiInputLike>;
+  addEventListener(type: 'statechange', listener: () => void): void;
+  removeEventListener(type: 'statechange', listener: () => void): void;
+}
+
+/** What the host needs of a MIDIInput: its messages, and `open`, which a listener may not call for it. */
+export interface MidiInputLike {
+  addEventListener(type: 'midimessage', listener: (event: Event) => void): void;
+  removeEventListener(type: 'midimessage', listener: (event: Event) => void): void;
+  open?(): Promise<unknown>;
+}
 
 /**
  * One MIDI message as a stream event, or null for what MIDI In doesn't read:
  * system messages (sysex, clock, active sensing, which some devices send many
- * times a second) and empty or malformed data. A two-byte message (program
- * change, channel pressure) has no `data2`.
+ * times a second) and empty or malformed data, including a data byte of 0x80
+ * or more. A two-byte message (program change, channel pressure) has no `data2`.
  */
 export function midiEvent(data: ArrayLike<number> | null | undefined): InputFields | null {
   if (!data || data.length < 2) return null;
@@ -20,13 +31,15 @@ export function midiEvent(data: ArrayLike<number> | null | undefined): InputFiel
   if (!(status >= 0x80 && status < 0xf0) || !(data1 >= 0 && data1 < 0x80)) return null;
   const event: InputFields = { type: 'midi', status, data1 };
   const data2 = data[2];
-  if (data2 !== undefined && data2 >= 0 && data2 < 0x80) event.data2 = data2;
+  if (data2 === undefined) return event;
+  if (!(data2 >= 0 && data2 < 0x80)) return null;
+  event.data2 = data2;
   return event;
 }
 
 export class MidiHost {
   private access: MidiAccessLike | null = null;
-  private readonly inputs = new Set<MIDIInput>();
+  private readonly inputs = new Set<MidiInputLike>();
   private disposed = false;
 
   /** `push` gets each message's event and its timeStamp (performance.now() time). */
@@ -58,6 +71,9 @@ export class MidiHost {
       if (this.inputs.has(input)) return;
       this.inputs.add(input);
       input.addEventListener('midimessage', this.onMessage);
+      // Adding a listener opens the port implicitly in the spec, but browsers have differed; open it
+      // outright. A port that won't open (in use elsewhere) just stays quiet.
+      void input.open?.().catch(() => {});
     });
   }
 

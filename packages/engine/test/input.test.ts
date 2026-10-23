@@ -36,7 +36,8 @@ describe('parseInputStream', () => {
   });
 
   it('accepts every documented type, and an empty stream', () => {
-    expect(errorsOf(stream(INPUT_EVENT_TYPES.map((type) => ({ time: 1, type }))))).toEqual([]);
+    // A midi event needs its status byte; every other type stands on its own.
+    expect(errorsOf(stream(INPUT_EVENT_TYPES.map((type) => ({ time: 1, type, ...(type === 'midi' ? { status: 0x90, data1: 60, data2: 1 } : {}) }))))).toEqual([]);
     expect(errorsOf(stream([]))).toEqual([]);
   });
 
@@ -103,6 +104,17 @@ describe('parseInputStream', () => {
       'events[0].data1: expected a finite number',
       'events[1].data2: expected a finite number',
       'events[2].status: expected a finite number',
+    ]);
+  });
+
+  it('requires status on midi events and rejects a channel on them (#77)', () => {
+    expect(errorsOf(stream([
+      { time: 0.4, type: 'midi', data1: 60, data2: 100 },
+      { time: 0.4, type: 'midi', channel: 3, status: 0x92, data1: 60, data2: 100 },
+      { time: 0.4, type: 'midi', status: 0xc0, data1: 5 },
+    ]))).toEqual([
+      'events[0].status: midi events need the status byte',
+      'events[1].channel: midi events have none; the MIDI channel is in status',
     ]);
   });
 
