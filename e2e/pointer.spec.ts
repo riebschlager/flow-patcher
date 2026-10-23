@@ -82,11 +82,17 @@ test('hover, enter and leave reach Pointer, and All tags every event with its ph
   // Back in, hovering: enter and the hover moves take slot 1 again.
   for (let i = 0; i <= 8; i++) await page.mouse.move(box.x + 10 + i * 10, box.y + box.height / 2, { steps: 1 });
   await expect.poll(slots).toEqual([[1, 1]]);
+  // Pushes in one render quantum share a stamp, and Pointer orders them Down, Move, Up there (the
+  // same-time rule), so a press right after a hover move would sort ahead of it. Real hands are
+  // slower than Playwright: leave a few quanta between the phases.
+  await page.waitForTimeout(50);
   await page.keyboard.down('Shift');
   await page.mouse.down();
   await page.mouse.move(box.x + 120, box.y + box.height / 2 + 10, { steps: 3 });
+  await page.waitForTimeout(50);
   await page.mouse.up();
   await page.keyboard.up('Shift');
+  await page.waitForTimeout(50);
   await page.mouse.move(box.x - 30, box.y + 10);
   await expect.poll(slots).toEqual([[1, null]]);
 
@@ -113,5 +119,65 @@ test('hover, enter and leave reach Pointer, and All tags every event with its ph
   expect(all[up]!.buttons).toBe(0);
 
   await page.evaluate(() => (window as unknown as { unwatchAll: () => void }).unwatchAll());
+  expect(errors).toEqual([]);
+});
+
+// Pointer (high rate) (#74): a move's coalesced samples reach the high-rate node, one push per
+// browser event, while Pointer gets the plain move only.
+test('coalesced samples reach Pointer (high rate), and only the plain move reaches Pointer', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
+
+  const node = (id: string, type: string, typeVersion: number, x: number) => ({ id, type, typeVersion, params: {}, position: { x, y: 100 } });
+  const patch = { format: 'flowpatch', version: 1, seed: 74, nodes: [node('p', 'pointer', 2, 0), node('h', 'pointer-high-rate', 1, 260)], cables: [] };
+  await page.goto('/?patch=new');
+  await page.getByTestId('open-file').setInputFiles({ name: 'pointers.flowpatch', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(patch)) });
+  await expect(page.getByTestId('compile-status')).toHaveText('2 nodes compiled');
+  const canvas = page.getByTestId('performance-canvas');
+  await canvas.click({ position: { x: 40, y: 40 } });
+  await expect(page.getByTestId('audio-state')).toHaveText('live');
+  expect(await page.evaluate(() => window.flowPatcher!.readsCoalesced)).toBe(true);
+  await page.evaluate(() => {
+    const live = window.flowPatcher!;
+    (window as unknown as { unwatch: (() => void)[] }).unwatch = ['p', 'h'].map((id) => live.watchProbe(id, 'move', 'out', 'event', () => {}));
+  });
+  const moves = (id: string) => page.evaluate((node) => (window.flowPatcher!.probe(node, 'move')?.events ?? []).map((e) => ({ x: e.x as number, channel: e.channel, coalesced: e.coalesced === true, ago: e.ago as number | undefined })), id);
+
+  // Five moves, each with four coalesced samples, the last of them the move itself.
+  const pushesBefore = await page.evaluate(() => window.flowPatcher!.stats.pushes);
+  for (let f = 0; f < 5; f++) {
+    await page.evaluate((frame) => {
+      const element = document.querySelector('[data-testid="performance-canvas"]')!;
+      const box = element.getBoundingClientRect();
+      const at = (i: number) => ({ pointerId: 1, pointerType: 'mouse', isPrimary: true, bubbles: true, clientX: box.left + 60 + frame * 20 + i * 5, clientY: box.top + 50 });
+      const samples = [0, 1, 2, 3].map((i) => new PointerEvent('pointermove', at(i)));
+      element.dispatchEvent(new PointerEvent('pointermove', { ...at(3), coalescedEvents: samples }));
+    }, f);
+    await page.waitForTimeout(30);
+  }
+  // One push per browser event.
+  expect(await page.evaluate(() => window.flowPatcher!.stats.pushes) - pushesBefore).toBe(5);
+  await expect.poll(async () => (await moves('h')).length).toBe(20);
+  await expect.poll(async () => (await moves('p')).length).toBe(5);
+  const high = await moves('h'), plain = await moves('p');
+  expect(high.every((e) => e.coalesced && e.channel === 1 && e.ago! >= 0)).toBe(true);
+  expect(plain.every((e) => !e.coalesced && e.channel === 1 && e.ago === undefined)).toBe(true);
+  // In order, and each frame's last sample at the plain move's position.
+  expect(high.map((e) => e.x)).toEqual([...high.map((e) => e.x)].sort((a, b) => a - b));
+  expect(plain.map((e) => e.x)).toEqual(high.filter((_, i) => i % 4 === 3).map((e) => e.x));
+
+  // Real mouse moves: Chromium may or may not coalesce them; either way high rate gets at least Pointer's samples.
+  const box = (await canvas.boundingBox())!;
+  for (let i = 0; i < 20; i++) await page.mouse.move(box.x + 20 + i * 8, box.y + 100);
+  await expect.poll(async () => (await moves('p')).length).toBeGreaterThan(5);
+  await page.waitForTimeout(300);
+  expect((await moves('h')).length - 20).toBeGreaterThanOrEqual((await moves('p')).length - 5);
+
+  await page.evaluate(() => (window as unknown as { unwatch: (() => void)[] }).unwatch.forEach((stop) => stop()));
+  // The two cards side by side, clear of the preview pane.
+  await page.locator('.react-flow__controls-zoomout').click();
+  await page.locator('.react-flow__controls-zoomout').click();
+  await page.screenshot({ path: 'test-results/pointer-cards.png' });
   expect(errors).toEqual([]);
 });

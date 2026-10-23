@@ -51,6 +51,8 @@ type Contacts = Contact[];
 /** One pushed event, reduced to what the state needs. */
 interface Change {
   time: number;
+  /** When the sample was taken, for motion: `time` less its `ago` (a coalesced sample, Pointer (high rate)). */
+  at: number;
   /** The raw pointerId. */
   id: number;
   /** Index into KINDS. */
@@ -116,22 +118,22 @@ function step(contacts: Contacts, change: Change): Stepped | null {
   }
   let evicted: Contact | null = null;
   if (!contact) ({ contact, evicted } = bind(contacts, change.id));
-  const { time } = change;
+  const { time, at } = change;
   const quiet = { slot: contact.slot, phase: null, dx: 0, dy: 0, speed: 0, angle: 0, age: 0, evicted };
   if (kind === 'enter') return evicted ? quiet : null;
   const phase = kind as Phase;
   const x = change.x ?? contact.x, y = change.y ?? contact.y;
-  // Motion since the previous sample. Samples at one time (the same render quantum) keep the
-  // previous motion and the earlier reference, so the next sample spans the real time.
-  if (contact.refAt === null || time > contact.refAt) {
+  // Motion since the previous sample, by when each was taken (`at`). Samples at one time (the same
+  // render quantum) keep the previous motion and the earlier reference, so the next sample spans the real time.
+  if (contact.refAt === null || at > contact.refAt) {
     if (contact.refAt !== null) {
-      const dt = time - contact.refAt;
+      const dt = at - contact.refAt;
       contact.dx = (x - contact.refX) / dt;
       contact.dy = (y - contact.refY) / dt;
       contact.speed = Math.hypot(contact.dx, contact.dy);
       if (contact.speed > 0) contact.angle = Math.atan2(contact.dy, contact.dx);
     }
-    contact.refAt = time;
+    contact.refAt = at;
     contact.refX = x;
     contact.refY = y;
   }
@@ -207,7 +209,8 @@ export function pointerQuery({ state, pushed }: Pick<QueryContext, 'state' | 'pu
     for (const event of pushed[kind] ?? []) {
       // Raw pointerIds are integers; anything else has no pointer to give a slot to.
       if (!Number.isFinite(event.time) || !Number.isInteger(event.channel)) continue;
-      items.push({ change: { time: event.time, id: event.channel, kind: k, x: unit(event.x), y: unit(event.y), pressure: unit(event.pressure) }, event });
+      const ago = typeof event.ago === 'number' && event.ago > 0 && Number.isFinite(event.ago) ? event.ago : 0;
+      items.push({ change: { time: event.time, at: event.time - ago, id: event.channel, kind: k, x: unit(event.x), y: unit(event.y), pressure: unit(event.pressure) }, event });
     }
   });
   // Stable: ties keep each port's order (time, then raw id, then push order).
@@ -255,8 +258,14 @@ export function pointerSignal(state: NodeState, port: string, t: number, channel
  * pointercancel and pointerleave (ADR 0029); the host pushes each as
  * `{ channel: pointerId, x, y, pressure, pointerType, width, height, button, buttons,
  * shift, alt, ctrl, meta }`, x and y normalized 0–1, y = 0 at the top. Coalesced moves
- * (`coalesced: true`) are Pointer (high rate)'s, so Pointer skips them. The scheduler
- * stamps them currentTime + 5 ms.
+ * (`coalesced: true`) are Pointer (high rate)'s, so Pointer skips them: the browser's
+ * coalesced list includes the dispatched move itself, so the host pushes every sample
+ * with `coalesced: true` for Pointer (high rate) and the plain move for Pointer, and
+ * neither node sees a sample twice. The scheduler stamps them currentTime + 5 ms.
+ *
+ * `ago` (seconds, optional): how long before the event's dispatched move a coalesced
+ * sample was taken. The samples of one browser event share one stamp, so motion is
+ * measured from time − ago; time still orders events and drives `age`.
  *
  * It rewrites its pushes (`InputSpec.rewrites`): the runtime doesn't pass them through,
  * and `query` returns each Down, Move, Up and Cancel at its own time, so it stays on the
@@ -268,7 +277,7 @@ export function pointerSignal(state: NodeState, port: string, t: number, channel
  *   (streams record raw pointerIds). Past MAX_SLOTS see `bind`; a contact down when its
  *   slot is taken gets a Cancel (on Cancel and All) at the taking event's time first.
  * - `dx`, `dy`: motion since this slot's previous sample, in canvas units per second,
- *   from the event times; `speed` their length and `angle` their direction, atan2(dy, dx)
+ *   from the event times (less a sample's `ago`, below); `speed` their length and `angle` their direction, atan2(dy, dx)
  *   in radians (0 to the right, π/2 down). A slot's first sample after it's taken has
  *   0 motion, and a sample at the same time as the previous one keeps its motion. When
  *   the pointer doesn't move, `angle` keeps the last direction it moved in.

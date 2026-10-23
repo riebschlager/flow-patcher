@@ -408,6 +408,28 @@ export class LivePatch {
     return this.router.reads(type);
   }
 
+  /** Whether a source in the running plan reads coalesced move samples (Pointer (high rate)), so the canvas sends them. */
+  get readsCoalesced(): boolean {
+    return this.router.route({ type: 'pointermove', channel: 0, coalesced: true }).length > 0;
+  }
+
+  /**
+   * Several canvas events from one browser event, such as a pointermove's coalesced samples
+   * and the move itself, as one push stamped once, so the samples keep their order and share
+   * a time (each carries its own `ago`). Moves only: a pointerdown goes through `input`, which
+   * starts audio. Dropped while audio is stopped, like hover moves. Returns the pushed events.
+   */
+  inputAll(events: readonly InputFields[]): EngineEvent[] | null {
+    if (this.context.state !== 'running') return null;
+    const targets = events.flatMap((event) => this.router.route(event));
+    if (!targets.length) return null;
+    try {
+      return this.scheduler.pushAll(targets);
+    } finally {
+      this.refreshTracks();
+    }
+  }
+
   /** Every canvas event type a source node in the running plan reads. */
   get inputTypes(): ReadonlySet<InputEventType> {
     return this.router.types;
