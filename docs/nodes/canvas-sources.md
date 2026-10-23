@@ -23,7 +23,7 @@ Every input event carries these base fields, so any node can read them through G
 | Field | Meaning |
 | --- | --- |
 | `time` | Audio-clock time the event is scheduled at |
-| `channel` | Stable id for this pointer, touch or key for the life of the contact |
+| `channel` | Stable id for this pointer, touch or key for the life of the contact: for pointers, a slot (below) |
 | `x`, `y` | Canvas position, normalized 0–1, with y = 0 at the top (the fluid's convention) |
 | `dx`, `dy`, `speed`, `angle` | Motion since the previous sample for this channel, in canvas units per second |
 | `pressure`, `width`, `height` | Contact force and size, where the hardware reports them (mouse: 0.5 while pressed) |
@@ -31,6 +31,10 @@ Every input event carries these base fields, so any node can read them through G
 | `button`, `buttons` | Which buttons changed, and which are held |
 | `shift`, `alt`, `ctrl`, `meta` | Modifier keys held |
 | `age` | Seconds since this channel's down event |
+
+`dx` and `dy` are velocity components; `angle` is atan2(dy, dx) in radians (0 to the right, π/2 down) and holds its last value while the pointer is still. A channel's first sample after it's taken has no motion, and `age` is 0 on a hover move.
+
+**Pointer slots.** Pointer sources number contacts by slot, not by raw `pointerId`. A pointer takes the lowest free slot from 1 on its first event (pointerenter or a hover move included) and frees it on pointerup, pointercancel or pointerleave (a leave while down waits for the up). The map is node state, so live and replay give the same channels; input streams keep recording raw pointerIds. Channel 0 reads the most recent pointer. Past 16 slots, the pointer that changed least recently gives its slot up (a hover first), with a Cancel if it was down.
 
 ## Rules for this family
 

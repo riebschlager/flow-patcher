@@ -37,11 +37,32 @@ import { EventTrack, PROBE_HISTORY } from './event-track';
 import { MidiHost } from './midi';
 import { browserRequesters, neededPermissions, Permissions } from './permissions';
 
-/** Pointer events the canvas forwards, by phase. */
-export type PointerPort = 'down' | 'move' | 'up' | 'cancel';
+/** Pointer events the canvas forwards: the four phases, and entering and leaving the canvas (hover state). */
+export type PointerPort = 'down' | 'move' | 'up' | 'cancel' | 'enter' | 'leave';
 
-/** The input stream type (ADR 0029) of each pointer phase. */
-const POINTER_TYPES: Readonly<Record<PointerPort, InputEventType>> = { down: 'pointerdown', move: 'pointermove', up: 'pointerup', cancel: 'pointercancel' };
+/** The input stream type (ADR 0029) of each pointer event the canvas forwards. */
+const POINTER_TYPES: Readonly<Record<PointerPort, InputEventType>> = {
+  down: 'pointerdown', move: 'pointermove', up: 'pointerup', cancel: 'pointercancel', enter: 'pointerenter', leave: 'pointerleave',
+};
+
+/** The payload of one pointer event (docs/nodes/canvas-sources.md, Event payload): the raw pointerId as `channel`. */
+export interface PointerFields {
+  channel: number;
+  x: number;
+  y: number;
+  pressure: number;
+  pointerType: string;
+  /** Contact size in CSS pixels, where the hardware reports it (a mouse reports 1). */
+  width?: number;
+  height?: number;
+  /** The button that changed (−1 on a move), and the buttons held, as the browser reports them. */
+  button?: number;
+  buttons?: number;
+  shift?: boolean;
+  alt?: boolean;
+  ctrl?: boolean;
+  meta?: boolean;
+}
 
 /**
  * Input events dropped, not held, while the AudioContext isn't running. Held pushes all replay at one
@@ -375,7 +396,7 @@ export class LivePatch {
   /** Sends one pointer event to every source node that reads it. x and y are 0–1, y = 0 at the top. */
   pointer(
     port: PointerPort,
-    fields: { channel: number; x: number; y: number; pressure: number; pointerType: string },
+    fields: PointerFields,
     /** The event's timeStamp (performance.now() time), when it came from a real input event. */
     timeStamp?: number,
   ): void {

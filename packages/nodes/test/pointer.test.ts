@@ -1,101 +1,129 @@
 import { describe, expect, it } from 'vitest';
 import { compilePatch, IMMEDIATE_OFFSET, inputRouter, ManualClock, Runtime, Scheduler, type EngineEvent, type LoggedEvent, type Patch } from '@flow-patcher/engine';
 import { nodeRegistry, pointer } from '../src';
-import { MAX_LIFTED } from '../src/pointer';
+import { MAX_SLOTS, STILL } from '../src/pointer';
 import { context, query, queryTiled } from './helpers';
 
-const PORTS = ['down', 'move', 'up', 'cancel'] as const;
-type Port = (typeof PORTS)[number];
-const SIGNALS = ['x', 'y', 'pressure', 'count'] as const;
-type SignalPort = (typeof SIGNALS)[number];
+const PHASES = ['down', 'move', 'up', 'cancel'] as const;
+const EVENT_PORTS = [...PHASES, 'all'] as const;
+const SIGNALS = ['x', 'y', 'pressure', 'speed', 'count'] as const;
+/** The ports a push lands on: the phases, and the push-only enter and leave. */
+type Port = (typeof PHASES)[number] | 'enter' | 'leave';
+type Push = { port: Port; event: EngineEvent };
 
 const node = (id: string, type: string, params = {}) => ({ id, type, typeVersion: nodeRegistry.get(type)!.version, params, position: { x: 0, y: 0 } });
 
-/** Pointer, with Down feeding a Make Note, as in examples/pointer-notes.flowpatch. */
+/** Pointer, with Down feeding a Make Note and Y its pitch, as in examples/pointer-notes.flowpatch: 76 − 24 × Y. */
 const patch: Patch = {
   format: 'flowpatch',
   version: 1,
   seed: 1,
-  nodes: [node('p', 'pointer'), node('note', 'make-note', { pitch: 64 })],
-  cables: [{ from: { node: 'p', port: 'down' }, to: { node: 'note', port: 'trigger' } }],
-};
-
-/** The same, with Y modulating Make Note's pitch as in the example: 76 − 24 × Y. */
-const pitchPatch: Patch = {
-  ...patch,
   nodes: [node('p', 'pointer'), node('note', 'make-note', { pitch: 76 })],
-  cables: [...patch.cables, { from: { node: 'p', port: 'y' }, to: { node: 'note', port: 'pitch' }, depth: -24 }],
+  cables: [
+    { from: { node: 'p', port: 'down' }, to: { node: 'note', port: 'trigger' } },
+    { from: { node: 'p', port: 'y' }, to: { node: 'note', port: 'pitch' }, depth: -24 },
+  ],
 };
 
-function runtime(history = false, which: Patch = patch): Runtime {
-  const compiled = compilePatch(which, nodeRegistry);
+function runtime(history = false): Runtime {
+  const compiled = compilePatch(patch, nodeRegistry);
   if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
   return new Runtime(compiled.plan, { history });
 }
 
-/** Two contacts on channels 0 and 3 overlapping in time, and a cancelled one on 7. */
-const gestures: { port: Port; event: EngineEvent }[] = [
-  { port: 'down', event: { time: 0.1, channel: 0, x: 0.2, y: 0.1, pressure: 0.5 } },
-  { port: 'move', event: { time: 0.13, channel: 0, x: 0.25, y: 0.15, pressure: 0.5 } },
-  { port: 'down', event: { time: 0.21, channel: 3, x: 0.9, y: 0.8, pressure: 0.3 } },
-  { port: 'move', event: { time: 0.26, channel: 3, x: 0.85, y: 0.7, pressure: 0.4 } },
-  { port: 'up', event: { time: 0.3, channel: 0, x: 0.3, y: 0.2, pressure: 0 } },
-  { port: 'down', event: { time: 0.31, channel: 7, x: 0.5, y: 0.5, pressure: 1 } },
-  { port: 'cancel', event: { time: 0.42, channel: 7, x: 0.5, y: 0.5, pressure: 0 } },
-  { port: 'up', event: { time: 0.5, channel: 3, x: 0.8, y: 0.6, pressure: 0 } },
+/**
+ * Raw pointerIds as a browser sends them: a mouse (1) hovering in, pressing and
+ * leaving; touches 41 and 42 overlapping; 43 after 41 lifts, reusing its slot;
+ * 44 cancelled. Times are on 10 ms steps so motion is easy to check.
+ */
+const session: Push[] = [
+  { port: 'enter', event: { time: 0.05, channel: 1, x: 0, y: 0.5, pointerType: 'mouse' } },
+  { port: 'move', event: { time: 0.06, channel: 1, x: 0.1, y: 0.5, pressure: 0, pointerType: 'mouse', buttons: 0 } },
+  { port: 'move', event: { time: 0.08, channel: 1, x: 0.2, y: 0.5, pressure: 0, pointerType: 'mouse', buttons: 0 } },
+  { port: 'down', event: { time: 0.1, channel: 41, x: 0.5, y: 0.5, pressure: 0.6, pointerType: 'touch', width: 20, height: 22 } },
+  { port: 'down', event: { time: 0.12, channel: 1, x: 0.2, y: 0.5, pressure: 0.5, pointerType: 'mouse', button: 0, buttons: 1, shift: true } },
+  { port: 'move', event: { time: 0.14, channel: 41, x: 0.5, y: 0.3, pressure: 0.7, pointerType: 'touch' } },
+  { port: 'down', event: { time: 0.15, channel: 42, x: 0.9, y: 0.9, pressure: 0.4, pointerType: 'touch' } },
+  { port: 'up', event: { time: 0.2, channel: 41, x: 0.5, y: 0.3, pressure: 0, pointerType: 'touch' } },
+  { port: 'leave', event: { time: 0.2, channel: 41, x: 0.5, y: 0.3, pointerType: 'touch' } },
+  { port: 'down', event: { time: 0.25, channel: 43, x: 0.3, y: 0.7, pressure: 0.5, pointerType: 'touch' } },
+  { port: 'move', event: { time: 0.3, channel: 1, x: 0.4, y: 0.5, pressure: 0.5, pointerType: 'mouse', buttons: 1 } },
+  { port: 'up', event: { time: 0.32, channel: 1, x: 0.4, y: 0.5, pressure: 0, pointerType: 'mouse', button: 0, buttons: 0 } },
+  { port: 'move', event: { time: 0.34, channel: 1, x: 0.45, y: 0.5, pressure: 0, pointerType: 'mouse', buttons: 0 } },
+  { port: 'cancel', event: { time: 0.4, channel: 42, x: 0.9, y: 0.9, pressure: 0, pointerType: 'touch' } },
+  { port: 'leave', event: { time: 0.45, channel: 1, x: 0.5, y: 0.5, pointerType: 'mouse' } },
+  { port: 'up', event: { time: 0.5, channel: 43, x: 0.3, y: 0.6, pressure: 0, pointerType: 'touch' } },
+  { port: 'down', event: { time: 0.6, channel: 44, x: 0.6, y: 0.6, pointerType: 'touch' } },
+  { port: 'cancel', event: { time: 0.7, channel: 44, x: 0.6, y: 0.6, pressure: 0, pointerType: 'touch' } },
 ];
 
+function pushedOf(list: readonly Push[]): Record<string, EngineEvent[]> {
+  const out: Record<string, EngineEvent[]> = {};
+  for (const { port, event } of list) (out[port] ??= []).push(event);
+  return out;
+}
+
+const pick = (log: LoggedEvent[], id: string, port: string) => log.filter((e) => e.node === id && e.port === port).map(({ node: _n, port: _p, ...e }) => e);
+
 /** Every push known in advance (past the horizon), then [0, end) queried in windows of `step`. */
-function runAhead(step: number, end = 1, which: Patch = patch): LoggedEvent[] {
-  const rt = runtime(false, which);
-  for (const { port, event } of gestures) expect(rt.push('p', port, { ...event })).toBeNull();
+function runAhead(list: readonly Push[], step: number, end = 1): LoggedEvent[] {
+  const rt = runtime();
+  for (const { port, event } of list) expect(rt.push('p', port, { ...event })).toBeNull();
   const log: LoggedEvent[] = [];
   for (let i = 0; i * step < end - 1e-9; i++) log.push(...rt.query(i * step, Math.min(end, (i + 1) * step)));
-  return log;
+  return rt.sortLog(log);
 }
 
 /** Live: each push arrives after the runtime has already queried 120 ms past it, so it rewinds. */
-function runLive(step: number, end = 1, which: Patch = patch): LoggedEvent[] {
-  const rt = runtime(true, which);
-  const log: LoggedEvent[] = [];
+function runLive(list: readonly Push[], step: number, end = 1): LoggedEvent[] {
+  const rt = runtime(true);
+  let log: LoggedEvent[] = [];
   let next = 0;
   const queryTo = (t: number) => {
-    while (next * step < t - 1e-9) {
-      log.push(...rt.query(next * step, Math.min(end, (next + 1) * step)));
-      next++;
-    }
+    for (; next * step < Math.min(end, t) - 1e-9; next++) log.push(...rt.query(next * step, Math.min(end, (next + 1) * step)));
   };
-  let current = log;
   let rewinds = 0;
-  for (const { port, event } of gestures) {
+  for (const { port, event } of list) {
     queryTo(event.time + 0.12);
     const report = rt.push('p', port, { ...event });
     if (!report) continue;
     // Apply the rewind to the log as the Scheduler does: replace what the affected nodes logged from its time on.
     rewinds++;
-    current = [...current.filter((e) => !(report.affected.has(e.node) && e.time >= report.time)), ...report.added];
-    log.length = 0;
-    log.push(...current);
+    log = [...log.filter((e) => !(report.affected.has(e.node) && e.time >= report.time)), ...report.added];
   }
   queryTo(end);
-  expect(rewinds).toBe(gestures.length);
+  expect(rewinds).toBe(list.length);
   return rt.sortLog(log);
 }
 
-const pick = (log: LoggedEvent[], node: string, port: string) => log.filter((e) => e.node === node && e.port === port);
+/** One port's events from query() over [0, end) in windows of `step`, on one state. */
+const events = (list: readonly Push[], port: string, step = 1, end = 1) => queryTiled(pointer, port, end, step, { state: {}, pushed: pushedOf(list) });
 
 describe('pointer', () => {
-  it('has the four event outputs, the X, Y, Pressure and Count signals, and no inputs or params (M1 basic)', () => {
+  it('has the five event outputs, the five signals, and reads every pointer type, rewriting its pushes (M2 complete)', () => {
     expect(pointer.category).toBe('canvas-sources');
+    expect(pointer.version).toBe(2);
     expect(pointer.ports.map((p) => [p.name, p.type, p.direction])).toEqual([
-      ...PORTS.map((name) => [name, 'event', 'out']),
+      ...EVENT_PORTS.map((name) => [name, 'event', 'out']),
       ...SIGNALS.map((name) => [name, 'signal', 'out']),
     ]);
     expect(pointer.params).toEqual([]);
+    expect(pointer.input!.rewrites).toBe(true);
+    const compiled = compilePatch(patch, nodeRegistry);
+    if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+    const router = inputRouter(compiled.plan);
+    expect([...router.types].sort()).toEqual(['pointercancel', 'pointerdown', 'pointerenter', 'pointerleave', 'pointermove', 'pointerup']);
+    const fields = { channel: 3, x: 0.5, y: 0.5, pressure: 0.5, pointerType: 'pen' };
+    for (const [type, port] of [['pointerenter', 'enter'], ['pointerdown', 'down'], ['pointermove', 'move'], ['pointerup', 'up'], ['pointercancel', 'cancel'], ['pointerleave', 'leave']] as const) {
+      expect(router.route({ type, ...fields })).toEqual([{ node: 'p', port, fields }]);
+    }
+    // Coalesced samples are Pointer (high rate)'s.
+    expect(router.route({ type: 'pointermove', ...fields, coalesced: true })).toEqual([]);
+    expect(router.route({ type: 'contextmenu', ...fields })).toEqual([]);
   });
 
   it('emits nothing by itself, in any window and however the windows are split', () => {
-    for (const port of PORTS) {
+    for (const port of EVENT_PORTS) {
       expect(queryTiled(pointer, port, 2, 0.025)).toEqual([]);
       expect(query(pointer, 0, 2)[port] ?? []).toEqual([]);
     }
@@ -103,28 +131,134 @@ describe('pointer', () => {
     for (const [t0, t1] of [[1, 1], [2, 1], [NaN, 1], [0, Infinity], [-Infinity, NaN]]) expect(query(pointer, t0!, t1!)).toEqual({});
   });
 
-  it('passes pushed events through on their own port and channel, unchanged', () => {
-    const log = runAhead(1);
-    for (const port of PORTS) {
-      expect(pick(log, 'p', port).map(({ node: _n, port: _p, ...e }) => e)).toEqual(gestures.filter((g) => g.port === port).map((g) => g.event));
-    }
-    // Down drives Make Note on the pointer's channel, at the down's time, payload kept.
-    expect(pick(log, 'note', 'note').map((e) => [e.time, e.channel, e.x, e.pitch])).toEqual([
-      [0.1, 0, 0.2, 64],
-      [0.21, 3, 0.9, 64],
-      [0.31, 7, 0.5, 64],
+  it('maps pointerIds to the lowest free slot from 1, freeing it on up, cancel or a leave', () => {
+    const channels = (port: string) => events(session, port).map((e) => [e.time, e.channel]);
+    // Mouse 1 hovers into slot 1 and keeps it through its press; touch 41 gets 2, 42 gets 3.
+    expect(channels('down')).toEqual([[0.1, 2], [0.12, 1], [0.15, 3], [0.25, 2], [0.6, 1]]);
+    // 41 lifts at 0.2 and 43 reuses slot 2. The mouse's up frees 1, and its hover at 0.34 takes 1
+    // again (the lowest free). Its leave frees 1, so 44 gets it.
+    expect(channels('up')).toEqual([[0.2, 2], [0.32, 1], [0.5, 2]]);
+    expect(channels('move')).toEqual([[0.06, 1], [0.08, 1], [0.14, 2], [0.3, 1], [0.34, 1]]);
+    expect(channels('cancel')).toEqual([[0.4, 3], [0.7, 1]]);
+    // Plain data: the slot map is in state, and after everything every slot is free.
+    const state: Record<string, unknown> = {};
+    query(pointer, 0, 1, { state, pushed: pushedOf(session) });
+    query(pointer, 1, 2, { state });
+    expect((state.contacts as { slot: number; id: number | null }[]).map((c) => [c.slot, c.id]).sort()).toEqual([[1, null], [2, null], [3, null]]);
+  });
+
+  it('keeps a pointer that is down in its slot through a leave, and gives an up from nowhere a passing slot', () => {
+    const list: Push[] = [
+      { port: 'down', event: { time: 0.1, channel: 5, x: 0.1, y: 0.1 } },
+      // Without pointer capture a leave can come mid-press: the contact goes on.
+      { port: 'leave', event: { time: 0.2, channel: 5 } },
+      { port: 'move', event: { time: 0.3, channel: 5, x: 0.2, y: 0.1 } },
+      { port: 'down', event: { time: 0.35, channel: 6, x: 0.5, y: 0.5 } },
+      { port: 'up', event: { time: 0.4, channel: 5, x: 0.2, y: 0.1 } },
+      // An up on a pointer never seen: it takes the lowest free slot for the event and frees it.
+      { port: 'up', event: { time: 0.5, channel: 77, x: 0.9, y: 0.9 } },
+      { port: 'down', event: { time: 0.6, channel: 78, x: 0.8, y: 0.8 } },
+      // A leave from a pointer never seen changes nothing.
+      { port: 'leave', event: { time: 0.65, channel: 99 } },
+    ];
+    expect(events(list, 'all').map((e) => [e.time, e.channel, e.phase])).toEqual([
+      [0.1, 1, 'down'], [0.3, 1, 'move'], [0.35, 2, 'down'], [0.4, 1, 'up'], [0.5, 1, 'up'], [0.6, 1, 'down'],
     ]);
   });
 
-  it('gives the same log in 25 ms, 100 ms and one window, and when every push rewinds', () => {
-    const reference = JSON.stringify(runAhead(1));
-    expect(JSON.stringify(runAhead(0.025))).toBe(reference);
-    expect(JSON.stringify(runAhead(0.1))).toBe(reference);
-    expect(JSON.stringify(runLive(0.025))).toBe(reference);
-    expect(JSON.stringify(runLive(0.1))).toBe(reference);
+  it('passes the payload through and adds the derived fields, per slot', () => {
+    const all = events(session, 'all');
+    const at = (time: number, channel: number) => all.find((e) => e.time === time && e.channel === channel)!;
+    // A slot's first sample has no motion; the mouse's hover then moves 0.1 in 20 ms: 5 units/s to the right.
+    expect(at(0.06, 1)).toMatchObject({ dx: 0, dy: 0, speed: 0, angle: 0, age: 0, phase: 'move' });
+    expect(at(0.08, 1).dx).toBeCloseTo(5, 9);
+    expect(at(0.08, 1)).toMatchObject({ dy: 0, angle: 0, age: 0 });
+    // The press doesn't move: speed 0, angle holds the last direction. Payload fields ride along.
+    expect(at(0.12, 1)).toMatchObject({ dx: 0, dy: 0, speed: 0, angle: 0, age: 0, button: 0, buttons: 1, shift: true, pressure: 0.5, pointerType: 'mouse' });
+    // Touch 41 (slot 2) moves up 0.2 in 40 ms: dy −5, angle −π/2 (y = 0 at the top). Age runs from its down.
+    const move = at(0.14, 2);
+    expect(move.dx).toBeCloseTo(0, 9);
+    expect(move.dy).toBeCloseTo(-5, 9);
+    expect(move.speed).toBeCloseTo(5, 9);
+    expect(move.angle).toBeCloseTo(-Math.PI / 2, 9);
+    expect(move.age).toBeCloseTo(0.04, 9);
+    expect(at(0.1, 2)).toMatchObject({ width: 20, height: 22, pointerType: 'touch', pressure: 0.6 });
+    // Its up: still, the angle kept, aged 0.1 s.
+    expect(at(0.2, 2)).toMatchObject({ speed: 0, phase: 'up' });
+    expect(at(0.2, 2).angle).toBeCloseTo(-Math.PI / 2, 9);
+    expect(at(0.2, 2).age).toBeCloseTo(0.1, 9);
+    // Slot 2 again, for 43: a new pointer starts with no motion.
+    expect(at(0.25, 2)).toMatchObject({ dx: 0, dy: 0, speed: 0, angle: 0, age: 0 });
+    // The mouse's drag: 0.2 in 180 ms since its down; its up ages 0.2 s; its hover after has age 0.
+    expect(at(0.3, 1).dx).toBeCloseTo(0.2 / 0.18, 9);
+    expect(at(0.3, 1).age).toBeCloseTo(0.18, 9);
+    expect(at(0.32, 1).age).toBeCloseTo(0.2, 9);
+    expect(at(0.34, 1)).toMatchObject({ dx: 0, age: 0, phase: 'move' });
+    // The per-phase ports carry the same events without `phase`.
+    const { phase: _phase, ...down } = at(0.12, 1);
+    expect(events(session, 'down').find((e) => e.time === 0.12)).toEqual(down);
   });
 
-  it('lands a scheduler push on Down at currentTime + 5 ms, and Make Note follows', () => {
+  it('keeps the motion for a sample at the same time as the previous one, and measures the next from the earlier', () => {
+    const list: Push[] = [
+      { port: 'down', event: { time: 0.1, channel: 9, x: 0.1, y: 0.1 } },
+      { port: 'move', event: { time: 0.2, channel: 9, x: 0.2, y: 0.1 } },
+      { port: 'move', event: { time: 0.2, channel: 9, x: 0.3, y: 0.1 } },
+      { port: 'move', event: { time: 0.3, channel: 9, x: 0.4, y: 0.1 } },
+    ];
+    const dx = events(list, 'move').map((e) => e.dx as number);
+    expect(dx[0]).toBeCloseTo(1, 9);
+    expect(dx[1]).toBeCloseTo(1, 9);
+    // From the 0.2 reference at x 0.2: 0.2 in 100 ms.
+    expect(dx[2]).toBeCloseTo(2, 9);
+  });
+
+  it('puts every event on All in time order with its phase, hover moves included, and nothing for enter or leave', () => {
+    const all = events(session, 'all');
+    expect(all.map((e) => [e.time, e.channel, e.phase])).toEqual([
+      [0.06, 1, 'move'], [0.08, 1, 'move'], [0.1, 2, 'down'], [0.12, 1, 'down'], [0.14, 2, 'move'], [0.15, 3, 'down'],
+      [0.2, 2, 'up'], [0.25, 2, 'down'], [0.3, 1, 'move'], [0.32, 1, 'up'], [0.34, 1, 'move'], [0.4, 3, 'cancel'],
+      [0.5, 2, 'up'], [0.6, 1, 'down'], [0.7, 1, 'cancel'],
+    ]);
+    // One per down, move, up and cancel pushed; enter and leave emit nothing.
+    expect(all).toHaveLength(session.filter((p) => p.port !== 'enter' && p.port !== 'leave').length);
+    const only = [{ port: 'enter', event: { time: 0.1, channel: 2 } }, { port: 'leave', event: { time: 0.2, channel: 2 } }] as Push[];
+    expect(query(pointer, 0, 1, { pushed: pushedOf(only) })).toEqual({});
+  });
+
+  it('orders same-time pushes Down, Move, Up, Cancel on one pointer, and new pointers by pointerId', () => {
+    const list: Push[] = [
+      { port: 'up', event: { time: 0.075, channel: 20, x: 0.3, y: 0.3 } },
+      { port: 'move', event: { time: 0.075, channel: 20, x: 0.2, y: 0.2 } },
+      { port: 'down', event: { time: 0.075, channel: 20, x: 0.1, y: 0.1 } },
+      { port: 'down', event: { time: 0.075, channel: 10, x: 0.6, y: 0.4 } },
+    ];
+    expect(events(list, 'all').map((e) => [e.channel, e.phase])).toEqual([[1, 'down'], [2, 'down'], [2, 'move'], [2, 'up']]);
+  });
+
+  it('gives the same events on every port in one, two and three windows and in 25 ms tiles', () => {
+    for (const port of EVENT_PORTS) {
+      const reference = JSON.stringify(events(session, port));
+      for (const step of [0.5, 1 / 3, 0.025]) expect(JSON.stringify(events(session, port, step)), `${port} ${step}`).toBe(reference);
+    }
+  });
+
+  it('gives the same log ahead, tiled and when every push rewinds, and Make Note follows on the slot', () => {
+    const reference = JSON.stringify(runAhead(session, 1));
+    for (const step of [0.5, 1 / 3, 0.1, 0.025]) expect(JSON.stringify(runAhead(session, step)), `${step}`).toBe(reference);
+    expect(JSON.stringify(runLive(session, 0.025))).toBe(reference);
+    expect(JSON.stringify(runLive(session, 0.1))).toBe(reference);
+    // No pushed event is emitted twice: once per port it belongs on.
+    const log = runAhead(session, 1);
+    expect(pick(log, 'p', 'down')).toHaveLength(5);
+    expect(pick(log, 'p', 'all')).toHaveLength(15);
+    // 76 − 24 × Y at each down, on the down's slot.
+    expect(pick(log, 'note', 'note').map((e) => [e.time, e.channel, e.pitch])).toEqual([
+      [0.1, 2, 64], [0.12, 1, 64], [0.15, 3, 54], [0.25, 2, 59], [0.6, 1, 62],
+    ]);
+  });
+
+  it('lands a scheduler push at currentTime + 5 ms, rewritten onto its slot, and Make Note follows', () => {
     const compiled = compilePatch(patch, nodeRegistry);
     if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
     const clock = new ManualClock();
@@ -134,81 +268,63 @@ describe('pointer', () => {
       scheduler.wake();
     }
     clock.set(1.0123);
-    const event = scheduler.push('p', 'down', { channel: 5, x: 0.4, y: 0.6, pressure: 0.5, pointerType: 'touch' });
-    expect(event).toEqual({ time: 1.0123 + IMMEDIATE_OFFSET, channel: 5, x: 0.4, y: 0.6, pressure: 0.5, pointerType: 'touch' });
+    const event = scheduler.push('p', 'down', { channel: 57, x: 0.4, y: 0.5, pressure: 0.5, pointerType: 'touch' })!;
+    expect(event).toEqual({ time: 1.0123 + IMMEDIATE_OFFSET, channel: 57, x: 0.4, y: 0.5, pressure: 0.5, pointerType: 'touch' });
     const log = scheduler.events();
-    expect(pick(log, 'p', 'down')).toEqual([{ node: 'p', port: 'down', ...event }]);
-    expect(pick(log, 'note', 'note')).toMatchObject([{ time: event!.time, channel: 5, pitch: 64 }]);
+    const rewritten = { time: event.time, channel: 1, x: 0.4, y: 0.5, pressure: 0.5, pointerType: 'touch', dx: 0, dy: 0, speed: 0, angle: 0, age: 0 };
+    expect(pick(log, 'p', 'down')).toEqual([rewritten]);
+    expect(pick(log, 'p', 'all')).toEqual([{ ...rewritten, phase: 'down' }]);
+    expect(pick(log, 'note', 'note')).toMatchObject([{ time: event.time, channel: 1, pitch: 64 }]);
   });
 
-  it('reads pointerdown, move, up and cancel onto its four ports, and skips coalesced moves and hover enter/leave (ADR 0029)', () => {
-    const compiled = compilePatch(patch, nodeRegistry);
-    if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
-    const router = inputRouter(compiled.plan);
-    expect([...router.types].sort()).toEqual(['pointercancel', 'pointerdown', 'pointermove', 'pointerup']);
-    const fields = { channel: 3, x: 0.5, y: 0.5, pressure: 0.5, pointerType: 'pen' };
-    for (const [type, port] of [['pointerdown', 'down'], ['pointermove', 'move'], ['pointerup', 'up'], ['pointercancel', 'cancel']] as const) {
-      expect(router.route({ type, ...fields })).toEqual([{ node: 'p', port, fields }]);
-    }
-    expect(router.route({ type: 'pointermove', ...fields, coalesced: true })).toEqual([]);
-    expect(router.route({ type: 'pointerenter', ...fields })).toEqual([]);
-    expect(router.route({ type: 'contextmenu', ...fields })).toEqual([]);
-  });
-
-  it('passes weird payloads through untouched and gives nothing without pushes', () => {
-    expect(runtime().query(0, 1)).toEqual([]);
-    const rt = runtime();
-    const weird: EngineEvent[] = [
-      { time: 0.2, channel: 1, x: NaN, y: Infinity, pressure: -3 },
-      { time: 0.2, channel: 2, x: 1.5, y: -0.5 },
-      { time: 0.3, channel: 0 },
+  it('drops events with no pointer and gives defined fields for weird payloads', () => {
+    const weird: Push[] = [
+      { port: 'down', event: { time: 0.1, channel: 1, x: NaN, y: Infinity, pressure: 'hard' } },
+      { port: 'move', event: { time: 0.2, channel: 1, x: 1.5, y: -0.5, pressure: 7 } },
+      { port: 'down', event: { time: 0.3, channel: 1.5, x: 0.9 } },
+      { port: 'down', event: { time: 0.3, channel: NaN, x: 0.9 } },
+      // A negative pointerId is still a pointer.
+      { port: 'down', event: { time: 0.3, channel: -1, x: 0.9 } },
     ];
-    for (const event of weird) rt.push('p', 'move', event);
-    expect(pick(rt.query(0, 1), 'p', 'move').map(({ node: _n, port: _p, ...e }) => e)).toEqual(weird);
-    // Only the four outputs accept pushes; the runtime rejects others.
-    expect(() => rt.push('p', 'x', { time: 2, channel: 0 })).toThrow(/no event output/);
+    const all = events(weird, 'all');
+    expect(all.map((e) => [e.time, e.channel, e.phase])).toEqual([[0.1, 1, 'down'], [0.2, 1, 'move'], [0.3, 2, 'down']]);
+    // The payload passes through as pushed; the motion comes from clamped positions: (0,0) → (1,0) in 100 ms.
+    expect(all[0]).toMatchObject({ x: NaN, y: Infinity, pressure: 'hard', dx: 0, dy: 0, age: 0 });
+    expect(all[1]!.dx).toBeCloseTo(10, 9);
+    expect(all[1]).toMatchObject({ x: 1.5, dy: 0, speed: all[1]!.dx });
+    for (const e of all) for (const field of ['dx', 'dy', 'speed', 'angle', 'age']) expect(Number.isFinite(e[field]), field).toBe(true);
   });
 
-  it('drives Make Note pitch from Y at the down, the same ahead, tiled and live', () => {
-    const notes = (log: LoggedEvent[]) => pick(log, 'note', 'note').map((e) => [e.time, e.channel, e.pitch]);
-    // 76 − 24 × Y at each down: 0.1 → 73.6, 0.8 → 56.8, 0.5 → 64, rounded to the knob's step.
-    expect(notes(runAhead(1, 1, pitchPatch))).toEqual([
-      [0.1, 0, 74],
-      [0.21, 3, 57],
-      [0.31, 7, 64],
-    ]);
-    const reference = JSON.stringify(runAhead(1, 1, pitchPatch));
-    expect(JSON.stringify(runAhead(0.025, 1, pitchPatch))).toBe(reference);
-    expect(JSON.stringify(runLive(0.025, 1, pitchPatch))).toBe(reference);
-    expect(JSON.stringify(runLive(0.1, 1, pitchPatch))).toBe(reference);
+  it('frees the stalest slot past MAX_SLOTS, cancelling it if it was down', () => {
+    const many: Push[] = [];
+    for (let k = 0; k <= MAX_SLOTS; k++) many.push({ port: 'down', event: { time: 0.01 * (k + 1), channel: 100 + k, x: k / 100 } });
+    const all = events(many, 'all');
+    // The 17th pointer takes slot 1 from the first, which gets a Cancel first, at the same time.
+    expect(all.slice(-2).map((e) => [e.time, e.channel, e.phase])).toEqual([[0.17, 1, 'cancel'], [0.17, 1, 'down']]);
+    expect(all.slice(0, MAX_SLOTS).map((e) => e.channel)).toEqual(Array.from({ length: MAX_SLOTS }, (_, k) => k + 1));
+    expect(all.at(-2)!.age).toBeCloseTo(0.16, 9);
+    // A hovering pointer gives its slot up before any that's down.
+    const hover: Push[] = [...many.slice(0, MAX_SLOTS - 1), { port: 'move', event: { time: 0.5, channel: 7, x: 0.5 } }, { port: 'down', event: { time: 0.6, channel: 8 } }];
+    expect(events(hover, 'all').slice(-1).map((e) => [e.channel, e.phase])).toEqual([[MAX_SLOTS, 'down']]);
+    const state: Record<string, unknown> = {};
+    query(pointer, 0, 1, { state, pushed: pushedOf(many) });
+    query(pointer, 1, 2, { state });
+    expect(state.contacts).toHaveLength(MAX_SLOTS);
   });
 });
-
-/** The gestures as a `pushed` map for the helpers. */
-function pushedOf(list: { port: Port; event: EngineEvent }[]): Record<string, EngineEvent[]> {
-  const out: Record<string, EngineEvent[]> = {};
-  for (const { port, event } of list) (out[port] ??= []).push(event);
-  return out;
-}
 
 /**
  * Queries [0, end) in windows of `step` on one state, and after each window reads every
  * signal on `channels` at the sample times inside it, as the runtime's readers would.
  */
-function readSignals(
-  list: { port: Port; event: EngineEvent }[],
-  step: number,
-  times: number[],
-  channels: number[],
-  end = 1,
-): Record<string, number>[] {
+function readSignals(list: readonly Push[], step: number, times: number[], channels: number[], end = 1): Record<string, number>[] {
   const state: Record<string, unknown> = {};
   const pushed = pushedOf(list);
   const ctx = context(pointer, { state });
   const rows: Record<string, number>[] = [];
   for (let i = 0; i * step < end - 1e-9; i++) {
     const t0 = i * step, t1 = Math.min(end, (i + 1) * step);
-    expect(query(pointer, t0, t1, { state, pushed })).toEqual({});
+    query(pointer, t0, t1, { state, pushed });
     for (const t of times.filter((time) => time >= t0 && time < t1)) {
       for (const channel of channels) {
         const row: Record<string, number> = { t, channel };
@@ -220,86 +336,76 @@ function readSignals(
   return rows;
 }
 
-/** One read after the window that holds t. */
-function readAt(list: { port: Port; event: EngineEvent }[], t: number, channel: number, port: SignalPort, step = 1): number {
-  return readSignals(list, step, [t], [channel])[0]![port]!;
-}
+const read = (list: readonly Push[], t: number, channel: number) => {
+  const { x, y, pressure, speed, count } = readSignals(list, 1, [t], [channel])[0]!;
+  return { x, y, pressure, speed, count };
+};
 
 describe('pointer signals', () => {
-  it('tracks X, Y and Pressure per pointer, holding X/Y and dropping Pressure to 0 after Up or Cancel', () => {
-    const read = (t: number, channel: number) => {
-      const { x, y, pressure } = readSignals(gestures, 1, [t], [channel])[0]!;
-      return [x, y, pressure];
-    };
-    expect(read(0.1, 0)).toEqual([0.2, 0.1, 0.5]);
-    expect(read(0.15, 0)).toEqual([0.25, 0.15, 0.5]);
-    // Channel 3 is down alongside 0, with its own values.
-    expect(read(0.22, 3)).toEqual([0.9, 0.8, 0.3]);
-    expect(read(0.27, 3)).toEqual([0.85, 0.7, 0.4]);
-    expect(read(0.27, 0)).toEqual([0.25, 0.15, 0.5]);
-    // Up on 0 carries its last position; X/Y hold it, Pressure is 0.
-    expect(read(0.3, 0)).toEqual([0.3, 0.2, 0]);
-    expect(read(0.9, 0)).toEqual([0.3, 0.2, 0]);
-    // Cancel works like Up.
-    expect(read(0.35, 7)).toEqual([0.5, 0.5, 1]);
-    expect(read(0.45, 7)).toEqual([0.5, 0.5, 0]);
-    expect(read(0.6, 3)).toEqual([0.8, 0.6, 0]);
+  it('tracks X, Y and Pressure per slot, holding X/Y and dropping Pressure to 0 after Up or Cancel', () => {
+    expect(read(session, 0.07, 1)).toMatchObject({ x: 0.1, y: 0.5, pressure: 0 });
+    expect(read(session, 0.13, 1)).toMatchObject({ x: 0.2, pressure: 0.5 });
+    expect(read(session, 0.145, 2)).toMatchObject({ x: 0.5, y: 0.3, pressure: 0.7 });
+    expect(read(session, 0.16, 3)).toMatchObject({ x: 0.9, y: 0.9, pressure: 0.4 });
+    expect(read(session, 0.22, 2)).toMatchObject({ x: 0.5, y: 0.3, pressure: 0 });
+    // Slot 2 again, now 43's.
+    expect(read(session, 0.26, 2)).toMatchObject({ x: 0.3, y: 0.7, pressure: 0.5 });
+    // Cancel works like Up; after the last cancel X/Y hold.
+    expect(read(session, 0.45, 3)).toMatchObject({ x: 0.9, y: 0.9, pressure: 0 });
+    expect(read(session, 0.9, 1)).toMatchObject({ x: 0.6, y: 0.6, pressure: 0 });
+    // 44's Down carried no pressure: the pressed default.
+    expect(read(session, 0.65, 1).pressure).toBe(0.5);
   });
 
-  it('counts the pointers down, on every channel, including Cancel', () => {
-    const times = [0, 0.1, 0.2, 0.21, 0.3, 0.31, 0.41, 0.42, 0.49, 0.5, 0.9];
-    const rows = readSignals(gestures, 1, times, [0, 3, 99]);
+  it('counts the pointers down, on every channel', () => {
+    const times = [0, 0.1, 0.12, 0.15, 0.2, 0.25, 0.32, 0.4, 0.5, 0.6, 0.7, 0.9];
+    const rows = readSignals(session, 1, times, [0, 1, 3, 99]);
     for (const t of times) expect(new Set(rows.filter((r) => r.t === t).map((r) => r.count)).size).toBe(1);
-    expect(times.map((t) => rows.find((r) => r.t === t)!.count)).toEqual([0, 1, 1, 2, 1, 2, 2, 1, 1, 0, 0]);
+    expect(times.map((t) => rows.find((r) => r.t === t)!.count)).toEqual([0, 1, 2, 3, 2, 3, 2, 1, 0, 1, 0, 0]);
   });
 
-  it('reads an unseen channel, or channel 0 with no pointer 0, as the pointer that changed last', () => {
-    const later = gestures.filter((g) => g.event.channel !== 0);
-    expect(readAt(later, 0, 0, 'x')).toBe(0);
-    expect(readAt(later, 0.22, 0, 'x')).toBe(0.9);
-    expect(readAt(later, 0.27, 0, 'y')).toBe(0.7);
-    // 7 went down at 0.31, after 3's last move.
-    expect(readAt(later, 0.35, 0, 'x')).toBe(0.5);
-    expect(readAt(later, 0.35, 42, 'pressure')).toBe(1);
-    // After 3's Up at 0.5 it is the latest, lifted: its position, Pressure 0.
-    expect(readAt(later, 0.6, 0, 'x')).toBe(0.8);
-    expect(readAt(later, 0.6, 0, 'pressure')).toBe(0);
-    // With a pointer 0, channel 0 reads that pointer, not the latest.
-    expect(readAt(gestures, 0.27, 0, 'x')).toBe(0.25);
+  it('reads channel 0, or a channel no slot has had, as the pointer that changed last', () => {
+    expect(read(session, 0, 0)).toEqual({ x: 0, y: 0, pressure: 0, speed: 0, count: 0 });
+    // An enter alone isn't a change: before the first move, slot 1 still reads 0.
+    expect(read(session, 0.055, 0).x).toBe(0);
+    expect(read(session, 0.07, 0).x).toBe(0.1);
+    expect(read(session, 0.11, 0).x).toBe(0.5);
+    expect(read(session, 0.145, 42).y).toBe(0.3);
+    expect(read(session, 0.16, 0).x).toBe(0.9);
+    // Slot 1 exists, so channel 1 reads it, not the latest.
+    expect(read(session, 0.16, 1).x).toBe(0.2);
+  });
+
+  it('reads Speed per slot while the pointer moves, and 0 once it is still or gone', () => {
+    // The mouse's hover at 0.08: 5 units/s, for STILL after.
+    expect(read(session, 0.09, 1).speed).toBeCloseTo(5, 9);
+    expect(read(session, 0.14, 2).speed).toBeCloseTo(5, 9);
+    const list: Push[] = [
+      { port: 'down', event: { time: 0.1, channel: 3, x: 0.1, y: 0.1 } },
+      { port: 'move', event: { time: 0.2, channel: 3, x: 0.2, y: 0.1 } },
+      { port: 'up', event: { time: 0.6, channel: 3, x: 0.2, y: 0.1 } },
+    ];
+    expect(read(list, 0.2, 1).speed).toBeCloseTo(1, 9);
+    expect(read(list, 0.2 + STILL - 1e-9, 1).speed).toBeCloseTo(1, 9);
+    expect(read(list, 0.2 + STILL + 0.01, 1).speed).toBe(0);
+    expect(read(list, 0.65, 1).speed).toBe(0);
   });
 
   it('lets a read mid-window see only the changes at or before it', () => {
-    // One window over everything: the state is folded only at the next query, so each read applies what's due.
-    const rows = readSignals(gestures, 1, [0.099, 0.1, 0.129, 0.13, 0.299, 0.3], [0]);
+    const rows = readSignals(session, 1, [0.099, 0.1, 0.199, 0.2], [2]);
     expect(rows.map((r) => [r.x, r.pressure, r.count])).toEqual([
-      [0, 0, 0],
-      [0.2, 0.5, 1],
-      [0.2, 0.5, 1],
-      [0.25, 0.5, 1],
-      [0.25, 0.5, 2],
-      [0.3, 0, 1],
+      [0.2, 0, 0],
+      [0.5, 0.6, 1],
+      [0.5, 0.7, 3],
+      [0.5, 0, 2],
     ]);
   });
 
-  it('gives the same signal values in 25 ms tiles, 100 ms tiles and one call', () => {
+  it('gives the same signal values in one, two and three windows and in 25 and 100 ms tiles', () => {
     const times = Array.from({ length: 200 }, (_, k) => k * 0.005);
-    const reference = JSON.stringify(readSignals(gestures, 1, times, [0, 3, 7, 5]));
-    expect(JSON.stringify(readSignals(gestures, 0.025, times, [0, 3, 7, 5]))).toBe(reference);
-    expect(JSON.stringify(readSignals(gestures, 0.1, times, [0, 3, 7, 5]))).toBe(reference);
-    // Pushes on window edges, and a down, move and up on one channel at one time.
-    const edges: { port: Port; event: EngineEvent }[] = [
-      { port: 'up', event: { time: 0.075, channel: 2, x: 0.3, y: 0.3 } },
-      { port: 'move', event: { time: 0.075, channel: 2, x: 0.2, y: 0.2 } },
-      { port: 'down', event: { time: 0.075, channel: 2, x: 0.1, y: 0.1 } },
-      { port: 'down', event: { time: 0.1, channel: 4, x: 0.6, y: 0.4 } },
-      { port: 'up', event: { time: 0.2, channel: 4 } },
-    ];
-    const edgeReference = readSignals(edges, 1, times, [2, 4, 0]);
-    expect(JSON.stringify(readSignals(edges, 0.025, times, [2, 4, 0]))).toBe(JSON.stringify(edgeReference));
-    // Down, then Move, then Up at one time: lifted at the up's position.
-    expect(edgeReference.find((r) => r.t === 0.075 && r.channel === 2)).toMatchObject({ x: 0.3, y: 0.3, pressure: 0, count: 0 });
-    // The Up at 0.2 carries no position, so 4 holds its Down's.
-    expect(edgeReference.find((r) => r.t === 0.5 && r.channel === 4)).toMatchObject({ x: 0.6, y: 0.4, pressure: 0, count: 0 });
+    const channels = [0, 1, 2, 3, 9];
+    const reference = JSON.stringify(readSignals(session, 1, times, channels));
+    for (const step of [0.5, 1 / 3, 0.1, 0.025]) expect(JSON.stringify(readSignals(session, step, times, channels)), `${step}`).toBe(reference);
   });
 
   it('never writes state from a signal read, before or after a query', () => {
@@ -307,60 +413,33 @@ describe('pointer signals', () => {
     const ctx = context(pointer, { state });
     for (const port of SIGNALS) pointer.signal!(ctx, port, 0.5, 3);
     expect(state).toEqual({});
-    query(pointer, 0, 1, { state, pushed: pushedOf(gestures) });
+    query(pointer, 0, 1, { state, pushed: pushedOf(session) });
     const before = JSON.stringify(state);
-    for (const port of SIGNALS) for (const t of [0, 0.25, 0.5, 2]) pointer.signal!(ctx, port, t, 3);
+    for (const port of SIGNALS) for (const t of [0, 0.25, 0.5, 2]) pointer.signal!(ctx, port, t, 1);
     expect(JSON.stringify(state)).toBe(before);
   });
 
-  it('returns no pushed events from query, in any window', () => {
-    const pushed = pushedOf(gestures);
-    expect(query(pointer, 0, 1, { pushed })).toEqual({});
-    for (const port of PORTS) expect(queryTiled(pointer, port, 1, 0.025, { pushed })).toEqual([]);
-  });
-
   it('gives defined values for weird payloads, channels and times', () => {
-    const weird: { port: Port; event: EngineEvent }[] = [
+    const weird: Push[] = [
       { port: 'down', event: { time: 0.1, channel: 1, x: NaN, y: Infinity, pressure: 'hard' } },
       { port: 'move', event: { time: 0.2, channel: 1, x: 1.5, y: -0.5, pressure: 7 } },
-      { port: 'down', event: { time: 0.3, channel: -1, x: 0.9 } },
       { port: 'down', event: { time: 0.3, channel: 1.5, x: 0.9 } },
-      { port: 'down', event: { time: 0.3, channel: NaN, x: 0.9 } },
       { port: 'up', event: { time: 0.4, channel: 9 } },
     ];
     // Down without values: X/Y 0, Pressure the pressed default.
-    expect(readSignals(weird, 1, [0.15], [1])[0]).toMatchObject({ x: 0, y: 0, pressure: 0.5, count: 1 });
+    expect(read(weird, 0.15, 1)).toMatchObject({ x: 0, y: 0, pressure: 0.5, count: 1 });
     // Out of range clamps to 0–1.
-    expect(readSignals(weird, 1, [0.25], [1])[0]).toMatchObject({ x: 1, y: 0, pressure: 1, count: 1 });
-    // Bad channels are ignored; an Up on a channel never down just adds a lifted pointer.
-    expect(readSignals(weird, 1, [0.35], [1])[0]).toMatchObject({ x: 1, count: 1 });
-    expect(readSignals(weird, 1, [0.45], [9])[0]).toMatchObject({ x: 0, y: 0, pressure: 0, count: 1 });
-    // No pushes, NaN and infinite times.
+    expect(read(weird, 0.25, 1)).toMatchObject({ x: 1, y: 0, pressure: 1, count: 1 });
+    // A bad channel is ignored; an up on a pointer never down passes through slot 2 and counts nothing.
+    expect(read(weird, 0.35, 1)).toMatchObject({ x: 1, count: 1 });
+    expect(read(weird, 0.45, 2)).toMatchObject({ x: 0, y: 0, pressure: 0, speed: 0, count: 1 });
     const state: Record<string, unknown> = {};
     const ctx = context(pointer, { state });
     for (const port of SIGNALS) expect(pointer.signal!(ctx, port, 0.5, 0)).toBe(0);
     query(pointer, 0, 1, { state, pushed: pushedOf(weird) });
     expect(pointer.signal!(ctx, 'count', NaN, 1)).toBe(0);
     expect(pointer.signal!(ctx, 'count', Infinity, 1)).toBe(1);
+    expect(pointer.signal!(ctx, 'speed', NaN, 1)).toBe(0);
     expect(pointer.signal!(ctx, 'nope', 0.5, 1)).toBe(0);
-  });
-
-  it('forgets the oldest lifted pointers past the cap, never one that is down', () => {
-    const many: { port: Port; event: EngineEvent }[] = [{ port: 'down', event: { time: 0.001, channel: 1000, x: 0.9 } }];
-    for (let k = 0; k < MAX_LIFTED + 10; k++) {
-      many.push({ port: 'down', event: { time: 0.01 + k * 0.01, channel: k, x: k / 100 } });
-      many.push({ port: 'up', event: { time: 0.015 + k * 0.01, channel: k } });
-    }
-    const state: Record<string, unknown> = {};
-    query(pointer, 0, 1, { state, pushed: pushedOf(many) });
-    query(pointer, 1, 2, { state });
-    const contacts = state.contacts as { channel: number }[];
-    expect(contacts).toHaveLength(MAX_LIFTED + 1);
-    expect(contacts.map((c) => c.channel)).toContain(1000);
-    const ctx = context(pointer, { state });
-    expect(pointer.signal!(ctx, 'count', 1.5, 0)).toBe(1);
-    // A forgotten pointer reads the latest one.
-    expect(pointer.signal!(ctx, 'x', 1.5, 0)).toBe((MAX_LIFTED + 9) / 100);
-    expect(pointer.signal!(ctx, 'x', 1.5, MAX_LIFTED + 9)).toBe((MAX_LIFTED + 9) / 100);
   });
 });

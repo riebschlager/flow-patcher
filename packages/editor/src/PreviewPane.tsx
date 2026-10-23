@@ -52,6 +52,14 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
       // Mice report 0.5 while a button is down and 0 otherwise.
       pressure: event.pressure,
       pointerType: event.pointerType,
+      width: event.width,
+      height: event.height,
+      button: event.button,
+      buttons: event.buttons,
+      shift: event.shiftKey,
+      alt: event.altKey,
+      ctrl: event.ctrlKey,
+      meta: event.metaKey,
     }, event.timeStamp);
   };
 
@@ -109,6 +117,8 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
           onPointerMove={send('move')}
           onPointerUp={send('up')}
           onPointerCancel={send('cancel')}
+          onPointerEnter={send('enter')}
+          onPointerLeave={send('leave')}
         />
         {live && !pointers && <span className="preview__hint">No Pointer in this patch</span>}
       </div>

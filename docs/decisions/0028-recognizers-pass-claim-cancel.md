@@ -21,6 +21,7 @@ design.md ("Who owns a pointer") gives every recognizer a **Pass** output carryi
 - The per-phase ports stay, for patches that want one phase.
 - **Sources with no contact don't get All:** Click, Wheel, Touch extras, Canvas and MIDI In. Their events open nothing, so there's nothing to claim. Route them with Modifier Router or Switch, not through a recognizer's In.
 - The host pushes each event on its per-phase port, as it does today. The node's `query()` copies its own pushed events (`ctx.pushed`) onto All with `phase` set, so All is ordinary node output. It rewinds and is logged like any other output.
+- A source may rewrite its pushes (`InputSpec.rewrites`, #74): the runtime then doesn't pass them through, and `query()` returns its own versions on the per-phase ports and All, such as Pointer's with slot channels and derived fields, at the pushes' times.
 
 ### Recognizer ports
 - Every recognizer takes one **In** (Event) input. It reads one contact source's stream: a source's All, or another recognizer's Pass. Channel ids are only unique within one source, so merging two sources' streams into one In is unsupported.

@@ -2,7 +2,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { compilePatch, CUSTOM_PRESET, INPUT_EVENT_TYPES, parseInputStream, parsePatch, PATCH_FORMAT, PATCH_VERSION, serializeInputStream, serializePatch, type Patch } from '@flow-patcher/engine';
+import { compilePatch, CUSTOM_PRESET, INPUT_EVENT_TYPES, parseInputStream, parsePatch, PATCH_FORMAT, PATCH_VERSION, pushable, serializeInputStream, serializePatch, type Patch } from '@flow-patcher/engine';
 import { nodeDefinitions, nodeRegistry } from '../src';
 import { expectCatalogTypes, nonCatalogNodes } from '../../../test-support/catalog';
 import { ROOT } from '../../../test-support/golden';
@@ -86,13 +86,17 @@ describe('node catalog', () => {
       });
 
       if (definition.input) {
-        it('reads input stream types onto its own Event outputs (ADR 0029)', () => {
+        it('reads input stream types onto its own Event outputs, or push-only ports when it rewrites (ADR 0029)', () => {
           const reads = Object.entries(definition.input!.reads);
           expect(reads.length).toBeGreaterThan(0);
           for (const [type, port] of reads) {
             expect(INPUT_EVENT_TYPES, type).toContain(type);
-            expect(definition.ports.find((p) => p.direction === 'out' && p.name === port)?.type, `${type} → ${port}`).toBe('event');
+            const output = definition.ports.find((p) => p.direction === 'out' && p.name === port);
+            if (output || !definition.input!.rewrites) expect(output?.type, `${type} → ${port}`).toBe('event');
+            expect(pushable(definition, port!), `${type} → ${port}`).toBe(true);
           }
+          // Rewriting its pushes means returning them from query().
+          if (definition.input!.rewrites) expect(definition.query).toBeTypeOf('function');
         });
       }
 
