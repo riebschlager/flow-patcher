@@ -9,7 +9,8 @@
 // later, checks each start inside the time it adds, and while more than `size`
 // voices sound there it steals the one with the earliest start (the first
 // claimed among equal starts). Stealing calls the voice's stop(at), with `at`
-// that start, and drops it from the pool; the node fades it out there.
+// that start, and drops it from the pool; the node fades it out there, over
+// STEAL_FADE (see voiceEnd).
 //
 // Steals are decided at schedule time and never undone. If the stealing note is
 // later withdrawn (a rewind's cancel, ADR 0019, or a hot swap's), the node
@@ -50,6 +51,12 @@ export interface VoiceHandle {
   /** True once the pool has stolen it. */
   readonly stolen: boolean;
 }
+
+/** Seconds a stolen voice takes to fade before its source stops (Flow's 64-voice cut). */
+export const STEAL_FADE = 0.05;
+
+/** When a voice is silent: its release end, or its steal plus STEAL_FADE. */
+export const voiceEnd = (voice: { readonly handle: VoiceHandle }): number => (voice.handle.stolen ? voice.handle.end + STEAL_FADE : voice.handle.end);
 
 /**
  * What an audio node sees of the pool (`AudioSetupContext.voices`): the pool

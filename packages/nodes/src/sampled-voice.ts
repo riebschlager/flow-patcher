@@ -26,6 +26,8 @@
 //   publishes its recent notes in `state.glide`, which the new instance reads.
 import {
   isNoteEvent,
+  STEAL_FADE,
+  voiceEnd,
   type AudioBufferSourceNodeLike,
   type AudioNodeLike,
   type EngineEvent,
@@ -37,9 +39,6 @@ import {
 import { arpEnvelope, arpGlide } from './arpeggiator';
 import { findZone, instrumentCache, zonePlayback } from './instruments';
 import { INSTRUMENT_KEYS, instrumentFor } from './music';
-
-/** Seconds a stolen voice takes to fade before its source stops (Flow's 64-voice cut). */
-export const STEAL_FADE = 0.05;
 
 /** Notes this node skipped because its instrument wasn't loaded, as the editor reads them from the node's state. */
 export const skippedNotes = (state: Readonly<NodeState> | undefined): number => {
@@ -91,9 +90,6 @@ interface Voice {
   time: number;
   pitch: number;
 }
-
-/** When a voice is silent: its release end, or its steal plus the fade. */
-const voiceEnd = (voice: Voice) => (voice.handle.stolen ? voice.handle.end + STEAL_FADE : voice.handle.end);
 
 export const sampledVoice: NodeDefinition = {
   type: 'sampled-voice',
