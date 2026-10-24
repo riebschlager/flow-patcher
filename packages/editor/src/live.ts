@@ -51,7 +51,9 @@ const POINTER_TYPES: Readonly<Record<PointerPort, InputEventType>> = {
  * Input events dropped, not held, while the AudioContext isn't running. Held pushes all replay at one
  * stamp when it starts, as a burst of rewinds that the event cap can cut the important ones out of.
  * Hover moves (coalesced samples too) before the first tap: the Down carries the position anyway.
- * Enter and leave: they only update hover state, and pairs would pile up unbounded while hovering in and out.
+ * Enter and leave: enter only updates hover state, and a leave ends a hover, which with hover moves dropped
+ * no source has seen (Pointer marks no leave for a pointer with no Down, Move, Up or Cancel since it took
+ * its slot). Held, pairs would pile up unbounded while hovering in and out.
  * MIDI: it never starts audio, so a suspended or interrupted context (an iOS call) would otherwise collect
  * every CC sent meanwhile.
  * The canvas's lifecycle (resize, focus, blur, visibilitychange): dragging the pane or tabbing about before

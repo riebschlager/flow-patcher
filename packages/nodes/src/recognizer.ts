@@ -2,7 +2,7 @@
 // the In and Pass ports, the claim, the timers, the event budget and the signal history.
 // Not a node: each recognizer's own file holds its definition and its gesture logic.
 import { limitWindowOf, NODE_EVENT_LIMIT, type EngineEvent, type NodeState, type PortSpec, type QueryContext, type QueryResult, type ToggleParamSpec } from '@flow-patcher/engine';
-import { PHASES, RESERVE, type Phase } from './pointer';
+import { LEAVE, PHASES, RESERVE, type Phase } from './pointer';
 
 export const IN_PORT: Readonly<PortSpec> = Object.freeze({ name: 'in', type: 'event', direction: 'in', label: 'In' });
 
@@ -55,10 +55,11 @@ interface Cell {
   n: number;
 }
 
-/** Moves (hovers included) and events with no phase are what the budget thins. */
+/** Moves (hovers included) and events with no phase are what the budget thins. A hover's leave
+ *  marker isn't: like an up, it ends something (Dwell's stay), so it's never dropped. */
 export const isThin = (event: EngineEvent): boolean => {
   const phase = phaseOf(event);
-  return phase === 'move' || phase === null;
+  return phase === 'move' || (phase === null && !isLeave(event));
 };
 
 /**
@@ -154,7 +155,15 @@ export interface Recognizer {
   timer?(time: number, out: Emitter): void;
 }
 
-/** An event's contact phase (ADR 0028), or null when it has none or an unknown one. */
+/**
+ * Whether an event is All's hover-end marker, `phase: 'leave'` (ADR 0028, amended for #101): a
+ * hovering pointer left the canvas. It's not a contact phase (`phaseOf` gives null), so it opens
+ * and ends no contact: recognizers forward it on Pass alone, never on Pass Down/Move/Up/Cancel,
+ * and Switch, Modifier Router and Zone route it as an event outside a contact.
+ */
+export const isLeave = (event: EngineEvent): boolean => event.phase === LEAVE;
+
+/** An event's contact phase (ADR 0028), or null when it has none or an unknown one (`leave` included). */
 export const phaseOf = (event: EngineEvent): Phase | null => ((PHASES as readonly unknown[]).includes(event.phase) ? (event.phase as Phase) : null);
 
 /** A payload field as a finite number, or `fallback`. */
@@ -175,8 +184,8 @@ export const num = (value: unknown, fallback: number): number => (typeof value =
  *   timer's time;
  * - then nothing from a claimed channel until its contact ends: the ending up or cancel is
  *   withheld too, and the next down starts a new contact.
- * Events with no phase (not from a contact source) go out on Pass alone, unless their
- * channel is claimed. Events with a non-finite time or channel are dropped.
+ * Events with no phase (not from a contact source) and hover leaves (`isLeave`) go out on
+ * Pass alone, unless their channel is claimed. Events with a non-finite time or channel are dropped.
  */
 export function runRecognizer(ctx: Pick<QueryContext, 'inputs' | 'state' | 't0' | 't1' | 'params'>, recognizer: Recognizer): QueryResult {
   const { state, t0, t1 } = ctx;

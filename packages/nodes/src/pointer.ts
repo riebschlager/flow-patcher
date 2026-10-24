@@ -3,6 +3,9 @@ import { limitWindowOf, NODE_EVENT_LIMIT, type EngineEvent, type EventField, typ
 /** The contact phases (ADR 0028), which are also the per-phase Event outputs. */
 export const PHASES = ['down', 'move', 'up', 'cancel'] as const;
 export type Phase = (typeof PHASES)[number];
+/** All's hover-end marker (ADR 0028, amended for #101): a hovering pointer left and gave its slot up.
+ *  Not a contact phase: it opens and ends no contact, and has no per-phase port. */
+export const LEAVE = 'leave';
 
 /** What the pushes are, in tie order at one time on one pointer: enter first, leave last. */
 const KINDS = ['enter', 'down', 'move', 'up', 'cancel', 'leave'] as const;
@@ -54,6 +57,10 @@ interface Contact {
   angle: number;
   /** Time of the latest down, move, up or cancel. */
   last: number;
+  /** Whether the holder has had a Down, Move, Up or Cancel since it took the slot, emitted or thinned by the
+   *  budget. Until it has, the record's position and payload are the previous holder's, so it gets no
+   *  leave (ADR 0028, #101). */
+  seen: boolean;
   /** The rest of the latest event's payload (pointerType, size, buttons, modifiers), for a Cancel when it's evicted. */
   payload: Record<string, EventField>;
 }
@@ -88,13 +95,15 @@ function payloadOf(event: EngineEvent): Record<string, EventField> {
 /** What one change emits: its event's slot, phase and derived fields, and a contact it pushed out. */
 interface Stepped {
   slot: number;
-  phase: Phase | null;
+  /** A contact phase, or `leave` when a hovering pointer left (All only), or null for nothing. */
+  phase: Phase | typeof LEAVE | null;
   dx: number;
   dy: number;
   speed: number;
   angle: number;
   age: number;
-  /** A contact that was down when its slot was taken (MAX_SLOTS): it gets a Cancel first. */
+  /** The contact whose slot was taken (MAX_SLOTS): a Cancel first if it was down, a leave if it
+   *  hovered and had a Down, Move, Up or Cancel since it took the slot, else nothing. */
   evicted: Contact | null;
 }
 
@@ -104,7 +113,7 @@ function unit(value: unknown): number | null {
 }
 
 function fresh(slot: number): Contact {
-  return { slot, id: null, x: 0, y: 0, pressure: 0, down: false, downAt: 0, refAt: null, refX: 0, refY: 0, gap: 0, dx: 0, dy: 0, speed: 0, angle: 0, last: -Infinity, payload: {} };
+  return { slot, id: null, x: 0, y: 0, pressure: 0, down: false, downAt: 0, refAt: null, refX: 0, refY: 0, gap: 0, dx: 0, dy: 0, speed: 0, angle: 0, last: -Infinity, payload: {}, seen: false };
 }
 
 /**
@@ -112,7 +121,8 @@ function fresh(slot: number): Contact {
  * slot of the pointer that changed least recently, preferring one that isn't down.
  * A new slot's record goes first (least recent), so binding alone (an enter) puts it
  * behind every pointer that has changed, though it's still the latest when it's the
- * only one. The holder starts with no motion history.
+ * only one. The holder starts with no motion history. The pointer it took the slot from
+ * comes back as `evicted` (a Cancel if it was down, a leave if it hovered).
  */
 function bind(contacts: Contacts, id: number): { contact: Contact; evicted: Contact | null } {
   const held = new Set(contacts.filter((c) => c.id !== null).map((c) => c.slot));
@@ -125,9 +135,9 @@ function bind(contacts: Contacts, id: number): { contact: Contact; evicted: Cont
     if (!contact) contacts.unshift((contact = fresh(slot)));
   } else {
     contact = contacts.find((c) => !c.down) ?? contacts[0]!;
-    if (contact.down) evicted = { ...contact, payload: { ...contact.payload } };
+    evicted = { ...contact, payload: { ...contact.payload } };
   }
-  Object.assign(contact, { id, down: false, refAt: null, gap: 0, dx: 0, dy: 0, speed: 0, angle: 0 });
+  Object.assign(contact, { id, down: false, refAt: null, gap: 0, dx: 0, dy: 0, speed: 0, angle: 0, seen: false });
   return { contact, evicted };
 }
 
@@ -136,9 +146,13 @@ function step(contacts: Contacts, change: Change): Stepped | null {
   const kind: Kind = KINDS[change.kind]!;
   let contact = contacts.find((c) => c.id === change.id);
   if (kind === 'leave') {
-    // A pointer that's down keeps its slot until its Up or Cancel.
-    if (contact && !contact.down) contact.id = null;
-    return null;
+    // A pointer that's down keeps its slot until its Up or Cancel. A hovering one gives it up, and
+    // All marks the end of its hover, at the slot's last position, if it had a Down, Move, Up or Cancel
+    // since it took the slot (thinned ones count): before that, the position and payload are the previous holder's.
+    if (!contact || contact.down) return null;
+    contact.id = null;
+    if (!contact.seen) return null;
+    return { slot: contact.slot, phase: LEAVE, dx: 0, dy: 0, speed: 0, angle: contact.angle, age: 0, evicted: null };
   }
   // An Up or Cancel ends a contact; with none open for this pointer (pressed outside the canvas,
   // or its Down already ended in this quantum) there's nothing to end, so it takes no slot.
@@ -182,6 +196,7 @@ function step(contacts: Contacts, change: Change): Stepped | null {
   }
   contact.last = time;
   contact.payload = change.payload;
+  contact.seen = true;
   // Most recent last.
   contacts.splice(contacts.indexOf(contact), 1);
   contacts.push(contact);
@@ -198,16 +213,18 @@ interface Cell {
 
 /**
  * Counts what a stepped change emits in its limit window and says whether its event is emitted:
- * an eviction's Cancel and every Down, Up and Cancel always are, a Move only while the window has
- * room for it below the reserve. Each event costs two (its phase port and All).
+ * an eviction's Cancel or leave and every Down, Up, Cancel and leave always are, a Move only while
+ * the window has room for it below the reserve. Each phase event costs two (its phase port and
+ * All), a leave one (All only).
  */
 function admit(cell: Cell, time: number, stepped: Stepped): boolean {
   const k = limitWindowOf(time);
   if (k !== cell.k) Object.assign(cell, { k, n: 0 });
-  if (stepped.evicted) cell.n += 2;
+  if (stepped.evicted) cell.n += stepped.evicted.down ? 2 : stepped.evicted.seen ? 1 : 0;
   if (!stepped.phase) return false;
-  if (stepped.phase === 'move' && cell.n + 2 > NODE_EVENT_LIMIT - RESERVE) return false;
-  cell.n += 2;
+  const cost = stepped.phase === LEAVE ? 1 : 2;
+  if (stepped.phase === 'move' && cell.n + cost > NODE_EVENT_LIMIT - RESERVE) return false;
+  cell.n += cost;
   return true;
 }
 
@@ -308,13 +325,21 @@ export function pointerQuery({ state, pushed }: Pick<QueryContext, 'state' | 'pu
     if (!stepped) continue;
     const emit = admit(budget, change.time, stepped);
     const { evicted } = stepped;
-    if (evicted) {
+    if (evicted?.down) {
       const cancel: EngineEvent = { ...evicted.payload, time: change.time, channel: evicted.slot, x: evicted.x, y: evicted.y, pressure: 0, dx: 0, dy: 0, speed: 0, angle: evicted.angle, age: change.time - evicted.downAt };
       out.cancel.push(cancel);
       out.all.push({ ...cancel, phase: 'cancel' });
+    } else if (evicted?.seen) {
+      out.all.push({ ...evicted.payload, time: change.time, channel: evicted.slot, x: evicted.x, y: evicted.y, pressure: evicted.pressure, dx: 0, dy: 0, speed: 0, angle: evicted.angle, age: 0, phase: LEAVE });
     }
     if (!emit || !stepped.phase) continue;
     const { slot, phase, dx, dy, speed, angle, age } = stepped;
+    if (phase === LEAVE) {
+      // Where the hover was: the leave's own position is the canvas edge, and the signals hold the last sample's.
+      const held = work.find((c) => c.slot === slot)!;
+      out.all.push({ ...event, channel: slot, x: held.x, y: held.y, pressure: held.pressure, dx, dy, speed, angle, age, phase });
+      continue;
+    }
     const rewritten: EngineEvent = { ...event, channel: slot, dx, dy, speed, angle, age };
     out[phase].push(rewritten);
     out.all.push({ ...rewritten, phase });
@@ -365,7 +390,7 @@ export function pointerSignal(state: NodeState, port: string, t: number, channel
  *   pointerIds keep counting up, stay on small channels, live and on replay alike
  *   (streams record raw pointerIds). Past MAX_SLOTS see `bind`; a contact down when its
  *   slot is taken gets a Cancel (on Cancel and All) at the taking event's time first,
- *   with its last event's payload.
+ *   with its last event's payload, and a hovering one a leave on All.
  * - `dx`, `dy`: motion since this slot's previous sample, in canvas units per second,
  *   over its `interval` (above); `speed` their length and `angle` their direction,
  *   atan2(dy, dx) in radians (0 to the right, π/2 down). A slot's first sample after it's
@@ -375,12 +400,20 @@ export function pointerSignal(state: NodeState, port: string, t: number, channel
  * - `age`: seconds since this slot's Down; 0 on a hover move and on the Down itself.
  * The rest of the payload passes through as pushed. All carries the same events with
  * `phase` down, move, up or cancel (ADR 0028); a move with no contact open is a hover.
- * Enter and leave update the slots only: they emit nothing and have no phase. Events
- * whose channel isn't an integer have no pointer and are dropped.
+ * Enter updates the slots only and emits nothing. A leave while not down frees the slot and
+ * puts a hover-end marker on All (ADR 0028, amended for #101): `phase: 'leave'` on the slot's
+ * channel, at the leave's time, with the slot's last x, y and pressure, no motion, age 0, and
+ * the leave's other payload fields (an eviction's leave: the evicted pointer's last payload). A
+ * pointer with no Down, Move, Up or Cancel since it took the slot (an enter, then a leave or
+ * eviction) gets no leave: the slot's record still holds the previous holder's position. One
+ * whose moves were all thinned by the budget still gets one, at its own position. It has no per-phase port and costs one event (All only), and
+ * like Down, Up and Cancel it's never thinned. A leave while down emits nothing: the slot waits
+ * for its Up or Cancel, which ends the contact. Events whose channel isn't an integer have no
+ * pointer and are dropped.
  *
  * Event budget: in each limit window (120 ms on the absolute grid, ADR 0022) Moves stop
- * being emitted once the node's count would pass NODE_EVENT_LIMIT − RESERVE, so Down, Up
- * and Cancel always fit under the runtime's per-node cap. The patch-wide cap
+ * being emitted once the node's count would pass NODE_EVENT_LIMIT − RESERVE, so Down, Up,
+ * Cancel and leave always fit under the runtime's per-node cap. The patch-wide cap
  * (PATCH_EVENT_LIMIT, 2,048) counts every node, so a busy patch can still drop them there. Thinned moves still move the signals and
  * the motion. A plain Pointer only reaches it with many fingers on a fast screen; Pointer
  * (high rate) with three fingers at a few hundred samples a second.
