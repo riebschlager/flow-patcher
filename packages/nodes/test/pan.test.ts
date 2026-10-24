@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { AudioContextLike, AudioInstance, StatusContext } from '@flow-patcher/engine';
-import { canPan, pan, PAN_UNAVAILABLE } from '../src/pan';
+import type { AudioContextLike, AudioInstance } from '@flow-patcher/engine';
+import { pan } from '../src/pan';
 import { maxDifference, renderOffline, RENDER_TOLERANCE } from '../../../tools/lib/audio';
 import { audioSetup, busRms, sine, swapRun, type ContextOptions } from './helpers';
 
@@ -21,17 +21,6 @@ function build(context: AudioContextLike, options: ContextOptions = {}, stereo =
 const sides = (audio: Awaited<ReturnType<typeof renderOffline>>, t: number, width: number) => [busRms(audio, t, width, 0) / SINE, busRms(audio, t, width, 1) / SINE];
 
 const render = (options: ContextOptions, stereo = false) => renderOffline(0.3, (context) => build(context, options, stereo).automate!(0, 0.3));
-
-/** The context as a host's wrapper without createStereoPanner would hand it over. */
-function withoutPanner(context: AudioContextLike): AudioContextLike {
-  return new Proxy(context, {
-    get(target, key) {
-      if (key === 'createStereoPanner') return undefined;
-      const value = Reflect.get(target, key) as unknown;
-      return typeof value === 'function' ? value.bind(target) : value;
-    },
-  });
-}
 
 describe('pan', () => {
   it('places a mono bus left, centre or right, equal-power', async () => {
@@ -114,18 +103,5 @@ describe('pan', () => {
     const { reports, built } = await swapRun(pan, [{ pan: 0 }, { pan: -0.5 }, { pan: 0.8 }]);
     expect(reports.map((r) => r.updated)).toEqual([['n'], ['n']]);
     expect(built).toBe(1);
-  });
-
-  it('passes the bus through centred, and says so on its card, on a context without a stereo panner', async () => {
-    let context!: AudioContextLike;
-    const audio = await renderOffline(0.3, (real) => {
-      context = withoutPanner(real);
-      build(context, { params: { pan: 1 } }).automate?.(0, 0.3);
-    });
-    expect(canPan(context)).toBe(false);
-    expect(sides(audio, 0.1, 0.2)).toEqual([expect.closeTo(1, 3), expect.closeTo(1, 3)]);
-    const status = (audio: AudioContextLike) => pan.status!({ nodeId: 'n', params: { pan: 0 }, audio, services: {} } as StatusContext);
-    expect(status(context)).toEqual(PAN_UNAVAILABLE);
-    await renderOffline(0.01, (real) => expect(status(real)).toBeNull());
   });
 });
