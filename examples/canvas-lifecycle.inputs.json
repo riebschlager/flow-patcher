@@ -1,0 +1,12 @@
+{ "format": "flowinput", "version": 1,
+  "events": [
+    {"time":0,"type":"resize","canvasWidth":248,"canvasHeight":156},
+    {"time":0.5,"type":"focus"},
+    {"time":1,"type":"resize","canvasWidth":400,"canvasHeight":250},
+    {"time":1.25,"type":"resize","canvasWidth":600,"canvasHeight":375},
+    {"time":1.5,"type":"resize","canvasWidth":800,"canvasHeight":500},
+    {"time":2,"type":"blur"},
+    {"time":2.5,"type":"visibilitychange","visibility":"hidden"},
+    {"time":3,"type":"visibilitychange","visibility":"visible"},
+    {"time":3.25,"type":"focus"}
+  ] }

@@ -11,7 +11,7 @@ Recognizers consume raw [canvas source](canvas-sources.md) events and emit highe
 | Circle | Orbit start, Angle signal (unwrapped), Revolutions, Direction, Orbit end | Minimum radius, closure tolerance | Flow's Orbit (`gestures.js` / `performance.js`) |
 | Pinch | Pinch in, Spread, Scale and Rotation signals, midpoint | Pair selection, thresholds | `gestures.js` |
 | Stroke | Per-stroke path length, curvature, average speed; Silk/Rush classification | Speed split point | `gestures.js` / `performance.js` |
-| Dwell | Fires when a pointer hovers in one spot (mouse and pen only), including right after a click; never claims. Fires at a still edge after the mouse leaves until All gets a hover-end marker (#101) | Radius, time | New |
+| Dwell | Fires when a pointer hovers in one spot (mouse and pen only), including right after a click; never claims. A hover's leave (`phase: 'leave'` on All) drops the stay | Radius, time | New |
 | Zone | Splits events by canvas region: grid cells, left/right or rings (a drawn mask waits for an editor drawing tool, #102). Zone 1–8 outputs plus Zones (every zone, with a `zone` field) | Shape, rows, columns, split, rings, center, radius, Outputs (All phases / Presses only) | New |
 | Modifier Router | Routes each contact by button or modifier to Out 1–4, else Pass (defaults: right-drag or Shift → Out 1 = Conduct, Alt → Out 2 = Space, Pass = Paint) | Route 1–4: terms joined by `,` (or) and `+` (and) | New |
 
@@ -21,7 +21,7 @@ Flow's recognizers live inside a mode-based controller. Borrowing them means spl
 
 [ADR 0028](../decisions/0028-recognizers-pass-claim-cancel.md) has the full rules.
 
-- Recognizers read one phase-tagged stream: a contact source's **All** output (Pointer, Pointer (high rate), Pen, Key), or another recognizer's Pass. Each event's `phase` is `down`, `move`, `up` or `cancel`. The input is **In**.
+- Recognizers read one phase-tagged stream: a contact source's **All** output (Pointer, Pointer (high rate), Pen, Key), or another recognizer's Pass. Each event's `phase` is `down`, `move`, `up` or `cancel`, or `leave` when a hovering pointer leaves (not a contact phase: it goes out on Pass alone, and contact recognizers ignore it). The input is **In**.
 - Every recognizer has two kinds of output: its gesture events, and **Pass**, which carries the raw events it didn't claim in the same tagged shape. **Pass Down**, **Pass Move**, **Pass Up** and **Pass Cancel** split it for nodes that want one phase.
 - A recognizer **claims** a channel once it's confident, for example when a pinch passes its threshold. The claim is decided in `query()` from event times, so it rewinds and replays like any query.
 - At the claim it emits exactly one `cancel` event for that channel on Pass, and that channel's events stop flowing out of Pass until it ends. Nodes downstream treat the cancel like a pointercancel.

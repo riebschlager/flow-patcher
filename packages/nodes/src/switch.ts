@@ -24,7 +24,7 @@ interface Latch {
  * Routes events to one of four outputs (docs/nodes/control-logic.md), contact by contact
  * (ADR 0028): the output is chosen at a contact's `down`, on its channel, and the contact's
  * `move`, `up` and `cancel` follow it to that output until it ends, so a change mid-drag only
- * moves contacts that start afterwards. Events outside a contact (hovers, events with no `phase`,
+ * moves contacts that start afterwards. Events outside a contact (hovers and their `leave`, events with no `phase`,
  * such as Click's or a Clock's) are routed at their own time. Events pass unchanged, every phase
  * included, so a mode patch puts a recognizer after each output.
  *

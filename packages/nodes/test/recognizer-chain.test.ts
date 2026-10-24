@@ -1,8 +1,9 @@
 // Recognizers chained through Pass (ADR 0028): priority is wiring. Also timer claims under live input.
 import { describe, expect, it } from 'vitest';
-import { compilePatch, ManualClock, Runtime, Scheduler, type EngineEvent, type LoggedEvent, type Patch } from '@flow-patcher/engine';
+import { compilePatch, ManualClock, replayInput, Runtime, Scheduler, type EngineEvent, type LoggedEvent, type Patch } from '@flow-patcher/engine';
 import { drag, nodeRegistry, pinch } from '../src';
 import { ev, merge, run } from './recognizers';
+import { expectWellFormed } from './routing';
 
 describe('recognizers chained through Pass', () => {
   it('Pinch → Drag: the pinch takes both fingers, Drag keeps what it had, and the end of the chain sees one cancel per contact', () => {
@@ -108,5 +109,57 @@ describe('Claim defaults (ADR 0028, amended 2026-10-24)', () => {
   it('are on for Pinch, Drag, Hold and Circle, off for Tap, Flick and Stroke', () => {
     const defaults = Object.fromEntries(['drag', 'tap', 'hold', 'flick', 'circle', 'pinch', 'stroke'].map((type) => [type, nodeRegistry.get(type)!.params.find((p) => p.name === 'claim')!.default]));
     expect(defaults).toEqual({ drag: true, tap: false, hold: true, flick: false, circle: true, pinch: true, stroke: false });
+  });
+});
+
+describe('a hover\'s leave (ADR 0028, amended for #101)', () => {
+  const mouse = { pointerType: 'mouse', buttons: 0 };
+  /** Mouse 1 hovers and leaves while touch 2 drags; then slot 1 is reused by a press. */
+  const stream: EngineEvent[] = merge(
+    [ev(0.1, 1, 'move', 0.2, 0.2, mouse), ev(0.2, 1, 'move', 0.21, 0.2, mouse), { time: 0.3, channel: 1, phase: 'leave', x: 0.21, y: 0.2, ...mouse }],
+    [ev(0.15, 2, 'down', 0.7, 0.7), ev(0.25, 2, 'move', 0.75, 0.7), ev(0.3, 2, 'move', 0.8, 0.7), ev(0.35, 2, 'move', 0.85, 0.7), ev(0.4, 2, 'up', 0.85, 0.7)],
+    [ev(0.5, 1, 'down', 0.3, 0.3), ev(0.6, 1, 'up', 0.3, 0.3)],
+  );
+  const SPLITS = ['passDown', 'passMove', 'passUp', 'passCancel'];
+  const ROUTING = ['drag', 'tap', 'hold', 'flick', 'circle', 'pinch', 'stroke', 'dwell', 'switch', 'modifier-router', 'zone'];
+
+  it.each(ROUTING)('%s sends it where the hover went, on no Pass split, and treats it as no contact', (type) => {
+    const definition = nodeRegistry.get(type)!;
+    const out = run(definition, stream, { end: 1 });
+    for (const step of [0.1, 0.025]) expect(run(definition, stream, { end: 1, step }), `${step} s windows`).toEqual(out);
+    const portsWith = (match: (e: EngineEvent) => boolean) => Object.entries(out).filter(([, list]) => list.some(match)).map(([port]) => port).sort();
+    const hover = portsWith((e) => e.time === 0.2 && e.channel === 1);
+    const leave = portsWith((e) => e.phase === 'leave');
+    expect(hover.length).toBeGreaterThan(0);
+    expect(leave).toEqual(hover.filter((port) => !SPLITS.includes(port)));
+    for (const port of leave) expect(out[port]!.filter((e) => e.phase === 'leave'), port).toHaveLength(1);
+    for (const port of SPLITS) expect((out[port] ?? []).filter((e) => e.time === 0.3 && e.channel === 1), port).toEqual([]);
+    // Every phase-tagged output stays well formed: the leave neither opened nor ended a contact,
+    // so slot 1's later press opens and ends as usual.
+    expectWellFormed(Object.fromEntries(Object.entries(out).filter(([port]) => !SPLITS.includes(port))));
+    if (out.pass) expect(out.pass.filter((e) => e.channel === 1).map((e) => e.phase)).toEqual(['move', 'move', 'leave', 'down', 'up']);
+  });
+
+  it('reaches Dwell through Pointer → Drag, which drops its stay on replay', () => {
+    const chain: Patch = {
+      format: 'flowpatch', version: 1, seed: 1,
+      nodes: [node('pointer', 'pointer'), node('drag', 'drag'), node('dwell', 'dwell')],
+      cables: [
+        { from: { node: 'pointer', port: 'all' }, to: { node: 'drag', port: 'in' } },
+        { from: { node: 'drag', port: 'pass' }, to: { node: 'dwell', port: 'in' } },
+      ],
+    };
+    const compiled = compilePatch(chain, nodeRegistry);
+    if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+    const hover = (time: number, x: number) => ({ time, type: 'pointermove' as const, channel: 1, x, y: 0.5, pointerType: 'mouse', buttons: 0, button: -1 });
+    const fires = (leaves: boolean) => {
+      const rt = new Runtime(compiled.plan);
+      replayInput(rt, { events: [hover(0.1, 0.3), hover(0.2, 0.305), ...(leaves ? [{ time: 0.35, type: 'pointerleave' as const, channel: 1, x: 0.31, y: 0.5, pointerType: 'mouse' }] : [])] });
+      const log: LoggedEvent[] = [];
+      for (let i = 0; i < 60; i++) log.push(...rt.query(i * 0.025, (i + 1) * 0.025));
+      return log.filter((e) => e.node === 'dwell' && e.port === 'dwell').map((e) => e.time);
+    };
+    expect(fires(false)).toEqual([expect.closeTo(0.7, 9)]);
+    expect(fires(true)).toEqual([]);
   });
 });

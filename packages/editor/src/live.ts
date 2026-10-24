@@ -33,7 +33,9 @@ import {
   type VoiceStats,
 } from '@flow-patcher/engine';
 import { nodeRegistry, rendererImage } from '@flow-patcher/nodes';
+import { CANVAS_TYPES, CanvasLifecycle } from './canvas-lifecycle';
 import { EventTrack, PROBE_HISTORY } from './event-track';
+import { HeldKeys, isApplePlatform, keyStartsAudio, type KeyFields } from './keys';
 import { MidiHost } from './midi';
 import { browserRequesters, neededPermissions, Permissions } from './permissions';
 
@@ -49,13 +51,18 @@ const POINTER_TYPES: Readonly<Record<PointerPort, InputEventType>> = {
  * Input events dropped, not held, while the AudioContext isn't running. Held pushes all replay at one
  * stamp when it starts, as a burst of rewinds that the event cap can cut the important ones out of.
  * Hover moves (coalesced samples too) before the first tap: the Down carries the position anyway.
- * Enter and leave: they only update hover state, and pairs would pile up unbounded while hovering in and out.
+ * Enter and leave: enter only updates hover state, and a leave ends a hover, which with hover moves dropped
+ * no source has seen (Pointer marks no leave for a pointer with no Down, Move, Up or Cancel since it took
+ * its slot). Held, pairs would pile up unbounded while hovering in and out.
  * MIDI: it never starts audio, so a suspended or interrupted context (an iOS call) would otherwise collect
  * every CC sent meanwhile. Wheel: it doesn't start audio either (a wheel isn't a user activation), and a
  * trackpad sends dozens a second. Gesturechange likewise: Safari sends one per frame through a pinch.
+ * The canvas's lifecycle (resize, focus, blur, visibilitychange): dragging the pane or tabbing about before
+ * the first tap would pile them up. The host keeps the canvas's state instead and sends what changed when
+ * audio starts (`CanvasLifecycle.start`).
  */
 export const droppedWhileCold = (type: InputEventType): boolean =>
-  type === 'pointermove' || type === 'pointerenter' || type === 'pointerleave' || type === 'midi' || type === 'wheel' || type === 'gesturechange';
+  type === 'pointermove' || type === 'pointerenter' || type === 'pointerleave' || type === 'midi' || CANVAS_TYPES.has(type) || type === 'wheel' || type === 'gesturechange';
 
 /** The payload of one pointer event (docs/nodes/canvas-sources.md, Event payload): the raw pointerId as `channel`. */
 export interface PointerFields extends Partial<PenFields> {
@@ -304,6 +311,17 @@ export class LivePatch {
   private readonly probes = new Map<string, ProbeTrack>();
   private readonly firing = new Map<string, Set<() => void>>();
   private readonly onVisibility = () => this.scheduler.wake();
+  /** The canvas's lifecycle for the Canvas node: its size, focus and the page's visibility. */
+  private readonly lifecycle = new CanvasLifecycle({
+    send: (event) => this.input(event),
+    running: () => this.context.state === 'running',
+    now: () => this.context.currentTime,
+  }, document.visibilityState);
+  /** The page's visibility for the Canvas node's Hidden and Visible, apart from `onVisibility`, the scheduler's. */
+  private readonly onPageVisibility = () => this.canvasVisibility(document.visibilityState);
+  private wasRunning = false;
+  /** Keys down on the canvas, to send the keyups the browser won't (Key node). */
+  private readonly keys = new HeldKeys(isApplePlatform(navigator.platform));
 
   /** Starts with an empty patch; `update` brings the document in. */
   constructor() {
@@ -317,6 +335,7 @@ export class LivePatch {
     this.runtime.onWarning = (message) => console.debug(`[live] warning: ${message}`);
     this.context = new AudioContext({ latencyHint: 'interactive' });
     this.audio = this.observeStarts(this.context);
+    this.wasRunning = this.context.state === 'running';
     this.runtime.attachAudio(this.audio);
     const context = this.context;
     this.scheduler = new Scheduler(this.runtime, {
@@ -326,20 +345,27 @@ export class LivePatch {
         running: () => context.state === 'running',
         hidden: () => document.hidden,
       },
-      timer: {
+      // A due Canvas size is sent after the wakes too: they go on while the page is hidden and frames don't.
+      timer: this.lifecycle.pace({
         every(ms, tick) {
           const id = setInterval(tick, ms);
           return () => clearInterval(id);
         },
-      },
+      }),
       onStall: (stall) => console.warn(`[live] stall: ${stall.skipped} window(s) skipped, ${(stall.late * 1000).toFixed(1)} ms late`),
     });
     context.addEventListener('statechange', () => {
       // Held pushes run on the first wake after the context starts.
       this.scheduler.wake();
+      // Then the canvas's lifecycle, dropped while audio was stopped, catches up.
+      const running = context.state === 'running';
+      if (running && !this.wasRunning) this.lifecycle.start();
+      else this.lifecycle.tick();
+      this.wasRunning = running;
       this.emit();
     });
     document.addEventListener('visibilitychange', this.onVisibility);
+    document.addEventListener('visibilitychange', this.onPageVisibility);
     this.unwatchPermissions = this.permissions.subscribe(() => this.emit());
     this.scheduler.start();
     this.frames = new FrameLoop(this.runtime, {
@@ -371,10 +397,10 @@ export class LivePatch {
     if (key === this.planKey) return { ok: true };
     const compiled = compilePatch(patch, nodeRegistry);
     if (!compiled.ok) return { ok: false, errors: compiled.errors, cycles: (compiled.cycles ?? []).map((c) => c.nodes) };
-    this.scheduler.swap(compiled.plan);
+    const swapped = this.scheduler.swap(compiled.plan);
     this.refreshTracks();
     this.planKey = key;
-    this.adopt(compiled.plan);
+    this.adopt(compiled.plan, swapped.time);
     return { ok: true };
   }
 
@@ -552,8 +578,9 @@ export class LivePatch {
     const cold = this.context.state !== 'running';
     const down = event.type === 'pointerdown';
     // The first pointerdown starts audio. Its push is held until then, so the first touch still sounds (Platform rules).
+    // A keydown on the canvas does too (`keyStartsAudio`): a key press is a user gesture, so the keyboard alone can play.
     // It also asks for the permissions the patch's sources need: a patch asks when it first plays.
-    if (cold && down) {
+    if (cold && (down || keyStartsAudio(event))) {
       void this.context.resume();
       this.permissions.request(this.needed);
     }
@@ -587,11 +614,50 @@ export class LivePatch {
     return pushed;
   }
 
+  /**
+   * A keydown or keyup on the canvas (Key node), sent to every source that reads it. While audio isn't
+   * running, auto-repeats are dropped (a held key would pile them up for the start), and the rest are
+   * held like a pointerdown; a keydown also starts audio (`keyStartsAudio`). A keyup brings the keyups
+   * the browser won't send (`HeldKeys`).
+   */
+  key(kind: 'down' | 'up', fields: KeyFields, timeStamp?: number): void {
+    if (kind === 'up') {
+      for (const event of this.keys.release(fields)) this.input(event, timeStamp);
+      return;
+    }
+    if (fields.repeat && this.context.state !== 'running') return;
+    this.keys.press(fields);
+    this.input({ type: 'keydown', ...fields }, timeStamp);
+  }
+
+  /** The canvas lost focus: every key still down gets its keyup now, since the canvas won't see it (Key's Held). */
+  releaseKeys(): void {
+    for (const event of this.keys.releaseAll()) this.input(event);
+  }
+
+  // The canvas's lifecycle (Canvas node): `CanvasLifecycle` decides what's sent when.
+
+  /** The canvas's size changed, in CSS pixels: Canvas's Width and Height. */
+  canvasResize(width: number, height: number): void {
+    this.lifecycle.resize(width, height);
+  }
+
+  /** The canvas gained or lost keyboard focus: Canvas's Focus or Blur. */
+  canvasFocus(focused: boolean): void {
+    this.lifecycle.focus(focused);
+  }
+
+  /** The page was hidden or shown: Canvas's Hidden or Visible. */
+  canvasVisibility(visibility: DocumentVisibilityState): void {
+    this.lifecycle.visibility(visibility);
+  }
+
   dispose(): void {
     cancelAnimationFrame(this.raf);
     this.fluid.worker()?.terminate();
     this.scheduler.halt();
     document.removeEventListener('visibilitychange', this.onVisibility);
+    document.removeEventListener('visibilitychange', this.onPageVisibility);
     this.runtime.dispose();
     for (const unwatch of this.unwatch) unwatch();
     this.unwatchPermissions();
@@ -604,6 +670,8 @@ export class LivePatch {
   private frame(): void {
     this.frameCounts.frames++;
     this.frames.tick();
+    // A Canvas new to the plan gets the size once its swap has landed.
+    this.lifecycle.tick();
     this.followPorts();
     if (this.runtime.warningsVersion !== this.warningsSeen) {
       this.warningsSeen = this.runtime.warningsVersion;
@@ -617,9 +685,11 @@ export class LivePatch {
   }
 
   /** The running plan's host-facing parts: the source nodes canvas events reach, the Renderer, and status watchers. */
-  private adopt(plan: Plan): void {
+  private adopt(plan: Plan, swapTime: number): void {
     this.plan = plan;
     this.router = inputRouter(plan);
+    // A source that reads the size and is new to the plan is sent it once the swap has landed.
+    this.lifecycle.adopt(plan.order.filter((node) => node.definition.input?.reads.resize !== undefined).map((node) => node.id), swapTime);
     this.pointers = plan.order.filter((node) => PLAYED_TYPES.some((type) => node.definition.input?.reads[type] !== undefined)).length;
     this.renderer = plan.order.find((node) => node.definition.type === 'renderer')?.id ?? null;
     this.hasFluid = plan.order.some((node) => node.definition.type === 'fluid');

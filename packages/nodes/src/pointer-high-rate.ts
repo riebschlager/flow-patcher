@@ -13,7 +13,8 @@ import { POINTER_PORTS, POINTER_READS, pointerQuery, pointerSignal } from './poi
  *
  * Everything else is Pointer's (pointer.ts shares its query and signals): it rewrites its
  * pushes onto slot channels with the derived fields, All tags each event with its phase,
- * and the X, Y, Pressure, Speed and Count signals follow the samples. Each node keeps its
+ * and the X, Y, Pressure, Speed and Count signals follow the samples. A hovering pointer's
+ * leave puts the hover-end marker (`phase: 'leave'`) on All, as on Pointer. Each node keeps its
  * own slot map, so a pointer usually has the same slot on both, but nothing ties them:
  * a node added mid-gesture, or a Pointer that never saw a hover sample, can differ.
  *

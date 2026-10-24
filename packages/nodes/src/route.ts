@@ -8,8 +8,8 @@ import { phaseOf } from './recognizer';
  * and the contact keeps it, so the contact's later `move`, `up` and `cancel` go the same way
  * whatever `pick` would say then. `up` and `cancel` close the contact, so the channel's next
  * event picks afresh. An event outside a contact asks `pick` for itself: a hover (a `move` with
- * no contact open), an `up` or `cancel` with none open, and an event with no `phase` (Click,
- * Wheel, MIDI). A second `down` on an open channel starts a new contact (Pointer never sends
+ * no contact open), a hover's `leave` marker, an `up` or `cancel` with none open, and an event
+ * with no `phase` (Click, Wheel, MIDI). A second `down` on an open channel starts a new contact (Pointer never sends
  * one). Events whose time or channel isn't finite are dropped, as the recognizers drop them.
  * `state.routes` holds the open contacts (plain data), so the result doesn't depend on
  * windowing. `pick` runs once per down and once per event outside a contact, in time order.
