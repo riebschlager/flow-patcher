@@ -17,7 +17,7 @@ function build(context: AudioContextLike, options: ContextOptions = {}, stereo =
   return instance;
 }
 
-const level = async (options: ContextOptions) => busRms(await renderOffline(0.3, (context) => build(context, options).automate!(0, 0.3)), 0.1, 0.2);
+const level = async (options: ContextOptions) => busRms(await renderOffline(0.3, (context) => build(context, options).automate!(0, 0.3, -Infinity)), 0.1, 0.2);
 
 describe('gain', () => {
   it('scales the bus by its knob, unity by default', async () => {
@@ -37,7 +37,7 @@ describe('gain', () => {
   it('follows a cabled gain in automate, ramping between grid points', async () => {
     // Base 0.2, plus 0.8 from 0.5 s on.
     const mods = { gain: [{ depth: 0.8, signal: (t: number) => (t >= 0.5 ? 1 : 0) }] };
-    const audio = await renderOffline(1, (context) => build(context, { params: { gain: 0.2 }, mods }).automate!(0, 1));
+    const audio = await renderOffline(1, (context) => build(context, { params: { gain: 0.2 }, mods }).automate!(0, 1, -Infinity));
     expect(busRms(audio, 0.2, 0.2) / SINE).toBeCloseTo(0.2, 2);
     expect(busRms(audio, 0.7, 0.2) / SINE).toBeCloseTo(1, 2);
     // The ramp runs over the grid step before 0.5 s: halfway through it, about halfway up.
@@ -51,7 +51,7 @@ describe('gain', () => {
     const render = (calls: [number, number][]) =>
       renderOffline(1, (context) => {
         const instance = build(context, { params: { gain: 0.7 }, mods }, true);
-        for (const [t0, t1] of calls) instance.automate!(t0, t1);
+        for (const [t0, t1] of calls) instance.automate!(t0, t1, -Infinity);
       });
     const [one, split, rerun] = await Promise.all([render([[0, 1]]), render([[0, 0.2], [0.2, 0.71], [0.71, 1]]), render([[0, 0.5], [0.25, 0.5], [0.5, 1], [0.9, 1]])]);
     expect(peak(one)).toBeGreaterThan(0.4);

@@ -45,8 +45,8 @@ export const AUTOMATION_RENDER_MARGIN = 0.015;
 /** A param that follows a modulated value on the automation grid (`paramAutomation`). */
 export interface ParamAutomation {
   /** Follows `value(t)` on the grid in [t0, t1), replacing what was scheduled from t0 on. `clock` is the
-   *  audio clock at hand-over (`AudioInstance.automate`'s third argument); -Infinity when there is none. */
-  follow(t0: number, t1: number, value: (t: number) => number, clock?: number): void;
+   *  audio clock at hand-over (`AudioInstance.automate`'s third argument; -Infinity when there is none). */
+  follow(t0: number, t1: number, value: (t: number) => number, clock: number): void;
 }
 
 /**
@@ -74,7 +74,7 @@ export function paramAutomation(target: AudioParamLike, rate = AUTOMATION_RATE):
   // What is scheduled on target, in time order; times are distinct.
   let points: { time: number; value: number }[] = [];
   return {
-    follow(t0, t1, value, clock = -Infinity) {
+    follow(t0, t1, value, clock) {
       if (!Number.isFinite(t0)) return;
       let at = points.length;
       while (at > 0 && points[at - 1]!.time >= t0) at--;

@@ -20,7 +20,7 @@ function build(context: AudioContextLike, options: ContextOptions = {}): AudioIn
 
 /** In 1's and In 3's levels at the output over [t, t + width), relative to the input sine. */
 const sides = (audio: RenderedAudio, t: number, width = 0.2) => [busRms(audio, t, width, 0) / SINE, busRms(audio, t, width, 1) / SINE];
-const render = (options: ContextOptions) => renderOffline(0.3, (context) => build(context, options).automate!(0, 0.3));
+const render = (options: ContextOptions) => renderOffline(0.3, (context) => build(context, options).automate!(0, 0.3, -Infinity));
 const close = (values: number[], expected: number[], digits = 3) => expect(values).toEqual(expected.map((v) => expect.closeTo(v, digits)));
 
 describe('mixer', () => {
@@ -56,7 +56,7 @@ describe('mixer', () => {
   it('follows cabled levels and master in automate', async () => {
     // In 1 fades out over the second, In 3 holds; master dips to 0.5 after 0.5 s.
     const mods = { level1: [{ depth: -1, signal: (t: number) => t }], master: [{ depth: -0.5, signal: (t: number) => (t >= 0.5 ? 1 : 0) }] };
-    const audio = await renderOffline(1, (context) => build(context, { mods }).automate!(0, 1));
+    const audio = await renderOffline(1, (context) => build(context, { mods }).automate!(0, 1, -Infinity));
     close(sides(audio, 0.24, 0.02), [0.75, 1], 1);
     close(sides(audio, 0.74, 0.02), [0.125, 0.5], 1);
     expect(sides(audio, 0.96, 0.03)[0]).toBeLessThan(0.05);
@@ -70,7 +70,7 @@ describe('mixer', () => {
     const renderCalls = (calls: [number, number][]) =>
       renderOffline(1, (context) => {
         const instance = build(context, { mods });
-        for (const [t0, t1] of calls) instance.automate!(t0, t1);
+        for (const [t0, t1] of calls) instance.automate!(t0, t1, -Infinity);
       });
     const [one, split, rerun] = await Promise.all([renderCalls([[0, 1]]), renderCalls([[0, 0.45], [0.45, 0.46], [0.46, 1]]), renderCalls([[0, 0.8], [0.2, 0.8], [0.8, 1], [0.85, 1]])]);
     expect(maxDifference(one, split)).toBeLessThan(RENDER_TOLERANCE);

@@ -264,13 +264,13 @@ describe('paramAutomation', () => {
 
   it('a re-run with an unchanged value leaves the param\'s course as it was, wherever it starts', () => {
     const once = new FakeParam();
-    paramAutomation(once).follow(0, 1, wave);
+    paramAutomation(once).follow(0, 1, wave, -Infinity);
     for (const starts of [[0.3], [0.31, 0.2], [0.4, 0.4], [21 / 60, 0.35, 0.61], [0.5 + 1e-9], [0.5 - 1e-9]]) {
       const p = new FakeParam();
       const automation = paramAutomation(p);
-      automation.follow(0, 0.7, wave);
-      automation.follow(0.7, 1, wave);
-      for (const t0 of starts) automation.follow(t0, 1, wave);
+      automation.follow(0, 0.7, wave, -Infinity);
+      automation.follow(0.7, 1, wave, -Infinity);
+      for (const t0 of starts) automation.follow(t0, 1, wave, -Infinity);
       expect(p.events).toEqual(once.events);
     }
   });
@@ -278,11 +278,11 @@ describe('paramAutomation', () => {
   it('a re-run with a new value keeps the ramp being played whole and reaches the new value at the grid point after it', () => {
     const p = new FakeParam();
     const automation = paramAutomation(p);
-    automation.follow(0, 1, wave);
+    automation.follow(0, 1, wave, -Infinity);
     const before = new FakeParam();
-    paramAutomation(before).follow(0, 1, wave);
+    paramAutomation(before).follow(0, 1, wave, -Infinity);
     for (const t0 of [0.31, 30 / 60, 0.6]) {
-      automation.follow(t0, 1, lifted);
+      automation.follow(t0, 1, lifted, -Infinity);
       const kept = end(t0), next = kept + 1 / 60;
       // Unchanged up to the end of the ramp t0 falls in (or ends at)...
       for (let t = 0; t <= kept; t += 1e-4) expect(p.at(t)).toBeCloseTo(before.at(t), 12);
@@ -297,7 +297,7 @@ describe('paramAutomation', () => {
   it('keeps the ramp after the one being played too when that one ends within AUTOMATION_RENDER_MARGIN of the clock', () => {
     const p = new FakeParam();
     const automation = paramAutomation(p);
-    automation.follow(0, 1, wave);
+    automation.follow(0, 1, wave, -Infinity);
     // A swap at the clock, 2 ms before 30/60: the render thread may be past 30/60 already.
     const t0 = 30 / 60 - 0.002;
     automation.follow(t0, 1, lifted, t0);
@@ -311,7 +311,7 @@ describe('paramAutomation', () => {
     for (const clock of [30 / 60 - 0.02, 30 / 60 - AUTOMATION_RENDER_MARGIN, -Infinity]) {
       const p = new FakeParam();
       const automation = paramAutomation(p);
-      automation.follow(0, 1, wave);
+      automation.follow(0, 1, wave, -Infinity);
       automation.follow(30 / 60 - 0.002, 1, lifted, clock);
       expect(p.events.find((e) => e.time === 30 / 60)!.value).toBe(wave(30 / 60));
       expect(p.events.find((e) => e.time === 31 / 60)!.value).toBe(lifted(31 / 60));
@@ -320,10 +320,10 @@ describe('paramAutomation', () => {
 
   it('a re-run with an unchanged value close to the clock leaves the param\'s course as it was', () => {
     const once = new FakeParam();
-    paramAutomation(once).follow(0, 1, wave);
+    paramAutomation(once).follow(0, 1, wave, -Infinity);
     const p = new FakeParam();
     const automation = paramAutomation(p);
-    automation.follow(0, 1, wave);
+    automation.follow(0, 1, wave, -Infinity);
     for (const t0 of [30 / 60 - 0.002, 0.6, 40 / 60]) automation.follow(t0, 1, wave, t0);
     expect(p.events).toEqual(once.events);
   });
@@ -332,8 +332,8 @@ describe('paramAutomation', () => {
     for (const t0 of [30 / 60 - 1e-4, 30 / 60 - 1e-9, 30 / 60, 30 / 60 + 1e-4]) {
       const p = new FakeParam();
       const automation = paramAutomation(p);
-      automation.follow(0, 1, wave);
-      automation.follow(t0, 1, lifted);
+      automation.follow(0, 1, wave, -Infinity);
+      automation.follow(t0, 1, lifted, -Infinity);
       // A change of 5 over at least 1/60 s, on top of the wave's own slope of at most 7.
       expect(steepest(p, 0.4, 0.7)).toBeLessThanOrEqual((5 * 60 + 7) * 1e-4 + 1e-9);
     }
@@ -342,7 +342,7 @@ describe('paramAutomation', () => {
   it('never changes the course up to the kept point between its calls, so a render between them sees the old one', () => {
     const p = new FakeParam();
     const automation = paramAutomation(p);
-    automation.follow(0, 1, wave);
+    automation.follow(0, 1, wave, -Infinity);
     const t0 = 0.3123, from = 18 / 60, kept = end(t0);
     const course = () => Array.from({ length: 50 }, (_, i) => p.at(from + ((kept - from) * i) / 49));
     const played = course();
@@ -355,7 +355,7 @@ describe('paramAutomation', () => {
         seen.push(course());
       }) as never;
     }
-    automation.follow(t0, 1, lifted);
+    automation.follow(t0, 1, lifted, -Infinity);
     expect(seen.length).toBeGreaterThan(2);
     for (const c of seen) for (let i = 0; i < c.length; i++) expect(c[i]).toBeCloseTo(played[i]!, 12);
   });
@@ -363,10 +363,10 @@ describe('paramAutomation', () => {
   it('still keeps the ramp being played for a re-run AUTOMATION_MEMORY back after a long run, which prunes older points', () => {
     const p = new FakeParam();
     const automation = paramAutomation(p);
-    for (let k = 0; k < 600; k++) automation.follow(k * 0.025, (k + 1) * 0.025, wave);
+    for (let k = 0; k < 600; k++) automation.follow(k * 0.025, (k + 1) * 0.025, wave, -Infinity);
     const t0 = 600 * 0.025 - AUTOMATION_MEMORY + 0.001;
     const course = p.at(end(t0));
-    automation.follow(t0, 15, lifted);
+    automation.follow(t0, 15, lifted, -Infinity);
     expect(p.at(end(t0))).toBeCloseTo(course, 12);
     expect(p.at(end(t0) + 1 / 60)).toBeCloseTo(lifted(end(t0) + 1 / 60), 12);
   });

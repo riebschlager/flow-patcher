@@ -64,7 +64,7 @@ describe('filter', () => {
   it('follows a cabled cutoff in automate, sweeping a sine that is already sounding', async () => {
     // Cutoff 200 Hz, plus 4800 Hz from 0.5 s on: a 2 kHz sine is cut, then passes.
     const mods = { cutoff: [{ depth: 4800, signal: (t: number) => (t >= 0.5 ? 1 : 0) }] };
-    const audio = await renderOffline(1, (context) => build(context, 2000, { params: { cutoff: 200 }, mods }).automate!(0, 1));
+    const audio = await renderOffline(1, (context) => build(context, 2000, { params: { cutoff: 200 }, mods }).automate!(0, 1, -Infinity));
     expect(busRms(audio, 0.3, 0.1)).toBeLessThan(SINE * 0.03);
     expect(busRms(audio, 0.8, 0.1)).toBeGreaterThan(SINE * 0.95);
     // The ramp runs between the grid points either side of 0.5 s, not a jump at a window edge.
@@ -78,7 +78,7 @@ describe('filter', () => {
     const render = (calls: [number, number][]) =>
       renderOffline(1, (context) => {
         const instance = build(context, 1500, { params: { cutoff: 300, mode: 'bandpass' }, mods });
-        for (const [t0, t1] of calls) instance.automate!(t0, t1);
+        for (const [t0, t1] of calls) instance.automate!(t0, t1, -Infinity);
       });
     const [one, split, rerun] = await Promise.all([
       render([[0, 1]]),
@@ -93,7 +93,7 @@ describe('filter', () => {
   it('leaves an uncabled cutoff alone in automate', async () => {
     const [still, automated] = await Promise.all([
       renderOffline(0.5, (context) => build(context, 2000, { params: { cutoff: 400 } })),
-      renderOffline(0.5, (context) => build(context, 2000, { params: { cutoff: 400 } }).automate!(0, 0.5)),
+      renderOffline(0.5, (context) => build(context, 2000, { params: { cutoff: 400 } }).automate!(0, 0.5, -Infinity)),
     ]);
     expect(maxDifference(still, automated)).toBeLessThan(RENDER_TOLERANCE);
   });
@@ -106,7 +106,7 @@ describe('filter', () => {
       { params: { cutoff: 500 }, mods: { cutoff: [{ depth: 1e300, signal: () => 1e300 }], q: [{ depth: 1, signal: () => NaN }] } },
       { params: { cutoff: 500 }, mods: { cutoff: [{ depth: -1e6, signal: () => 1 }] } },
     ];
-    const renders = await Promise.all(cases.map((options) => renderOffline(0.3, (context) => build(context, 440, options).automate!(0, 0.3))));
+    const renders = await Promise.all(cases.map((options) => renderOffline(0.3, (context) => build(context, 440, options).automate!(0, 0.3, -Infinity))));
     for (const audio of renders) {
       for (const data of audio.channels) expect(data.every(Number.isFinite)).toBe(true);
       expect(peak(audio)).toBeLessThan(10);

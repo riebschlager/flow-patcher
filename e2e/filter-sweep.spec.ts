@@ -9,7 +9,8 @@ interface SweepProbe {
   /** The Filter's output, channel 0, recorded the same way. */
   out: [number, Float32Array][];
   /** Every cancelScheduledValues on the cutoff while recording: its time, currentTime when called, and how far
-   *  the automation already reached (the last ramp's end), so a re-run's cancel can be told from a fresh chunk's.
+   *  the automation reached then (the last time still scheduled, after earlier cancels), so a re-run's cancel,
+   *  which withdraws something, can be told from a fresh chunk's or a no-op one, which withdraw nothing.
    *  A re-run that starts inside a ramp keeps that ramp whole and cancels from the grid point after its end; it adds no point. */
   cancels: { t0: number; now: number; reached: number }[];
   sampleRate: number;
@@ -37,8 +38,8 @@ declare global {
 // values start at the grid point after it: the course bends on the grid and never
 // jumps. Chromium now and then freezes a param for one quantum at its previous
 // value and then goes on along its line, with or without edits (a control run
-// without knob turns showed 5 in 20 runs, #103); those are counted and logged,
-// not failed. The test requires no other hold and no step.
+// without knob turns showed 5 in 20 runs, #103); up to 3 a run are allowed and
+// logged. The test requires no other hold and no step.
 
 const field = (page: Page, node: string, param: string) =>
   page.locator(`.react-flow__node[data-id="${node}"] .param-row[data-param="${param}"] [data-testid="param-field"]`);
@@ -80,15 +81,21 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
           mirror.offset.value = v;
         },
       });
-      let reached = -Infinity;
+      // The times scheduled on the cutoff, in order, as the browser keeps them: a cancel drops those at or after it.
+      const scheduled: number[] = [];
       for (const name of ['setValueAtTime', 'linearRampToValueAtTime', 'exponentialRampToValueAtTime', 'setTargetAtTime', 'cancelScheduledValues'] as const) {
         const call = AudioParam.prototype[name] as (this: AudioParam, ...args: number[]) => AudioParam;
         Object.defineProperty(param, name, {
           value: (...args: number[]) => {
             if (name === 'cancelScheduledValues') {
+              const reached = scheduled.at(-1) ?? -Infinity;
               if (probe.recording) probe.cancels.push({ t0: args[0]!, now: context.currentTime, reached });
-              reached = Math.min(reached, args[0]!);
-            } else reached = Math.max(reached, args[1]!);
+              while (scheduled.length && scheduled.at(-1)! >= args[0]!) scheduled.pop();
+            } else {
+              let at = scheduled.length;
+              while (at > 0 && scheduled[at - 1]! > args[1]!) at--;
+              scheduled.splice(at, 0, args[1]!);
+            }
             const result = call.apply(param, args);
             call.apply(mirror.offset, args);
             return result;
@@ -155,7 +162,7 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     };
     const mirror = stitch(probe.mirror), out = stitch(probe.out);
     const gaps = mirror.data.filter(Number.isNaN).length;
-    // Re-run cancels: before what the automation already reached. A re-run keeps the ramp its start falls
+    // Re-run cancels: before the last time still scheduled, so they withdraw something. A re-run keeps the ramp its start falls
     // in and cancels from the grid point after it (#103), so an exposed one, whose start is in the ramp the
     // render thread is in, cancels within two grid steps of the clock (three when AUTOMATION_RENDER_MARGIN
     // keeps one more ramp; those within two are enough to show the checks below mean something).
@@ -177,7 +184,7 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     // turns, #103), and more often around re-runs, which make many AudioParam calls. The engine's hold
     // looks different: a render past the last point a re-run kept holds from that point, a grid point,
     // so the flat stretch starts with the grid, not with the quantum. A flat quantum with a grid point at
-    // its start, or still flat before it, is a real hold. Freezes near a re-run cancel are counted too.
+    // its start, or still flat before it, is a real hold. How many freezes lie near a re-run cancel is only logged.
     const holds: number[] = [], freezes: number[] = [];
     let nearReruns = 0;
     const returns = new Set<number>();
@@ -191,8 +198,11 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
       const froze = Math.abs(v[q]! - v[q - 1]!) < 0.002;
       const onLine = back >= 129 * Math.min(slopeBefore, slopeAfter) - 0.1 && back <= 129 * Math.max(slopeBefore, slopeAfter) + 0.1;
       const moving = Math.abs(v[q - 1]! - v[q - 2]!) >= 0.002;
-      const frame = mirror.from + q, gridAtStart = Math.abs(frame - (Math.round((frame * 60) / rate) * rate) / 60) <= 1;
-      if (froze && moving && !gridAtStart && onLine) {
+      // A grid point at the sample before the quantum: the engine's hold from it would look frozen from the quantum's
+      // start. One at the quantum's first sample needs no check: the value moves into it, so `froze` is false.
+      const frame = mirror.from + q, lastFrame = frame - 1;
+      const gridBefore = Math.abs(lastFrame - (Math.round((lastFrame * 60) / rate) * rate) / 60) < 0.5;
+      if (froze && moving && !gridBefore && onLine) {
         const start = frame / rate, quantum = 128 / rate;
         if (reruns.some((c) => c.now >= start - 4 * quantum && c.now <= start + quantum)) nearReruns++;
         freezes.push(start);

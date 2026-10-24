@@ -245,12 +245,11 @@ export interface AudioInstance {
    * AUTOMATION_RATE, `automationTimes`), not at t0 or per chunk, so the
    * values don't depend on how time was split into windows. Skip params with
    * no cable (`AudioSetupContext.connected`): their base value doesn't move.
-   * `clock` is the audio clock at hand-over; the runtime always passes it
-   * (-Infinity when the query has no delivery timing). Hand it to
-   * `paramAutomation`'s `follow`, which keeps what the render thread may
-   * already be playing.
+   * `clock` is the audio clock at hand-over (-Infinity when the query has no
+   * delivery timing). Pass it to `paramAutomation`'s `follow`, which keeps
+   * what the render thread may already be playing.
    */
-  automate?(t0: number, t1: number, clock?: number): void;
+  automate?(t0: number, t1: number, clock: number): void;
   /**
    * In-place knob edits (ADR 0031): a hot swap that changes only params listed
    * in the definition's `liveParams` keeps this instance and calls this instead
