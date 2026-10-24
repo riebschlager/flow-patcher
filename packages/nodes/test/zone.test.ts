@@ -102,7 +102,7 @@ describe('zone', () => {
       ['zone1', 0.4, 2, 'down', 1], ['zone1', 0.5, 2, 'move', 1], ['zone1', 0.6, 2, 'up', 1],
       ['zones', 0.4, 2, 'down', 1], ['zones', 0.5, 2, 'move', 1], ['zones', 0.6, 2, 'up', 1],
       ['pass', 0.1, 1, 'down', '-'], ['pass', 0.2, 1, 'move', '-'], ['pass', 0.3, 1, 'up', '-'],
-      ['passDown', 0.1, 1, 'down', '-'], ['passMove', 0.2, 1, 'move', '-'], ['passUp', 0.3, 1, 'up', '-'],
+      ['passDown', 0.1, 1, '-', '-'], ['passMove', 0.2, 1, '-', '-'], ['passUp', 0.3, 1, '-', '-'],
     ]);
   });
 

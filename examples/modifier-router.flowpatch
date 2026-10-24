@@ -29,6 +29,32 @@
       }
     },
     {
+      "id": "conductPress",
+      "type": "dwell",
+      "typeVersion": 1,
+      "params": {
+        "radius": 0.02,
+        "time": 0.6
+      },
+      "position": {
+        "x": 480,
+        "y": 0
+      }
+    },
+    {
+      "id": "spacePress",
+      "type": "dwell",
+      "typeVersion": 1,
+      "params": {
+        "radius": 0.02,
+        "time": 0.6
+      },
+      "position": {
+        "x": 480,
+        "y": 180
+      }
+    },
+    {
       "id": "conduct",
       "type": "make-note",
       "typeVersion": 2,
@@ -38,7 +64,7 @@
         "velocity": 0.6
       },
       "position": {
-        "x": 480,
+        "x": 720,
         "y": 0
       }
     },
@@ -52,7 +78,7 @@
         "velocity": 0.4
       },
       "position": {
-        "x": 480,
+        "x": 720,
         "y": 180
       }
     },
@@ -66,7 +92,7 @@
         "velocity": 0.7
       },
       "position": {
-        "x": 480,
+        "x": 720,
         "y": 360
       }
     },
@@ -81,7 +107,7 @@
         "wave": "triangle"
       },
       "position": {
-        "x": 720,
+        "x": 960,
         "y": 100
       }
     },
@@ -93,7 +119,7 @@
         "level": 0.7
       },
       "position": {
-        "x": 960,
+        "x": 1200,
         "y": 100
       }
     }
@@ -115,14 +141,34 @@
         "port": "out1"
       },
       "to": {
-        "node": "conduct",
-        "port": "trigger"
+        "node": "conductPress",
+        "port": "in"
       }
     },
     {
       "from": {
         "node": "router",
         "port": "out2"
+      },
+      "to": {
+        "node": "spacePress",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "conductPress",
+        "port": "passDown"
+      },
+      "to": {
+        "node": "conduct",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "spacePress",
+        "port": "passDown"
       },
       "to": {
         "node": "space",

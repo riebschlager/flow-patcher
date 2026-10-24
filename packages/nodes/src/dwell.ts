@@ -1,5 +1,5 @@
-import type { EngineEvent, NodeDefinition } from '@flow-patcher/engine';
-import { addPass, nonEmpty, PASS_PORTS } from './switch';
+import type { NodeDefinition } from '@flow-patcher/engine';
+import { IN_PORT, Outputs, PASS_PORTS } from './recognizer';
 
 /** Pointer types that can hover. A touch has no hover. */
 const HOVERING = ['mouse', 'pen'];
@@ -55,7 +55,7 @@ export const dwell: NodeDefinition = {
   category: 'gesture-recognizers',
   description: 'Fires when a mouse or pen hovers within Radius for Time. Passes every event through.',
   ports: [
-    { name: 'in', type: 'event', direction: 'in', label: 'In' },
+    IN_PORT,
     { name: 'dwell', type: 'event', direction: 'out', label: 'Dwell' },
     ...PASS_PORTS,
   ],
@@ -65,7 +65,7 @@ export const dwell: NodeDefinition = {
   ],
   query({ inputs, state, param, t1 }) {
     const stays = (state.stays ??= {}) as Record<string, Stay>;
-    const fires: EngineEvent[] = [];
+    const outputs = new Outputs(state);
     const flush = (until: number, inclusive: boolean) => {
       const due: { channel: number; stay: Stay }[] = [];
       for (const [key, stay] of Object.entries(stays)) {
@@ -73,15 +73,14 @@ export const dwell: NodeDefinition = {
       }
       due.sort((a, b) => a.stay.fireAt! - b.stay.fireAt! || a.channel - b.channel);
       for (const { channel, stay } of due) {
-        fires.push({ time: stay.fireAt!, channel, x: stay.x, y: stay.y, pointerType: stay.pointerType });
+        outputs.send(['dwell'], { time: stay.fireAt!, channel, x: stay.x, y: stay.y, pointerType: stay.pointerType }, false);
         stay.fireAt = null;
       }
     };
-    const pass: EngineEvent[] = [];
     for (const event of inputs.in ?? []) {
       if (!Number.isFinite(event.time)) continue;
       flush(event.time, true);
-      pass.push(event);
+      outputs.pass(event);
       const { channel, phase, x, y, pointerType } = event;
       if (!Number.isInteger(channel)) continue;
       const key = String(channel);
@@ -101,8 +100,6 @@ export const dwell: NodeDefinition = {
       }
     }
     flush(t1, false);
-    const out: Record<string, EngineEvent[]> = { dwell: fires };
-    addPass(out, pass);
-    return nonEmpty(out);
+    return outputs.result();
   },
 };

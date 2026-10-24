@@ -3,6 +3,7 @@ import { compilePatch, replayInput, Runtime, type EngineEvent, type EventField, 
 import { modifierRouter, nodeRegistry } from '../src';
 import { matches, parseRoute, routeError } from '../src/modifier-router';
 import { query, queryTiled } from './helpers';
+import { burst, expectUnderCap, expectWellFormed, splitsMatchPass } from './routing';
 
 const PORTS = ['out1', 'out2', 'out3', 'out4', 'pass', 'passDown', 'passMove', 'passUp', 'passCancel'];
 
@@ -60,7 +61,8 @@ describe('modifier-router', () => {
       ['out2', 0.7, 1, 'down'], ['out2', 0.9, 1, 'move'], ['out2', 1.0, 1, 'up'],
       // The plain touch drag stays on Pass through Shift and Alt, to its cancel.
       ['pass', 0.2, 2, 'down'], ['pass', 0.3, 2, 'move'], ['pass', 0.55, 2, 'move'], ['pass', 0.8, 2, 'cancel'],
-      ['passDown', 0.2, 2, 'down'], ['passMove', 0.3, 2, 'move'], ['passMove', 0.55, 2, 'move'], ['passCancel', 0.8, 2, 'cancel'],
+      // The splits carry no phase, as Pointer's per-phase ports.
+      ['passDown', 0.2, 2, '-'], ['passMove', 0.3, 2, '-'], ['passMove', 0.55, 2, '-'], ['passCancel', 0.8, 2, '-'],
     ]);
   });
 
@@ -75,8 +77,9 @@ describe('modifier-router', () => {
     // Pass splits are copies, so no event object sits on two ports.
     const pass = query(modifierRouter, 0, 2, { params: { route1: '', route2: '' }, inputs: { in: stream } });
     expect(pass.pass).toHaveLength(stream.length);
-    expect(pass.passDown![0]).toEqual(pass.pass![0]);
-    expect(pass.passDown![0]).not.toBe(pass.pass![0]);
+    const { phase: _phase, ...stripped } = pass.pass![0]!;
+    expect(pass.passDown![0]).toEqual(stripped);
+    for (const port of ['passDown', 'passMove', 'passUp', 'passCancel']) for (const e of pass[port]!) expect(e).not.toHaveProperty('phase');
     expect(pass.pass!.filter((e) => e.phase === undefined)).toHaveLength(1);
   });
 
@@ -106,6 +109,26 @@ describe('modifier-router', () => {
     expect(matches(ev(0, 1, 'down', { buttons: 1, button: 0 }), parseRoute('middle').route)).toBe(false);
   });
 
+  it('picks afresh after a cancel: the next event on the channel is checked on its own', () => {
+    const events = [ev(0.1, 1, 'down', mouse(2, 2)), ev(0.2, 1, 'cancel', mouse(0, -1)), ev(0.3, 1, 'move', mouse(0, -1)), ev(0.4, 1, 'move', mouse(0, -1, { alt: true })), ev(0.5, 1, 'down', mouse(1, 0)), ev(0.6, 1, 'up', mouse(0, 0))];
+    expect(flat(query(modifierRouter, 0, 1, { state: {}, inputs: { in: events } })).filter((r) => !String(r[0]).startsWith('passD') && !String(r[0]).startsWith('passM') && !String(r[0]).startsWith('passU'))).toEqual([
+      ['out1', 0.1, 1, 'down'], ['out1', 0.2, 1, 'cancel'], ['out2', 0.4, 1, 'move'], ['pass', 0.3, 1, 'move'], ['pass', 0.5, 1, 'down'], ['pass', 0.6, 1, 'up'],
+    ]);
+  });
+
+  it('thins moves in an over-budget burst, so every down still gets its up or cancel on every output', () => {
+    // 30 contacts × 22 events in 22 ms: far past NODE_EVENT_LIMIT. Thirds right-drag, Alt-drag, plain.
+    const events = burst(30, 20, (c) => (c % 3 === 0 ? mouse(2, 2) : c % 3 === 1 ? mouse(1, 0, { alt: true }) : mouse(1, 0)));
+    const out = query(modifierRouter, 0, 1, { state: {}, inputs: { in: events } }) as Record<string, EngineEvent[]>;
+    expectWellFormed(out);
+    splitsMatchPass(out);
+    expectUnderCap(out);
+    for (const port of ['out1', 'out2', 'pass']) expect(out[port]!.filter((e) => e.phase === 'down')).toHaveLength(10);
+    expect((out.passCancel?.length ?? 0) + out.passUp!.length).toBe(10);
+    expect(out.out1!.filter((e) => e.phase === 'cancel')).toHaveLength(10);
+    expect(out.passMove!.length).toBeLessThan(10 * 20);
+  });
+
   it('copes with weird input', () => {
     expect(query(modifierRouter, 0, 1)).toEqual({});
     expect(query(modifierRouter, 0, 1, { inputs: { in: [] } })).toEqual({});
@@ -118,8 +141,10 @@ describe('modifier-router', () => {
     const state: Record<string, unknown> = {};
     const result = query(modifierRouter, 0, 1, { state, params: { route1: 42, route2: 'nonsense' }, inputs: { in: weird } });
     // A non-text route reads as its default; nonsense as nothing; odd fields don't match.
-    expect(flat(result)).toEqual([['pass', 0.1, 2, 'down'], ['pass', 0.2, 2.5, 'down'], ['pass', 0.3, 3, 'down'], ['passDown', 0.1, 2, 'down'], ['passDown', 0.2, 2.5, 'down'], ['passDown', 0.3, 3, 'down']]);
-    expect(state.routes).toEqual({ 2: 0, 3: 0 });
+    // A non-finite time or channel is dropped; any finite channel can hold a contact.
+    expect(flat(result)).toEqual([['pass', 0.1, 2, 'down'], ['pass', 0.2, 2.5, 'down'], ['pass', 0.3, 3, 'down'], ['passDown', 0.1, 2, '-'], ['passDown', 0.2, 2.5, '-'], ['passDown', 0.3, 3, '-']]);
+    expect(state.routes).toEqual({ 2: 0, 2.5: 0, 3: 0 });
+    expect(query(modifierRouter, 0, 1, { inputs: { in: [ev(0.1, NaN, 'down', { shift: true }), ev(0.2, Infinity, undefined)] } })).toEqual({});
   });
 
   it("routes Flow's right-drag and Alt from Pointer's All, live", () => {
@@ -139,7 +164,7 @@ describe('modifier-router', () => {
     expect(log.filter((e) => e.node === 'r').map((e) => [e.port, e.time, e.phase])).toEqual([
       ['out1', 0.1, 'down'], ['out1', 0.15, 'move'], ['out1', 0.2, 'up'],
       ['out2', 0.3, 'down'], ['out2', 0.35, 'up'],
-      ['pass', 0.4, 'down'], ['passDown', 0.4, 'down'], ['pass', 0.45, 'up'], ['passUp', 0.45, 'up'],
+      ['pass', 0.4, 'down'], ['passDown', 0.4, undefined], ['pass', 0.45, 'up'], ['passUp', 0.45, undefined],
     ]);
   });
 });

@@ -1,5 +1,5 @@
 import type { EngineEvent, NodeDefinition, ParamSpec, PortSpec } from '@flow-patcher/engine';
-import { addPass, nonEmpty, PASS_PORTS, routeContacts } from './switch';
+import { IN_PORT, Outputs, PASS_PORTS, routeContacts } from './recognizer';
 
 /** Routed outputs, checked in order. */
 export const ROUTER_OUTPUTS = 4;
@@ -84,12 +84,16 @@ const DEFAULTS = ['right, shift', 'alt', '', ''];
  * forward, eraser), or a modifier key held (shift, alt, ctrl, meta). Touches and pens report the
  * left button while down; a pen's barrel button is right. Events pass unchanged.
  *
- * Pass carries what no route took, in the same tagged shape, split by phase on Pass Down, Move,
- * Up and Cancel. The decision is made at the `down`, before anything from the contact has gone
+ * Routed outputs carry every phase in the tagged shape, so a mode patch puts a recognizer after
+ * each one. Pass carries what no route took, in the same tagged shape, and split by phase on Pass
+ * Down, Move, Up and Cancel without `phase`, as Pointer's per-phase ports. The decision is made at the `down`, before anything from the contact has gone
  * out of Pass, so a routed contact needs no claim cancel: it never appears on Pass at all.
  *
  * Flow's tool modes become cables with it (ADR 0006): Pointer's All into In, Out 1 into the
  * Conduct chain, Out 2 into Space, and Pass into painting.
+ *
+ * State: `routes`, the open contacts, and `cell`, the event budget: moves and events with no
+ * phase are thinned below NODE_EVENT_LIMIT − RESERVE, so downs, ups and cancels always go out.
  */
 export const modifierRouter: NodeDefinition = {
   type: 'modifier-router',
@@ -98,7 +102,7 @@ export const modifierRouter: NodeDefinition = {
   category: 'gesture-recognizers',
   description: 'Routes each contact by button or modifier key: the first route its down matches, else Pass. A contact keeps its output until it ends.',
   ports: [
-    { name: 'in', type: 'event', direction: 'in', label: 'In' },
+    IN_PORT,
     ...Array.from({ length: ROUTER_OUTPUTS }, (_, i): PortSpec => ({ name: `out${i + 1}`, type: 'event', direction: 'out', label: `Out ${i + 1}` })),
     ...PASS_PORTS,
   ],
@@ -109,13 +113,11 @@ export const modifierRouter: NodeDefinition = {
       return parseRoute(typeof text === 'string' ? text : '').route;
     });
     const pick = (event: EngineEvent) => routes.findIndex((route) => matches(event, route)) + 1;
-    const out: Record<string, EngineEvent[]> = {};
-    const pass: EngineEvent[] = [];
+    const outputs = new Outputs(state);
     for (const { event, route } of routeContacts(state, inputs.in ?? [], pick)) {
-      if (route === 0) pass.push(event);
-      else (out[`out${route}`] ??= []).push(event);
+      if (route === 0) outputs.pass(event);
+      else outputs.send([`out${route}`], event);
     }
-    addPass(out, pass);
-    return nonEmpty(out);
+    return outputs.result();
   },
 };

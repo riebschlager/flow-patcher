@@ -1,5 +1,5 @@
 import type { EngineEvent, NodeContext, NodeDefinition, PortSpec } from '@flow-patcher/engine';
-import { addPass, nonEmpty, PASS_PORTS, routeContacts } from './switch';
+import { IN_PORT, Outputs, PASS_PORTS, routeContacts } from './recognizer';
 
 /** Zones with their own output. Higher zones (a grid of more than 8 cells) come out of Zones only. */
 export const ZONE_OUTPUTS = 8;
@@ -100,7 +100,7 @@ export const zone: NodeDefinition = {
   category: 'gesture-recognizers',
   description: 'Splits contacts by canvas region (grid cells, left/right, rings or a mask) by where they go down; events in no zone go out of Pass.',
   ports: [
-    { name: 'in', type: 'event', direction: 'in', label: 'In' },
+    IN_PORT,
     ...Array.from({ length: ZONE_OUTPUTS }, (_, i): PortSpec => ({ name: `zone${i + 1}`, type: 'event', direction: 'out', label: `Zone ${i + 1}` })),
     { name: 'zones', type: 'event', direction: 'out', label: 'Zones' },
     ...PASS_PORTS,
@@ -126,17 +126,11 @@ export const zone: NodeDefinition = {
   query(ctx) {
     const { inputs, state, params } = ctx;
     const polygons = params.shape === 'mask' && typeof params.mask === 'string' ? parseMask(params.mask).polygons : [];
-    const out: Record<string, EngineEvent[]> = {};
-    const pass: EngineEvent[] = [];
+    const outputs = new Outputs(state);
     for (const { event, route } of routeContacts(state, inputs.in ?? [], (e) => zoneOf(ctx, e, polygons))) {
-      if (route === 0) {
-        pass.push(event);
-        continue;
-      }
-      if (route <= ZONE_OUTPUTS) (out[`zone${route}`] ??= []).push({ ...event, zone: route });
-      (out.zones ??= []).push({ ...event, zone: route });
+      if (route === 0) outputs.pass(event);
+      else outputs.send(route <= ZONE_OUTPUTS ? [`zone${route}`, 'zones'] : ['zones'], { ...event, zone: route });
     }
-    addPass(out, pass);
-    return nonEmpty(out);
+    return outputs.result();
   },
 };
