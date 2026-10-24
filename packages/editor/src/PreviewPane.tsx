@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { keyFields } from './keys';
 import type { LivePatch, PointerPort } from './live';
 
 const MIN = { width: 200, height: 120 };
@@ -114,9 +115,23 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
   // shortcuts (undo, Delete, Tab for the palette) don't fire. Escape always returns to the editor.
   // Only keydown: the shortcuts all fire on it, and React Flow tracks held keys (Space, Shift) from
   // keyup on the document, so swallowing keyup would leave them stuck down.
-  const keep = (event: ReactKeyboardEvent<HTMLCanvasElement>) => {
-    if (event.key === 'Escape') event.currentTarget.blur();
-    else event.stopPropagation();
+  // Every other key goes to the Key node: keydown here, keyup below (Escape is never sent). With a Key in the
+  // patch the canvas is an instrument, so keys lose their page defaults (Space scrolling, quick find), apart
+  // from Tab, which still moves focus, and browser shortcuts with Ctrl or Meta.
+  const keyDown = (event: ReactKeyboardEvent<HTMLCanvasElement>) => {
+    if (event.key === 'Escape') {
+      event.currentTarget.blur();
+      return;
+    }
+    event.stopPropagation();
+    if (!live) return;
+    const fields = keyFields(event.nativeEvent);
+    if (live.reads('keydown') && fields.key !== 'Tab' && !fields.ctrl && !fields.meta) event.preventDefault();
+    live.key('down', fields, event.timeStamp);
+  };
+  // Not stopped: React Flow has to see it (above).
+  const keyUp = (event: ReactKeyboardEvent<HTMLCanvasElement>) => {
+    if (event.key !== 'Escape') live?.key('up', keyFields(event.nativeEvent), event.timeStamp);
   };
 
   // The context menu stays unless a source in the patch reads right-clicks (Platform rules).
@@ -158,9 +173,14 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
           data-testid="performance-canvas"
           tabIndex={0}
           aria-label="Performance canvas"
-          onKeyDown={keep}
+          onKeyDown={keyDown}
+          onKeyUp={keyUp}
           onFocus={() => live?.canvasFocus(true)}
-          onBlur={() => live?.canvasFocus(false)}
+          onBlur={() => {
+            // Keys still down get their keyups before the Blur, so Key's Held lets go.
+            live?.releaseKeys();
+            live?.canvasFocus(false);
+          }}
           onContextMenu={contextMenu}
           onPointerDown={send('down')}
           onPointerMove={send('move')}

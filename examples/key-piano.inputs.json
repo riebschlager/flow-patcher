@@ -1,0 +1,20 @@
+{ "format": "flowinput", "version": 1,
+  "events": [
+    {"time":0.25,"type":"keydown","key":"z","code":"KeyZ","repeat":false,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":0.5,"type":"keydown","key":"q","code":"KeyQ","repeat":false,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":0.75,"type":"keydown","key":"z","code":"KeyZ","repeat":true,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":0.8,"type":"keydown","key":"z","code":"KeyZ","repeat":true,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":0.9,"type":"keyup","key":"z","code":"KeyZ","repeat":false,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":1,"type":"keyup","key":"q","code":"KeyQ","repeat":false,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":1.25,"type":"keydown","key":"e","code":"KeyE","repeat":false,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":1.5,"type":"keydown","key":"#","code":"Digit3","repeat":false,"shift":true,"alt":false,"ctrl":false,"meta":false},
+    {"time":1.5,"type":"keyup","key":"e","code":"KeyE","repeat":false,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":1.7,"type":"keyup","key":"3","code":"Digit3","repeat":false,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":2,"type":"keydown","key":" ","code":"Space","repeat":false,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":2.5,"type":"keydown","key":" ","code":"Space","repeat":true,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":2.53,"type":"keydown","key":" ","code":"Space","repeat":true,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":3,"type":"keyup","key":" ","code":"Space","repeat":false,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":3.25,"type":"keydown","key":"A","code":"KeyA","repeat":false,"shift":true,"alt":false,"ctrl":false,"meta":false},
+    {"time":3.4,"type":"keyup","key":"a","code":"KeyA","repeat":false,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":3.5,"type":"keyup","key":"x","code":"KeyX","repeat":false,"shift":false,"alt":false,"ctrl":false,"meta":false}
+  ] }

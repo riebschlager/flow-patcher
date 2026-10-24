@@ -34,6 +34,7 @@ import {
 } from '@flow-patcher/engine';
 import { nodeRegistry, rendererImage } from '@flow-patcher/nodes';
 import { EventTrack, PROBE_HISTORY } from './event-track';
+import { HeldKeys, keyStartsAudio, type KeyFields } from './keys';
 import { MidiHost } from './midi';
 import { browserRequesters, neededPermissions, Permissions } from './permissions';
 
@@ -251,6 +252,8 @@ export class LivePatch {
   /** The page's visibility for the Canvas node's Hidden and Visible, apart from `onVisibility`, the scheduler's. */
   private readonly onPageVisibility = () => this.canvasVisibility(document.visibilityState);
   private wasRunning = false;
+  /** Keys down on the canvas, to send the keyups the browser won't (Key node). */
+  private readonly keys = new HeldKeys();
 
   /** Starts with an empty patch; `update` brings the document in. */
   constructor() {
@@ -490,8 +493,9 @@ export class LivePatch {
     const cold = this.context.state !== 'running';
     const down = event.type === 'pointerdown';
     // The first pointerdown starts audio. Its push is held until then, so the first touch still sounds (Platform rules).
+    // A keydown on the canvas does too (`keyStartsAudio`): a key press is a user gesture, so the keyboard alone can play.
     // It also asks for the permissions the patch's sources need: a patch asks when it first plays.
-    if (cold && down) {
+    if (cold && (down || keyStartsAudio(event))) {
       void this.context.resume();
       this.permissions.request(this.needed);
     }
@@ -523,6 +527,27 @@ export class LivePatch {
       }
     }
     return pushed;
+  }
+
+  /**
+   * A keydown or keyup on the canvas (Key node), sent to every source that reads it. While audio isn't
+   * running, auto-repeats are dropped (a held key would pile them up for the start), and the rest are
+   * held like a pointerdown; a keydown also starts audio (`keyStartsAudio`). A keyup brings the keyups
+   * the browser won't send (`HeldKeys`).
+   */
+  key(kind: 'down' | 'up', fields: KeyFields, timeStamp?: number): void {
+    if (kind === 'up') {
+      for (const event of this.keys.release(fields)) this.input(event, timeStamp);
+      return;
+    }
+    if (fields.repeat && this.context.state !== 'running') return;
+    this.keys.press(fields);
+    this.input({ type: 'keydown', ...fields }, timeStamp);
+  }
+
+  /** The canvas lost focus: every key still down gets its keyup now, since the canvas won't see it (Key's Held). */
+  releaseKeys(): void {
+    for (const event of this.keys.releaseAll()) this.input(event);
   }
 
   // The canvas's lifecycle (Canvas node). The browser reports changes only, so each one is sent while audio
