@@ -49,10 +49,85 @@ interface Contact {
   last: EngineEvent;
 }
 
-/** Events emitted in one limit window: `k` its index, `n` the count so far. */
+/** Events emitted in one limit window: `k` its index, `n` the count so far. Plain data (ADR 0019). */
 interface Cell {
   k: number;
   n: number;
+}
+
+/** Moves (hovers included) and events with no phase are what the budget thins. */
+export const isThin = (event: EngineEvent): boolean => {
+  const phase = phaseOf(event);
+  return phase === 'move' || phase === null;
+};
+
+/**
+ * A node's output ports and its event budget for one query, shared by runRecognizer and the
+ * routing nodes (Switch, Modifier Router, Zone, Dwell). `state.cell` counts what was emitted in
+ * the current limit window, so the budget doesn't depend on windowing.
+ */
+export class Outputs {
+  readonly out: Record<string, EngineEvent[]> = {};
+  private readonly cell: Cell;
+
+  constructor(state: NodeState) {
+    this.cell = (state.cell ??= { k: -Infinity, n: 0 }) as Cell;
+  }
+
+  /** Counts `cost` events at `time` in its limit window; a `thin` one only while the window has room below RESERVE. */
+  admit(time: number, cost: number, thin: boolean): boolean {
+    const k = limitWindowOf(time);
+    if (k !== this.cell.k) Object.assign(this.cell, { k, n: 0 });
+    if (thin && this.cell.n + cost > NODE_EVENT_LIMIT - RESERVE) return false;
+    this.cell.n += cost;
+    return true;
+  }
+
+  /** Whether `cost` more events at `time` still fit below RESERVE, without counting them. */
+  fits(time: number, cost: number): boolean {
+    const n = limitWindowOf(time) === this.cell.k ? this.cell.n : 0;
+    return n + cost <= NODE_EVENT_LIMIT - RESERVE;
+  }
+
+  push(port: string, event: EngineEvent): void {
+    (this.out[port] ??= []).push(event);
+  }
+
+  /** Emits one event on `port`, unless the budget thins it (`thin`: a move-like event). */
+  emit(port: string, event: EngineEvent, thin = false): void {
+    if (this.admit(event.time, 1, thin)) this.push(port, event);
+  }
+
+  /**
+   * Emits one event on several ports at once (a copy on each after the first), or on none when
+   * the budget thins it. Thin by default are moves and events with no phase.
+   */
+  send(ports: readonly string[], event: EngineEvent, thin = isThin(event)): void {
+    if (!ports.length || !this.admit(event.time, ports.length, thin)) return;
+    ports.forEach((port, i) => this.push(port, i === 0 ? event : { ...event }));
+  }
+
+  /**
+   * Forwards an event on Pass in its tagged shape, and on the Pass port of its phase without
+   * `phase`, as Pointer's per-phase ports carry it. Events with no phase go on Pass alone.
+   * Thin by default are moves and events with no phase.
+   */
+  pass(event: EngineEvent, thin = isThin(event)): void {
+    const phase = phaseOf(event);
+    if (!this.admit(event.time, phase ? 2 : 1, thin)) return;
+    this.push('pass', event);
+    if (phase) {
+      const { phase: _phase, ...rest } = event;
+      this.push(PASS_PHASE[phase], rest as EngineEvent);
+    }
+  }
+
+  /** The ports that got events. */
+  result(): QueryResult {
+    const result: QueryResult = {};
+    for (const [port, events] of Object.entries(this.out)) if (events.length) result[port] = events;
+    return result;
+  }
 }
 
 /** What a recognizer's hooks can do. */
@@ -106,32 +181,12 @@ export const num = (value: unknown, fallback: number): number => (typeof value =
 export function runRecognizer(ctx: Pick<QueryContext, 'inputs' | 'state' | 't0' | 't1' | 'params'>, recognizer: Recognizer): QueryResult {
   const { state, t0, t1 } = ctx;
   const contacts = (state.contacts ??= {}) as Record<number, Contact>;
-  const cell = (state.cell ??= { k: -Infinity, n: 0 }) as Cell;
   const claiming = ctx.params.claim !== false;
-  const out: Record<string, EngineEvent[]> = {};
-  const push = (port: string, event: EngineEvent) => (out[port] ??= []).push(event);
-
-  /** Counts `cost` events at `time` in its limit window; a `thin` one only while the window has room below RESERVE. */
-  const admit = (time: number, cost: number, thin: boolean): boolean => {
-    const k = limitWindowOf(time);
-    if (k !== cell.k) Object.assign(cell, { k, n: 0 });
-    if (thin && cell.n + cost > NODE_EVENT_LIMIT - RESERVE) return false;
-    cell.n += cost;
-    return true;
-  };
-  const forward = (event: EngineEvent, phase: Phase | null) => {
-    if (!admit(event.time, phase ? 2 : 1, phase === 'move' || phase === null)) return;
-    push('pass', event);
-    if (phase) {
-      const { phase: _phase, ...rest } = event;
-      push(PASS_PHASE[phase], rest as EngineEvent);
-    }
-  };
+  const outputs = new Outputs(state);
+  const forward = (event: EngineEvent) => outputs.pass(event);
   let claimsNow: number[] = [];
   const emitter: Emitter = {
-    emit(port, event, thin = false) {
-      if (admit(event.time, 1, thin)) push(port, event);
-    },
+    emit: (port, event, thin = false) => outputs.emit(port, event, thin),
     claim(channel) {
       const contact = contacts[channel];
       if (!claiming || !contact || contact.claimed) return;
@@ -140,7 +195,7 @@ export function runRecognizer(ctx: Pick<QueryContext, 'inputs' | 'state' | 't0' 
     },
     claimed: (channel) => contacts[channel]?.claimed === true,
   };
-  const cancelFor = (channel: number, time: number) => forward({ ...contacts[channel]!.last, time, phase: 'cancel' }, 'cancel');
+  const cancelFor = (channel: number, time: number) => forward({ ...contacts[channel]!.last, time, phase: 'cancel' });
 
   const fireTimers = (until: number, inclusive: boolean) => {
     for (let guard = 0; guard < MAX_TIMERS; guard++) {
@@ -161,25 +216,25 @@ export function runRecognizer(ctx: Pick<QueryContext, 'inputs' | 'state' | 't0' 
     const { channel } = event;
     let contact = contacts[channel];
     if (!phase) {
-      if (!contact?.claimed) forward(event, null);
+      if (!contact?.claimed) forward(event);
       continue;
     }
     if (phase === 'down') contacts[channel] = contact = { claimed: false, last: event };
     else if (!contact) {
       // A hover move, or an end with no contact open: nothing to recognize or claim.
-      forward(event, phase);
+      forward(event);
       continue;
     } else contact.last = event;
     const wasClaimed = phase !== 'down' && contact.claimed;
     claimsNow = [];
     recognizer.event(event, phase, emitter);
-    if (claimsNow.includes(channel)) forward({ ...event, phase: 'cancel' }, 'cancel');
-    else if (!wasClaimed) forward(event, phase);
+    if (claimsNow.includes(channel)) forward({ ...event, phase: 'cancel' });
+    else if (!wasClaimed) forward(event);
     for (const other of claimsNow) if (other !== channel) cancelFor(other, event.time);
     if (phase === 'up' || phase === 'cancel') delete contacts[channel];
   }
   fireTimers(t1, false);
-  return out;
+  return outputs.out;
 }
 
 /** A signal's history: steps in time order, each in force from its time until the next. */

@@ -5,6 +5,7 @@ import { clock } from './clock';
 import { curve } from './curve';
 import { delayEdge } from './delay-edge';
 import { drag } from './drag';
+import { dwell } from './dwell';
 import { euclidean } from './euclidean';
 import { filter } from './filter';
 import { flick } from './flick';
@@ -18,6 +19,7 @@ import { mapRange } from './map-range';
 import { math } from './math';
 import { midiIn } from './midi-in';
 import { mixer } from './mixer';
+import { modifierRouter } from './modifier-router';
 import { orbitRings } from './orbit-rings';
 import { output } from './output';
 import { pan } from './pan';
@@ -33,16 +35,18 @@ import { simpleSynth } from './simple-synth';
 import { smooth } from './smooth';
 import { splat } from './splat';
 import { stroke } from './stroke';
+import { switchNode } from './switch';
 import { tap } from './tap';
 import { thresholdChange } from './threshold-change';
+import { zone } from './zone';
 
 export { rendererImage } from './renderer';
 export { InstrumentCache, instrumentCache, type InstrumentListener, type InstrumentStatus } from './instruments';
 export { skippedNotes } from './sampled-voice';
 export { INSTRUMENTS, INSTRUMENT_GROUPS, INSTRUMENT_KEYS, instrumentFile } from './music';
-export { chordTone, circle, clock, curve, delayEdge, drag, euclidean, filter, flick, fluid, force, gain, getField, hold, makeNote, mapRange, math, midiIn, mixer, orbitRings, output, pan, pinch, pointer, pointerHighRate, probability, progression, renderer, sampleAndHold, sampledVoice, simpleSynth, smooth, splat, stroke, tap, thresholdChange };
+export { chordTone, circle, clock, curve, delayEdge, drag, dwell, euclidean, filter, flick, fluid, force, gain, getField, hold, makeNote, mapRange, math, midiIn, mixer, modifierRouter, orbitRings, output, pan, pinch, pointer, pointerHighRate, probability, progression, renderer, sampleAndHold, sampledVoice, simpleSynth, smooth, splat, stroke, switchNode, tap, thresholdChange, zone };
 
 /** Every node type, in palette order. Add new node files here. */
-export const nodeDefinitions: readonly NodeDefinition[] = [pointer, pointerHighRate, midiIn, drag, tap, hold, flick, circle, pinch, stroke, clock, euclidean, probability, delayEdge, sampleAndHold, thresholdChange, math, mapRange, curve, smooth, getField, progression, chordTone, makeNote, sampledVoice, simpleSynth, filter, gain, pan, mixer, output, fluid, splat, force, orbitRings, renderer];
+export const nodeDefinitions: readonly NodeDefinition[] = [pointer, pointerHighRate, midiIn, drag, tap, hold, flick, circle, pinch, stroke, modifierRouter, zone, dwell, clock, euclidean, probability, delayEdge, sampleAndHold, thresholdChange, math, mapRange, curve, smooth, getField, switchNode, progression, chordTone, makeNote, sampledVoice, simpleSynth, filter, gain, pan, mixer, output, fluid, splat, force, orbitRings, renderer];
 
 export const nodeRegistry: ReadonlyMap<string, NodeDefinition> = new Map(nodeDefinitions.map((d) => [d.type, d]));

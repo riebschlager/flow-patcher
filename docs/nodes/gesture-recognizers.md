@@ -11,9 +11,9 @@ Recognizers consume raw [canvas source](canvas-sources.md) events and emit highe
 | Circle | Orbit start, Angle signal (unwrapped), Revolutions, Direction, Orbit end | Minimum radius, closure tolerance | Flow's Orbit (`gestures.js` / `performance.js`) |
 | Pinch | Pinch in, Spread, Scale and Rotation signals, midpoint | Pair selection, thresholds | `gestures.js` |
 | Stroke | Per-stroke path length, curvature, average speed; Silk/Rush classification | Speed split point | `gestures.js` / `performance.js` |
-| Dwell | Fires when a pointer hovers in one spot (mouse and pen only) | Radius, time | New |
-| Zone | Splits events by canvas region: grid cells, left/right, rings, or a drawn mask | Rows, columns, shape | New |
-| Modifier Router | Routes events to different outputs by button or modifier (right-drag → output 2) | Mapping table | New |
+| Dwell | Fires when a pointer hovers in one spot (mouse and pen only), including right after a click; never claims. Fires at a still edge after the mouse leaves until All gets a hover-end marker (#101) | Radius, time | New |
+| Zone | Splits events by canvas region: grid cells, left/right or rings (a drawn mask waits for an editor drawing tool, #102). Zone 1–8 outputs plus Zones (every zone, with a `zone` field) | Shape, rows, columns, split, rings, center, radius, Outputs (All phases / Presses only) | New |
+| Modifier Router | Routes each contact by button or modifier to Out 1–4, else Pass (defaults: right-drag or Shift → Out 1 = Conduct, Alt → Out 2 = Space, Pass = Paint) | Route 1–4: terms joined by `,` (or) and `+` (and) | New |
 
 Flow's recognizers live inside a mode-based controller. Borrowing them means splitting that controller into separate recognizers, each with a Pass output.
 
@@ -28,7 +28,8 @@ Flow's recognizers live inside a mode-based controller. Borrowing them means spl
 - A claim decided by time alone (Tap's Long press, Hold reaching its Min charge) has no In event to replace. Its cancel goes out on Pass at that moment, repeating the contact's latest event.
 - Every recognizer has a **Claim** toggle: on by default for Pinch, Drag, Hold and Circle, off for Tap, Flick and Stroke. Off, it still recognizes, but Pass carries everything ([ADR 0028](../decisions/0028-recognizers-pass-claim-cancel.md), amended 2026-10-24).
 - Chaining recognizers through Pass sets priority. With Pinch → Circle → Paint, pinch wins, circle comes next, and painting gets what's left.
-- Switch and Modifier Router keep each contact on the output it started on until it ends.
+- Switch and Modifier Router keep each contact on the output it started on until it ends. Their routed outputs carry every phase in the tagged shape, so the mode patches put a recognizer after each routed output (Drag with Claim off gives one Start per drag, at the move that crosses its threshold; a recognizer's Pass Down gives one event per press).
+- Zone instead follows the pointer, on purpose: a contact that crosses from zone A into zone B gets an `up` in A and a `down` in B at the crossing move's time and place, so every zone's stream stays well formed; leaving every zone works the same way into Pass. With Outputs set to Presses only, Zone 1–8 carry only downs (crossing downs included), so a slide across pads plays each pad.
 - Test every recognizer for: claim timing (the cancel lands at the triggering event's time), no Pass events from a claimed channel after the claim, exactly one Cancel per claimed channel, and independent state for channels it hasn't paired.
 
 ## Flow's tool modes

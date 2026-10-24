@@ -1,0 +1,15 @@
+{ "format": "flowinput", "version": 1,
+  "events": [
+    {"time":0.5,"type":"pointerdown","channel":1,"x":0.2,"y":0.2,"pressure":0.6,"pointerType":"touch"},
+    {"time":0.6,"type":"pointerup","channel":1,"x":0.2,"y":0.2,"pressure":0,"pointerType":"touch"},
+    {"time":1,"type":"pointerdown","channel":2,"x":0.8,"y":0.2,"pressure":0.6,"pointerType":"touch"},
+    {"time":1.1,"type":"pointerup","channel":2,"x":0.8,"y":0.2,"pressure":0,"pointerType":"touch"},
+    {"time":1.5,"type":"pointerdown","channel":3,"x":0.2,"y":0.8,"pressure":0.6,"pointerType":"touch"},
+    {"time":1.6,"type":"pointerup","channel":3,"x":0.2,"y":0.8,"pressure":0,"pointerType":"touch"},
+    {"time":2,"type":"pointerdown","channel":4,"x":0.8,"y":0.8,"pressure":0.6,"pointerType":"touch"},
+    {"time":2.1,"type":"pointerup","channel":4,"x":0.8,"y":0.8,"pressure":0,"pointerType":"touch"},
+    {"time":2.6,"type":"pointerdown","channel":5,"x":0.3,"y":0.3,"pressure":0.6,"pointerType":"touch"},
+    {"time":2.8,"type":"pointermove","channel":5,"x":0.7,"y":0.4,"pressure":0.6,"pointerType":"touch"},
+    {"time":3,"type":"pointermove","channel":5,"x":0.8,"y":0.8,"pressure":0.6,"pointerType":"touch"},
+    {"time":3.2,"type":"pointerup","channel":5,"x":0.8,"y":0.8,"pressure":0,"pointerType":"touch"}
+  ] }

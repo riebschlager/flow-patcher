@@ -1,0 +1,14 @@
+{ "format": "flowinput", "version": 1,
+  "events": [
+    {"time":0.2,"type":"pointerenter","channel":1,"x":0,"y":0.5,"pointerType":"mouse"},
+    {"time":0.25,"type":"pointermove","channel":1,"x":0.1,"y":0.5,"pressure":0,"pointerType":"mouse","button":-1,"buttons":0},
+    {"time":0.4,"type":"pointermove","channel":1,"x":0.3,"y":0.5,"pressure":0,"pointerType":"mouse","button":-1,"buttons":0},
+    {"time":0.55,"type":"pointermove","channel":1,"x":0.4,"y":0.45,"pressure":0,"pointerType":"mouse","button":-1,"buttons":0},
+    {"time":0.7,"type":"pointermove","channel":1,"x":0.405,"y":0.45,"pressure":0,"pointerType":"mouse","button":-1,"buttons":0},
+    {"time":1.6,"type":"pointermove","channel":1,"x":0.6,"y":0.4,"pressure":0,"pointerType":"mouse","button":-1,"buttons":0},
+    {"time":1.8,"type":"pointerdown","channel":1,"x":0.6,"y":0.4,"pressure":0.5,"pointerType":"mouse","button":0,"buttons":1},
+    {"time":2,"type":"pointerup","channel":1,"x":0.6,"y":0.4,"pressure":0,"pointerType":"mouse","button":0,"buttons":0},
+    {"time":2.9,"type":"pointermove","channel":1,"x":0.9,"y":0.2,"pressure":0,"pointerType":"mouse","button":-1,"buttons":0},
+    {"time":3,"type":"pointermove","channel":1,"x":0.905,"y":0.2,"pressure":0,"pointerType":"mouse","button":-1,"buttons":0},
+    {"time":3.7,"type":"pointerleave","channel":1,"x":1,"y":0.2,"pointerType":"mouse"}
+  ] }
