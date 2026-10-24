@@ -15,6 +15,7 @@ import { midiIn } from './midi-in';
 import { math } from './math';
 import { orbitRings } from './orbit-rings';
 import { output } from './output';
+import { pan } from './pan';
 import { pointer } from './pointer';
 import { pointerHighRate } from './pointer-high-rate';
 import { probability } from './probability';
@@ -31,9 +32,9 @@ export { rendererImage } from './renderer';
 export { InstrumentCache, instrumentCache, type InstrumentListener, type InstrumentStatus } from './instruments';
 export { skippedNotes } from './sampled-voice';
 export { INSTRUMENTS, INSTRUMENT_GROUPS, INSTRUMENT_KEYS, instrumentFile } from './music';
-export { chordTone, clock, curve, delayEdge, euclidean, filter, fluid, force, gain, getField, makeNote, mapRange, math, midiIn, orbitRings, output, pointer, pointerHighRate, probability, progression, renderer, sampleAndHold, sampledVoice, simpleSynth, smooth, splat, thresholdChange };
+export { chordTone, clock, curve, delayEdge, euclidean, filter, fluid, force, gain, getField, makeNote, mapRange, math, midiIn, orbitRings, output, pan, pointer, pointerHighRate, probability, progression, renderer, sampleAndHold, sampledVoice, simpleSynth, smooth, splat, thresholdChange };
 
 /** Every node type, in palette order. Add new node files here. */
-export const nodeDefinitions: readonly NodeDefinition[] = [pointer, pointerHighRate, midiIn, clock, euclidean, probability, delayEdge, sampleAndHold, thresholdChange, math, mapRange, curve, smooth, getField, progression, chordTone, makeNote, sampledVoice, simpleSynth, filter, gain, output, fluid, splat, force, orbitRings, renderer];
+export const nodeDefinitions: readonly NodeDefinition[] = [pointer, pointerHighRate, midiIn, clock, euclidean, probability, delayEdge, sampleAndHold, thresholdChange, math, mapRange, curve, smooth, getField, progression, chordTone, makeNote, sampledVoice, simpleSynth, filter, gain, pan, output, fluid, splat, force, orbitRings, renderer];
 
 export const nodeRegistry: ReadonlyMap<string, NodeDefinition> = new Map(nodeDefinitions.map((d) => [d.type, d]));
