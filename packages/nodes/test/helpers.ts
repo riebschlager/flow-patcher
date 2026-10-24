@@ -4,6 +4,7 @@ import {
   createNodeContext,
   resolveParams,
   type AudioContextLike,
+  type AudioNodeLike,
   type AudioSetupContext,
   type BoundContext,
   type EngineEvent,
@@ -172,4 +173,19 @@ export async function swapRun(definition: NodeDefinition, params: Record<string,
     swap = (values) => reports.push(runtime.swap(compile(patch(values)), { now: audio.currentTime }));
   }, { edits: params.slice(1).map((values, i) => ({ time: 0.2 + 0.1 * i, apply: () => swap(values) })) });
   return { reports, built };
+}
+
+/** A sine at `hz` with RMS `level / √2`, started at 0, panned hard left (−1) or right (1) when `side` is given. */
+export function sine(context: AudioContextLike, hz: number, level = 0.5, side?: -1 | 1): AudioNodeLike {
+  const osc = context.createOscillator(), amp = context.createGain();
+  osc.frequency.value = hz;
+  amp.gain.value = level;
+  osc.connect(amp);
+  osc.start(0);
+  if (side === undefined) return amp;
+  // The test context is node-web-audio-api's, which has StereoPannerNode; the engine's AudioContextLike doesn't list it.
+  const panner = (context as AudioContextLike & { createStereoPanner(): AudioNodeLike & { pan: { value: number } } }).createStereoPanner();
+  panner.pan.value = side;
+  amp.connect(panner);
+  return panner;
 }
