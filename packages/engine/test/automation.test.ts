@@ -150,7 +150,6 @@ function setup(patch: Patch, opts: { update?: boolean; keepState?: boolean } = {
 }
 const set = (time: number, value: number): EngineEvent => ({ time, channel: 0, value });
 const grid = new Set(automationTimes(0, 10));
-const onGrid = (events: FakeParam['events']) => events.filter((e) => grid.has(e.time));
 const offGrid = (events: FakeParam['events']) => events.filter((e) => !grid.has(e.time));
 /** The largest change between samples 0.1 ms apart in [from, to). */
 function steepest(p: FakeParam, from: number, to: number): number {
@@ -223,19 +222,17 @@ describe('AudioInstance.automate', () => {
     expect(timeline([0, 0.1234, 0.5, 1]).cutoff.events).toEqual(one);
   });
 
-  it('is idempotent across a rewind: the grid points of when the live event was known from the start, the ramp in progress kept up to it', () => {
+  it('is idempotent across a rewind: the timeline of when the live event was known from the start, but for the ramp being played', () => {
     const event = set(0.4321, 2);
     const known = timeline([0, 0.25, 0.5, 0.75, 1], { event, after: 0 });
-    expect(offGrid(known.cutoff.events)).toEqual([]);
     // Pushed after [0.25, 0.5) was queried: rewinds into it.
     for (const [bounds, after] of [[[0, 0.25, 0.5, 0.75, 1], 0.5], [[0, 0.1, 0.45, 1], 0.45]] as const) {
       const rewound = timeline([...bounds], { event: set(0.4321, 2), after });
-      expect(onGrid(rewound.cutoff.events)).toEqual(known.cutoff.events);
-      expect(rewound.cutoff.events.some((e) => e.value > 1.5)).toBe(true);
-      // The rewind starts at the event, inside the ramp to 26/60: that ramp keeps its course up to the event.
       const before = timeline([...bounds]).cutoff;
-      expect(offGrid(rewound.cutoff.events)).toEqual([{ kind: 'linear', value: before.at(0.4321), time: 0.4321 }]);
-      for (let t = 25 / 60; t <= 0.4321; t += 1e-4) expect(rewound.cutoff.at(t)).toBeCloseTo(before.at(t), 12);
+      // The rewind starts at the event, inside the ramp to 26/60: that ramp is kept whole, and the event shows from 27/60.
+      const end = 26 / 60;
+      expect(rewound.cutoff.events).toEqual(known.cutoff.events.map((e) => (e.time === end ? before.events.find((b) => b.time === end)! : e)));
+      expect(rewound.cutoff.events.some((e) => e.value > 1.5)).toBe(true);
     }
   });
 
@@ -260,47 +257,61 @@ describe('AudioSetupContext.connected', () => {
 
 describe('paramAutomation', () => {
   const wave = (t: number) => Math.sin(7 * t) + 2;
+  const lifted = (t: number) => wave(t) + 5;
+  /** The first grid point at or after t: the end of the ramp a re-run from t keeps. */
+  const end = (t: number) => automationTimes(t, t + 1)[0]!;
 
   it('a re-run with an unchanged value leaves the param\'s course as it was, wherever it starts', () => {
     const once = new FakeParam();
     paramAutomation(once).follow(0, 1, wave);
-    for (const starts of [[0.3], [0.31, 0.2], [0.4, 0.4], [21 / 60, 0.35, 0.61], [0.5 + 1e-9]]) {
+    for (const starts of [[0.3], [0.31, 0.2], [0.4, 0.4], [21 / 60, 0.35, 0.61], [0.5 + 1e-9], [0.5 - 1e-9]]) {
       const p = new FakeParam();
       const automation = paramAutomation(p);
       automation.follow(0, 0.7, wave);
       automation.follow(0.7, 1, wave);
       for (const t0 of starts) automation.follow(t0, 1, wave);
-      for (let t = 0; t < 1.02; t += 1e-3) expect(p.at(t)).toBeCloseTo(once.at(t), 12);
+      expect(p.events).toEqual(once.events);
     }
   });
 
-  it('a re-run with a new value keeps the ramp in progress up to its start, then ramps to the next grid point', () => {
+  it('a re-run with a new value keeps the ramp being played whole and reaches the new value at the grid point after it', () => {
     const p = new FakeParam();
     const automation = paramAutomation(p);
     automation.follow(0, 1, wave);
     const before = new FakeParam();
     paramAutomation(before).follow(0, 1, wave);
-    const lifted = (t: number) => wave(t) + 5;
-    for (const t0 of [0.31, 0.6]) {
+    for (const t0 of [0.31, 30 / 60, 0.6]) {
       automation.follow(t0, 1, lifted);
-      for (let t = 0; t <= t0; t += 1e-4) expect(p.at(t)).toBeCloseTo(before.at(t), 12);
-      const next = Math.ceil(t0 * 60) / 60;
+      const kept = end(t0), next = kept + 1 / 60;
+      // Unchanged up to the end of the ramp t0 falls in (or ends at)...
+      for (let t = 0; t <= kept; t += 1e-4) expect(p.at(t)).toBeCloseTo(before.at(t), 12);
+      // ...then the new values, from the grid point after it.
       expect(p.at(next)).toBeCloseTo(lifted(next), 12);
-      expect(steepest(p, t0 - 0.02, next + 0.02)).toBeLessThanOrEqual((6 / (next - t0)) * 1e-4);
-      // From the next grid point on, the new values.
-      for (const e of p.events.filter((e) => e.time > next)) expect(e.value).toBe(lifted(e.time));
+      for (const e of p.events.filter((e) => e.time > kept)) expect(e.value).toBe(lifted(e.time));
+      expect(p.events.map((e) => e.time)).toEqual(automationTimes(0, 1));
       before.events = p.events.slice();
     }
   });
 
-  it('never changes the course up to t0 between its calls, so a render between them sees the old one', () => {
+  it('keeps the slope bounded however close to a grid point a re-run starts: a new ramp spans at least 1/60 s', () => {
+    for (const t0 of [30 / 60 - 1e-4, 30 / 60 - 1e-9, 30 / 60, 30 / 60 + 1e-4]) {
+      const p = new FakeParam();
+      const automation = paramAutomation(p);
+      automation.follow(0, 1, wave);
+      automation.follow(t0, 1, lifted);
+      // A change of 5 over at least 1/60 s, on top of the wave's own slope of at most 7.
+      expect(steepest(p, 0.4, 0.7)).toBeLessThanOrEqual((5 * 60 + 7) * 1e-4 + 1e-9);
+    }
+  });
+
+  it('never changes the course up to the kept point between its calls, so a render between them sees the old one', () => {
     const p = new FakeParam();
     const automation = paramAutomation(p);
     automation.follow(0, 1, wave);
-    const t0 = 0.3123, from = 18 / 60;
-    const course = () => Array.from({ length: 50 }, (_, i) => p.at(from + ((t0 - from) * i) / 49));
+    const t0 = 0.3123, from = 18 / 60, kept = end(t0);
+    const course = () => Array.from({ length: 50 }, (_, i) => p.at(from + ((kept - from) * i) / 49));
     const played = course();
-    // After each call the re-run makes, the param runs as before up to t0.
+    // After each call the re-run makes, the param runs as before up to the end of the ramp being played.
     const seen: number[][] = [];
     for (const name of ['linearRampToValueAtTime', 'cancelScheduledValues'] as const) {
       const call = p[name].bind(p) as (...args: number[]) => void;
@@ -309,29 +320,20 @@ describe('paramAutomation', () => {
         seen.push(course());
       }) as never;
     }
-    automation.follow(t0, 1, (t) => wave(t) + 5);
+    automation.follow(t0, 1, lifted);
     expect(seen.length).toBeGreaterThan(2);
     for (const c of seen) for (let i = 0; i < c.length; i++) expect(c[i]).toBeCloseTo(played[i]!, 12);
   });
 
-  it('a re-run starting on a grid point keeps the old value there and starts the new ones after it', () => {
-    const p = new FakeParam();
-    const automation = paramAutomation(p);
-    automation.follow(0, 1, wave);
-    const t0 = 30 / 60;
-    automation.follow(t0, 1, (t) => wave(t) + 5);
-    expect(p.events.filter((e) => e.time === t0)).toEqual([{ kind: 'linear', value: wave(t0), time: t0 }]);
-    expect(p.at(31 / 60)).toBe(wave(31 / 60) + 5);
-  });
-
-  it('still keeps the ramp in progress for a re-run AUTOMATION_MEMORY back after a long run, which prunes older points', () => {
+  it('still keeps the ramp being played for a re-run AUTOMATION_MEMORY back after a long run, which prunes older points', () => {
     const p = new FakeParam();
     const automation = paramAutomation(p);
     for (let k = 0; k < 600; k++) automation.follow(k * 0.025, (k + 1) * 0.025, wave);
     const t0 = 600 * 0.025 - AUTOMATION_MEMORY + 0.001;
-    const course = p.at(t0);
-    automation.follow(t0, 15, (t) => wave(t) + 5);
-    expect(p.at(t0)).toBeCloseTo(course, 12);
+    const course = p.at(end(t0));
+    automation.follow(t0, 15, lifted);
+    expect(p.at(end(t0))).toBeCloseTo(course, 12);
+    expect(p.at(end(t0) + 1 / 60)).toBeCloseTo(lifted(end(t0) + 1 / 60), 12);
   });
 });
 
@@ -381,32 +383,32 @@ describe('in-place knob edits', () => {
     expect(run.built.length).toBe(1);
     expect(report.updated).toEqual(['f']);
     const sine = (t: number) => 0.25 * Math.sin(2 * Math.PI * t);
-    for (const e of onGrid(b.cutoff.events)) expect(e.value).toBeCloseTo(sine(e.time) + (e.time < report.time ? 1 : 3) + (e.time >= lift ? 1 : 0), 12);
-    expect(onGrid(b.cutoff.events).map((e) => e.time)).toEqual(automationTimes(0, 0.8 + 0.12 - 0.025));
-    // The re-runs began inside a ramp, which each kept up to its start (#103).
-    for (const e of offGrid(b.cutoff.events)) expect([lift, report.time]).toContain(e.time);
+    // Each re-run keeps the ramp it starts in whole: its change shows from the grid point after that ramp's end.
+    const end = (t: number) => automationTimes(t, t + 1)[0]!;
+    expect(offGrid(b.cutoff.events)).toEqual([]);
+    for (const e of b.cutoff.events) expect(e.value).toBeCloseTo(sine(e.time) + (e.time > end(report.time) ? 3 : 1) + (e.time > end(lift) ? 1 : 0), 12);
+    expect(b.cutoff.events.map((e) => e.time)).toEqual(automationTimes(0, 0.8 + 0.12 - 0.025));
   });
 
-  it('keeps the ramp in progress up to the swap time when a knob turn changes a modulated param\'s base, so it never steps (#103)', () => {
+  it('keeps the ramp being played whole when a knob turn changes a modulated param\'s base, so it never steps (#103)', () => {
     const run = live();
     run.wakeTo(0.5);
     const b = run.built[0]!;
     const course = (from: number, to: number) => Array.from({ length: Math.round((to - from) / 1e-4) }, (_, i) => b.cutoff.at(from + i * 1e-4));
     const played = course(0.45, 0.5);
     const report = run.edit(0.49, { cutoff: 3 });
-    // Inside the ramp from 29/60 to 30/60, which the swap's re-run cancels.
+    // Inside the ramp from 29/60 to 30/60, which the swap's re-run keeps.
     expect(report.time).toBeGreaterThan(29 / 60);
     expect(report.time).toBeLessThan(30 / 60);
     run.wakeTo(0.8);
     expect(run.built.length).toBe(1);
-    // Up to the swap time the param runs as it did before the edit...
+    // Up to the end of that ramp the param runs as it did before the edit...
     const kept = course(0.45, 0.5);
-    for (let i = 0; 0.45 + i * 1e-4 <= report.time; i++) expect(kept[i]).toBeCloseTo(played[i]!, 12);
-    // ...then ramps to the new base by the next grid point, with no step on the way.
-    expect(b.cutoff.at(0.5)).toBeCloseTo(0.25 * Math.sin(Math.PI) + 3, 12);
-    const slope = 2 / (0.5 - report.time) + 2 * Math.PI * 0.25;
+    for (let i = 0; i < kept.length; i++) expect(kept[i]).toBeCloseTo(played[i]!, 12);
+    // ...then ramps to the new base by the grid point after it, over 1/60 s, with no step on the way.
+    expect(b.cutoff.at(31 / 60)).toBeCloseTo(0.25 * Math.sin((2 * Math.PI * 31) / 60) + 3, 12);
+    const slope = 2 * 60 + 2 * Math.PI * 0.25;
     expect(steepest(b.cutoff, 0.45, 0.6)).toBeLessThanOrEqual(slope * 1e-4 + 1e-9);
-
   });
 
   it('still rebuilds for a param it did not opt in, or without update()', () => {

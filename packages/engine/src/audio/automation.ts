@@ -48,13 +48,15 @@ export interface ParamAutomation {
  *
  * It remembers the points it scheduled, so a re-run (a rewind or swap calling
  * it again for a stretch already covered) whose t0 falls inside a scheduled ramp
- * keeps that ramp's shape up to t0: it adds a point at t0 on the ramp, then
- * cancels the ramp's end, and the new values start at the next grid point after
- * t0. Without that, the ramp being played would get a new end, and
- * the param would step by the change times the share of the ramp already played
- * (#103). With an unchanged value the point at t0 lies on the old line, so a
- * re-run leaves the param's course as it was, and the course after forward runs
- * depends only on the grid points covered, not on window splits.
+ * keeps that ramp whole: it cancels only after the ramp's end point, and the new
+ * values start at the grid point after it. Cancelling at t0 would give the ramp
+ * being played a new end, and the param would step by the change times the share
+ * of the ramp already played (#103). So a re-run takes effect up to one grid step
+ * later, each new ramp spans 1/60 to 2/60 s (slopes stay bounded), and a render
+ * already past t0 but not past the kept point sees no change. With an unchanged
+ * value the kept point is the one the re-run would schedule, so a re-run leaves
+ * the param's course as it was, and the course after forward runs depends only
+ * on the grid points covered, not on window splits.
  */
 export function paramAutomation(target: AudioParamLike, rate = AUTOMATION_RATE): ParamAutomation {
   // What is scheduled on target, in time order; times are distinct.
@@ -64,24 +66,15 @@ export function paramAutomation(target: AudioParamLike, rate = AUTOMATION_RATE):
       if (!Number.isFinite(t0)) return;
       let at = points.length;
       while (at > 0 && points[at - 1]!.time >= t0) at--;
-      const before = points[at - 1], after = points[at];
-      // The first point the new values replace: where the param is at t0 stays.
-      let from = -Infinity;
-      if (after && after.time === t0) {
-        // t0 is on a scheduled point: keep it, and replace what follows it.
+      // The end of the ramp t0 falls in, if one is scheduled: kept, with what comes before it.
+      const kept = points[at];
+      if (kept) {
         at++;
-        from = t0;
-      } else if (before && after) {
-        // Inside a ramp: add its value at t0 before cancelling its end. In this order the param's course
-        // never changes between the two calls, so a render that runs between them sees the old one.
-        const v = before.value + ((after.value - before.value) * (t0 - before.time)) / (after.time - before.time);
-        target.linearRampToValueAtTime(v, t0);
-        points.splice(at++, 0, { time: t0, value: v });
-        from = t0;
-      }
-      // Cancels from the first point replaced; with none scheduled from t0 on, from t0 as before.
-      target.cancelScheduledValues(points[at]?.time ?? t0);
+        // Cancels only what follows it; nothing at all if nothing does.
+        if (at < points.length) target.cancelScheduledValues(points[at]!.time);
+      } else target.cancelScheduledValues(t0);
       points.length = at;
+      const from = kept ? kept.time : -Infinity;
       for (const t of automationTimes(t0, t1, rate)) {
         if (!(t > from)) continue;
         const v = value(t);

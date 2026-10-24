@@ -241,7 +241,7 @@ export interface AudioInstance {
    * is never before the clock at hand-over. A rewind or swap calls it again for
    * a chunk it already covered, from the re-run's start, so it must be
    * idempotent: cancel what it scheduled from t0 on and schedule again,
-   * keeping the ramp in progress at t0 (a `paramAutomation` per param does it). Sample on an absolute grid (t = k /
+   * keeping the ramp t0 falls in whole (a `paramAutomation` per param does it). Sample on an absolute grid (t = k /
    * AUTOMATION_RATE, `automationTimes`), not at t0 or per chunk, so the
    * values don't depend on how time was split into windows. Skip params with
    * no cable (`AudioSetupContext.connected`): their base value doesn't move.
@@ -255,7 +255,7 @@ export interface AudioInstance {
    * unmodulated param that changed to its new value from `time` (an `editRamp`
    * per param), never jump. Modulated ones need nothing here: the swap re-runs the windows
    * from `time`, and `automate` (whose `param()` sees the new base) ramps them
-   * from where the param is at `time` to the next grid point (`paramAutomation`).
+   * from the end of the ramp being played at `time`, over the next grid step (`paramAutomation`).
    * Without it, the runtime builds a new instance as for any other edit.
    */
   update?(params: ParamValues, time: number): void;
