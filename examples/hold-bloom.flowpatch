@@ -1,0 +1,144 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261028,
+  "nodes": [
+    {
+      "id": "pointer",
+      "type": "pointer",
+      "typeVersion": 2,
+      "params": {},
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "hold",
+      "type": "hold",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 240,
+        "y": 100
+      }
+    },
+    {
+      "id": "touch",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.25,
+        "pitch": 72,
+        "velocity": 0.6
+      },
+      "position": {
+        "x": 480,
+        "y": 0
+      }
+    },
+    {
+      "id": "bloom",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 2,
+        "pitch": 55,
+        "velocity": 0.8
+      },
+      "position": {
+        "x": 480,
+        "y": 160
+      }
+    },
+    {
+      "id": "synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.02,
+        "level": 0.3,
+        "release": 0.6,
+        "wave": "triangle"
+      },
+      "position": {
+        "x": 720,
+        "y": 100
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 960,
+        "y": 100
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "pointer",
+        "port": "all"
+      },
+      "to": {
+        "node": "hold",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "hold",
+        "port": "passDown"
+      },
+      "to": {
+        "node": "touch",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "hold",
+        "port": "release"
+      },
+      "to": {
+        "node": "bloom",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "touch",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "bloom",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    }
+  ]
+}
