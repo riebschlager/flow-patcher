@@ -223,17 +223,77 @@ describe('pointer', () => {
     expect(dx[2]).toBeCloseTo(2, 9);
   });
 
-  it('puts every event on All in time order with its phase, hover moves included, and nothing for enter or leave', () => {
+  it('puts every event on All in time order with its phase, hover moves included, and a leave only for a hovering pointer', () => {
     const all = events(session, 'all');
     expect(all.map((e) => [e.time, e.channel, e.phase])).toEqual([
       [0.06, 1, 'move'], [0.08, 1, 'move'], [0.1, 2, 'down'], [0.12, 1, 'down'], [0.14, 2, 'move'], [0.15, 3, 'down'],
       [0.2, 2, 'up'], [0.25, 2, 'down'], [0.3, 1, 'move'], [0.32, 1, 'up'], [0.34, 1, 'move'], [0.4, 3, 'cancel'],
-      [0.5, 2, 'up'], [0.6, 1, 'down'], [0.7, 1, 'cancel'],
+      [0.45, 1, 'leave'], [0.5, 2, 'up'], [0.6, 1, 'down'], [0.7, 1, 'cancel'],
     ]);
-    // One per down, move, up and cancel pushed; enter and leave emit nothing.
-    expect(all).toHaveLength(session.filter((p) => p.port !== 'enter' && p.port !== 'leave').length);
+    // One per down, move, up and cancel pushed, and one for the mouse's leave while hovering. Enter emits
+    // nothing, and touch 41's leave after its up finds no slot left to free.
+    expect(all).toHaveLength(session.filter((p) => p.port !== 'enter' && p.port !== 'leave').length + 1);
+    // The leave is on All only, with the slot's last hover position (0.45, 0.5), not the leave's own.
+    expect(all.find((e) => e.phase === 'leave')).toEqual({ time: 0.45, channel: 1, x: 0.45, y: 0.5, pressure: 0, pointerType: 'mouse', dx: 0, dy: 0, speed: 0, angle: 0, age: 0, phase: 'leave' });
+    for (const port of PHASES) expect(events(session, port).some((e) => e.time === 0.45), port).toBe(false);
+    // A pointer that enters and leaves without moving emitted nothing, so it gets no leave.
     const only = [{ port: 'enter', event: { time: 0.1, channel: 2 } }, { port: 'leave', event: { time: 0.2, channel: 2 } }] as Push[];
     expect(query(pointer, 0, 1, { pushed: pushedOf(only) })).toEqual({});
+    // A leave while down, or from a pointer never seen, emits nothing.
+    const pressed = [{ port: 'down', event: { time: 0.1, channel: 2 } }, { port: 'leave', event: { time: 0.2, channel: 2 } }, { port: 'leave', event: { time: 0.3, channel: 9 } }] as Push[];
+    expect(events(pressed, 'all').map((e) => e.phase)).toEqual(['down']);
+  });
+
+  it('marks a leave only for a holder that emitted since it took the slot, never with a previous holder\'s fields', () => {
+    // Mouse A hovers at (0.8, 0.8) and leaves; pen B takes slot 1 and leaves without moving: no leave for B.
+    const a: Push[] = [
+      { port: 'enter', event: { time: 0.1, channel: 1, x: 0.8, y: 0.8, pointerType: 'mouse' } },
+      { port: 'move', event: { time: 0.15, channel: 1, x: 0.8, y: 0.8, pressure: 0.1, pointerType: 'mouse', buttons: 0, alt: true } },
+      { port: 'leave', event: { time: 0.2, channel: 1, x: 1, y: 0.8, pointerType: 'mouse' } },
+    ];
+    const silent: Push[] = [...a, { port: 'enter', event: { time: 0.3, channel: 2, x: 0, y: 0.2, pointerType: 'pen' } }, { port: 'leave', event: { time: 0.4, channel: 2, x: 0, y: 0.2, pointerType: 'pen' } }];
+    const leaves = (list: Push[], step = 1) => events(list, 'all', step).filter((e) => e.phase === 'leave');
+    expect(leaves(silent).map((e) => [e.time, e.channel, e.x, e.y, e.pointerType])).toEqual([[0.2, 1, 0.8, 0.8, 'mouse']]);
+    // B moves before it leaves: its leave is at B's position, with B's fields only.
+    const moved: Push[] = [...silent.slice(0, 4), { port: 'move', event: { time: 0.35, channel: 2, x: 0.1, y: 0.3, pressure: 0.2, pointerType: 'pen', buttons: 0 } }, silent[4]!];
+    for (const step of [1, 0.1, 0.025]) {
+      expect(leaves(moved, step), `${step}`).toEqual([
+        { time: 0.2, channel: 1, x: 0.8, y: 0.8, pressure: 0.1, pointerType: 'mouse', dx: 0, dy: 0, speed: 0, angle: 0, age: 0, phase: 'leave' },
+        { time: 0.4, channel: 1, x: 0.1, y: 0.3, pressure: 0.2, pointerType: 'pen', dx: 0, dy: 0, speed: 0, angle: 0, age: 0, phase: 'leave' },
+      ]);
+    }
+    // Eviction: every slot held, the stalest an enter-only pointer on a reused slot. It loses the slot with no leave.
+    const full: Push[] = [
+      ...a,
+      { port: 'enter', event: { time: 0.3, channel: 2, x: 0, y: 0.2, pointerType: 'pen' } },
+      ...Array.from({ length: MAX_SLOTS - 1 }, (_, k) => ({ port: 'down' as const, event: { time: 0.4 + 0.01 * k, channel: 100 + k, x: 0.5 } })),
+      { port: 'down', event: { time: 0.7, channel: 200, x: 0.5 } },
+    ];
+    const all = events(full, 'all');
+    expect(all.filter((e) => e.phase === 'leave').map((e) => e.time)).toEqual([0.2]);
+    expect(all.at(-1)).toMatchObject({ time: 0.7, channel: 1, phase: 'down' });
+    expect(events(full, 'cancel')).toEqual([]);
+  });
+
+  it('marks the leave of a pointer whose moves were all thinned, at its own position', () => {
+    // A hovers on slot 1 and leaves while touches hold slots 2–4. In the limit window [0.24, 0.36) the
+    // touches' moves fill the budget first; pen B then takes slot 1, and its moves are thinned before it leaves.
+    const list: Push[] = [{ port: 'move', event: { time: 0.04, channel: 1, x: 0.8, y: 0.8, pointerType: 'mouse', buttons: 0 } }];
+    for (const id of [41, 42, 43]) list.push({ port: 'down', event: { time: 0.05, channel: id, x: 0.5, y: 0.5, pointerType: 'touch' } });
+    list.push({ port: 'leave', event: { time: 0.1, channel: 1, pointerType: 'mouse' } });
+    for (let k = 1; k <= 40; k++) for (const id of [41, 42, 43]) list.push({ port: 'move', event: { time: 0.2405 + k * 0.001, channel: id, x: 0.5 + k * 0.001, y: 0.5, pointerType: 'touch' } });
+    list.push({ port: 'move', event: { time: 0.3, channel: 7, x: 0.1, y: 0.2, pointerType: 'pen', buttons: 0 } });
+    list.push({ port: 'move', event: { time: 0.31, channel: 7, x: 0.12, y: 0.2, pointerType: 'pen', buttons: 0 } });
+    list.push({ port: 'leave', event: { time: 0.33, channel: 7, pointerType: 'pen' } });
+    for (const step of [1, 0.1, 0.025]) {
+      const all = events(list, 'all', step);
+      // Not vacuous: none of B's moves made it out.
+      expect(all.filter((e) => e.pointerType === 'pen' && e.phase === 'move'), `${step}`).toEqual([]);
+      expect(all.filter((e) => e.phase === 'leave').map((e) => [e.time, e.channel, e.x, e.y, e.pointerType]), `${step}`).toEqual([
+        [0.1, 1, 0.8, 0.8, 'mouse'],
+        [0.33, 1, 0.12, 0.2, 'pen'],
+      ]);
+    }
   });
 
   it('orders same-time pushes Down, Move, Up, Cancel on one pointer, and new pointers by pointerId', () => {
@@ -308,7 +368,7 @@ describe('pointer', () => {
     // No pushed event is emitted twice: once per port it belongs on.
     const log = runAhead(session, 1);
     expect(pick(log, 'p', 'down')).toHaveLength(5);
-    expect(pick(log, 'p', 'all')).toHaveLength(15);
+    expect(pick(log, 'p', 'all')).toHaveLength(16);
     // 76 − 24 × Y at each down, on the down's slot.
     expect(pick(log, 'note', 'note').map((e) => [e.time, e.channel, e.pitch])).toEqual([
       [0.1, 2, 64], [0.12, 1, 64], [0.15, 3, 54], [0.25, 2, 59], [0.6, 1, 62],
@@ -352,7 +412,7 @@ describe('pointer', () => {
     for (const e of all) for (const field of ['dx', 'dy', 'speed', 'angle', 'age']) expect(Number.isFinite(e[field]), field).toBe(true);
   });
 
-  it('frees the stalest slot past MAX_SLOTS, cancelling it if it was down', () => {
+  it('frees the stalest slot past MAX_SLOTS, cancelling it if it was down, marking its leave if it hovered', () => {
     const many: Push[] = [];
     for (let k = 0; k <= MAX_SLOTS; k++) many.push({ port: 'down', event: { time: 0.01 * (k + 1), channel: 100 + k, x: k / 100 } });
     const all = events(many, 'all');
@@ -365,7 +425,9 @@ describe('pointer', () => {
     expect(events(dressed, 'cancel')).toEqual([{ time: 0.17, channel: 1, x: 0, y: 0, pressure: 0, pointerType: 'touch', width: 20, shift: true, dx: 0, dy: 0, speed: 0, angle: 0, age: expect.closeTo(0.16, 9) }]);
     // A hovering pointer gives its slot up before any that's down.
     const hover: Push[] = [...many.slice(0, MAX_SLOTS - 1), { port: 'move', event: { time: 0.5, channel: 7, x: 0.5 } }, { port: 'down', event: { time: 0.6, channel: 8 } }];
-    expect(events(hover, 'all').slice(-1).map((e) => [e.channel, e.phase])).toEqual([[MAX_SLOTS, 'down']]);
+    // Its hover ends there: a leave on its slot, at its last position, then the new pointer's down.
+    expect(events(hover, 'all').slice(-2).map((e) => [e.time, e.channel, e.phase, e.x])).toEqual([[0.6, MAX_SLOTS, 'leave', 0.5], [0.6, MAX_SLOTS, 'down', undefined]]);
+    expect(events(hover, 'cancel')).toEqual([]);
     const state: Record<string, unknown> = {};
     query(pointer, 0, 1, { state, pushed: pushedOf(many) });
     query(pointer, 1, 2, { state });

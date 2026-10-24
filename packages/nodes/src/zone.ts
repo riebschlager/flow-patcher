@@ -50,7 +50,7 @@ export function zoneOf(ctx: Pick<NodeContext, 'params' | 'param'>, event: Engine
  * moves go to B. No zone works the same way, on Pass. A contact's `up` or `cancel` ends it in
  * the zone it's in, without a crossing check. This is a deliberate difference from Switch and
  * Modifier Router, which keep a contact where it started. Events outside a contact (hovers,
- * events with no `phase`) go by their own position.
+ * a hover's `leave`, events with no `phase`) go by their own position.
  *
  * Outputs: Zone 1–8 carry their zone's events, and Zones every event in any zone (grids past
  * eight cells included); each with a `zone` field, the zone number, so at a crossing Zones carries
