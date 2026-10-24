@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { LivePatch } from '../packages/editor/src/live';
+import { audioCallback } from './audio-clock';
 
 /** What the init script below records about the patch's Filter. */
 interface SweepProbe {
@@ -33,7 +34,8 @@ declare global {
 // is a step at the quantum after an exposed re-run (one within a grid step of the
 // clock): the re-run gives the ramp in progress a new end, from the new knob value,
 // so the param jumps by the knob change times the share of the ramp already played.
-// The test requires no hold and no step without such a re-run, and logs the steps.
+// That step is engine issue #103. The test requires no hold and no step without
+// such a re-run, and logs the steps. A hold on CI would be a real finding for #103.
 
 const field = (page: Page, node: string, param: string) =>
   page.locator(`.react-flow__node[data-id="${node}"] .param-row[data-param="${param}"] [data-testid="param-field"]`);
@@ -134,7 +136,12 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
   await page.evaluate(() => (window.sweep!.recording = false));
   const final = await stats(page);
 
-  const result = await page.evaluate(() => {
+  // How far before a step its re-run's cancel may have run: the mirror gets each call just after the real
+  // param, in the same task, but currentTime is read at the cancel and the step lands at the next quantum the
+  // render thread plays. Main-thread stalls of 9–12 ms were logged on CI (#97), plus one clock step.
+  const { callback, largestStep } = await audioCallback(page);
+  const lead = 0.012 + Math.max(callback, largestStep);
+  const result = await page.evaluate((lead) => {
     const probe = window.sweep!;
     const rate = probe.sampleRate;
     const stitch = (blocks: [number, Float32Array][]) => {
@@ -166,7 +173,8 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     }
     // Steps: a sample-to-sample change far past any slope the automation has (its steepest, the wrap,
     // is 2400 Hz over one 1/60 s grid step, 3 Hz a sample), off the 60 Hz grid. Each should follow an
-    // exposed re-run cancel in the same few quanta: the re-run moved the end of the ramp in progress.
+    // exposed re-run cancel shortly before: the re-run moved the end of the ramp in progress (#103).
+    // The mirror is a proxy param: it gets each call just after the real one, in the same task.
     // A quantum missing from the recording comes with an audio-thread glitch (seen once in a few runs,
     // with a small step a quantum before it), so steps within three quanta of one are left out and counted.
     const steps: { time: number; size: number; cause: boolean }[] = [];
@@ -180,7 +188,7 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
         besideGaps++;
         continue;
       }
-      steps.push({ time, size: d, cause: exposed.some((c) => c.now <= time + 0.001 && c.now > time - 0.012) });
+      steps.push({ time, size: d, cause: exposed.some((c) => c.now <= time + 0.001 && c.now > time - lead) });
     }
     // The note's brightness against the cutoff, per 50 ms block while the note sounds.
     const block = Math.round(rate * 0.05), pairs: [number, number][] = [];
@@ -206,7 +214,7 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
       leads: exposed.map((c) => +((c.t0 - c.now) * 1000).toFixed(2)).slice(0, 20),
       blocks: pairs.length, r, filters: probe.filters, rate,
     };
-  });
+  }, lead);
   console.log(
     `filter sweep: ${result.seconds.toFixed(2)} s recorded at ${result.rate} Hz, cutoff ${result.smallest.toFixed(0)}–${result.largest.toFixed(0)} Hz; ` +
       `${final.swaps - first.swaps} swaps; ${result.cancels} cancels, ${result.reruns} re-run cancels, ${result.exposed} within one grid step of the clock (leads ms: ${result.leads.join(', ')}); ` +
@@ -221,13 +229,15 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
   expect(final.swaps - first.swaps).toBeGreaterThanOrEqual(TURNS);
   // The swaps re-ran windows the automation had covered, some close enough to the clock to withdraw the ramp in progress.
   expect(result.reruns).toBeGreaterThan(0);
+  // And some within one grid step of the clock, the only ones that can withdraw the ramp being played: without them the hold check means nothing.
+  expect(result.exposed).toBeGreaterThan(0);
   // The cutoff swept, and the sustained note's brightness followed it.
   expect(result.largest - result.smallest).toBeGreaterThan(1500);
   expect(result.blocks).toBeGreaterThan(40);
   expect(result.r).toBeGreaterThan(0.8);
   // No quantum held at the previous value (ADR 0031, Consequences).
   expect(result.holds).toEqual([]);
-  // Every jump off the grid comes from a re-run moving the end of the ramp in progress (see the report on #88).
+  // Every jump off the grid comes from a re-run moving the end of the ramp in progress (#103).
   expect(result.steps.filter((s) => !s.cause)).toEqual([]);
   expect(final.lateScheduled - first.lateScheduled).toBe(0);
   expect(final.skipped).toBe(0);
