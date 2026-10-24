@@ -57,6 +57,11 @@ export interface BiquadFilterNodeLike extends AudioNodeLike {
   readonly Q: AudioParamLike;
 }
 
+export interface StereoPannerNodeLike extends AudioNodeLike {
+  /** −1 (left) to 1 (right), equal-power. */
+  readonly pan: AudioParamLike;
+}
+
 export interface DynamicsCompressorNodeLike extends AudioNodeLike {
   readonly threshold: AudioParamLike;
   readonly knee: AudioParamLike;
@@ -84,6 +89,7 @@ export interface AudioContextLike {
   createWaveShaper(): WaveShaperNodeLike;
   createBufferSource(): AudioBufferSourceNodeLike;
   createBiquadFilter(): BiquadFilterNodeLike;
+  createStereoPanner(): StereoPannerNodeLike;
   /** Decodes an encoded file (MP3, Ogg, WAV, …). Rejects on data it can't decode. */
   decodeAudioData(data: ArrayBuffer): Promise<AudioBufferLike>;
 }

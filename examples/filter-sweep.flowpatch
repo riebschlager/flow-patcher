@@ -1,0 +1,141 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261024,
+  "nodes": [
+    {
+      "id": "clock",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 60,
+        "division": "1/2"
+      },
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "sweep",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 60,
+        "division": "1/1"
+      },
+      "position": {
+        "x": 480,
+        "y": 380
+      }
+    },
+    {
+      "id": "note",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 1.8,
+        "pitch": 45,
+        "velocity": 0.8
+      },
+      "position": {
+        "x": 240,
+        "y": 100
+      }
+    },
+    {
+      "id": "synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.05,
+        "level": 0.3,
+        "release": 0.4,
+        "wave": "sawtooth"
+      },
+      "position": {
+        "x": 480,
+        "y": 100
+      }
+    },
+    {
+      "id": "filter",
+      "type": "filter",
+      "typeVersion": 1,
+      "params": {
+        "cutoff": 300,
+        "mode": "lowpass",
+        "q": 6
+      },
+      "position": {
+        "x": 720,
+        "y": 100
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 960,
+        "y": 100
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "clock",
+        "port": "tick"
+      },
+      "to": {
+        "node": "note",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "note",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "filter",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "sweep",
+        "port": "phase"
+      },
+      "to": {
+        "node": "filter",
+        "port": "cutoff"
+      },
+      "depth": 2400
+    },
+    {
+      "from": {
+        "node": "filter",
+        "port": "out"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    }
+  ]
+}

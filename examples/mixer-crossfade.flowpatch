@@ -1,0 +1,226 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261024,
+  "nodes": [
+    {
+      "id": "eighths",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 96,
+        "division": "1/8"
+      },
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "halves",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 96,
+        "division": "1/2"
+      },
+      "position": {
+        "x": 0,
+        "y": 300
+      }
+    },
+    {
+      "id": "fade",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 96,
+        "division": "1/1"
+      },
+      "position": {
+        "x": 480,
+        "y": 520
+      }
+    },
+    {
+      "id": "lead",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.15,
+        "pitch": 72,
+        "velocity": 0.7
+      },
+      "position": {
+        "x": 240,
+        "y": 100
+      }
+    },
+    {
+      "id": "bass",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 1,
+        "pitch": 48,
+        "velocity": 0.8
+      },
+      "position": {
+        "x": 240,
+        "y": 300
+      }
+    },
+    {
+      "id": "lead-synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.005,
+        "level": 0.3,
+        "release": 0.15,
+        "wave": "triangle"
+      },
+      "position": {
+        "x": 480,
+        "y": 100
+      }
+    },
+    {
+      "id": "bass-synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.02,
+        "level": 0.3,
+        "release": 0.3,
+        "wave": "sawtooth"
+      },
+      "position": {
+        "x": 480,
+        "y": 300
+      }
+    },
+    {
+      "id": "mixer",
+      "type": "mixer",
+      "typeVersion": 1,
+      "params": {
+        "level1": 0,
+        "level2": 1,
+        "level3": 1,
+        "level4": 1,
+        "master": 0.8
+      },
+      "position": {
+        "x": 720,
+        "y": 200
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 960,
+        "y": 200
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "eighths",
+        "port": "tick"
+      },
+      "to": {
+        "node": "lead",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "halves",
+        "port": "tick"
+      },
+      "to": {
+        "node": "bass",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "lead",
+        "port": "note"
+      },
+      "to": {
+        "node": "lead-synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "bass",
+        "port": "note"
+      },
+      "to": {
+        "node": "bass-synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "lead-synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "mixer",
+        "port": "in1"
+      }
+    },
+    {
+      "from": {
+        "node": "bass-synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "mixer",
+        "port": "in2"
+      }
+    },
+    {
+      "from": {
+        "node": "fade",
+        "port": "phase"
+      },
+      "to": {
+        "node": "mixer",
+        "port": "level1"
+      },
+      "depth": 1
+    },
+    {
+      "from": {
+        "node": "fade",
+        "port": "phase"
+      },
+      "to": {
+        "node": "mixer",
+        "port": "level2"
+      },
+      "depth": -1
+    },
+    {
+      "from": {
+        "node": "mixer",
+        "port": "out"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    }
+  ]
+}
