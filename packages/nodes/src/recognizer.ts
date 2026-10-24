@@ -230,3 +230,65 @@ export function pruneTracks<T extends { time: number }>(tracks: Record<number, S
 
 /** The recognizer's own state slot, created on first use. */
 export const slot = <T>(state: NodeState, key: string, init: () => T): T => (state[key] ??= init()) as T;
+
+/** An In event's payload for a gesture event: everything but `phase`. */
+export function payloadOf(event: EngineEvent): EngineEvent {
+  const { phase: _phase, ...rest } = event;
+  return rest as EngineEvent;
+}
+
+/**
+ * A contact's motion as Flow's stroke tracker measured it (gestures.js `GestureTracker`), in
+ * seconds and canvas units: Flick, Circle and Stroke share it. Plain data.
+ */
+export interface Motion {
+  /** The last sample that counted (moved more than MIN_STEP). */
+  x: number;
+  y: number;
+  time: number;
+  /** Smoothed speed, canvas units per second, and the heading of the last step (radians, atan2(dy, dx)). */
+  speed: number;
+  heading: number;
+  /** The last step's vector, or null before the first. */
+  vx: number | null;
+  vy: number | null;
+  /** Path length since the down. */
+  path: number;
+}
+
+/** Steps shorter than this are jitter and don't count (Flow: 0.0008). */
+export const MIN_STEP = 0.0008;
+/** A step's duration is clamped to this range before its speed is taken (Flow: 8–120 ms). */
+export const STEP_TIME: readonly [number, number] = [0.008, 0.12];
+/** Fastest step speed counted, canvas units per second (Flow: 4). */
+export const MAX_SPEED = 4;
+/** Each step moves the smoothed speed this far toward its own (Flow: 0.4). */
+export const SPEED_SMOOTHING = 0.4;
+
+export const motionAt = (x: number, y: number, time: number): Motion => ({ x, y, time, speed: 0, heading: 0, vx: null, vy: null, path: 0 });
+
+/** One step of a contact's motion: its vector, length and turn from the previous step. */
+export interface MotionStep {
+  time: number;
+  dx: number;
+  dy: number;
+  length: number;
+  /** Signed turn from the previous step, radians; positive is clockwise on screen (y down). */
+  turn: number;
+}
+
+/** Folds a sample in (Flow `move`), returning the step it made, or null when it moved under MIN_STEP. */
+export function moveMotion(m: Motion, x: number, y: number, time: number): MotionStep | null {
+  const dx = x - m.x, dy = y - m.y, length = Math.hypot(dx, dy);
+  if (!(length > MIN_STEP)) return null;
+  const dt = Math.min(STEP_TIME[1], Math.max(STEP_TIME[0], time - m.time));
+  m.speed += (Math.min(MAX_SPEED, length / dt) - m.speed) * SPEED_SMOOTHING;
+  const turn = m.vx === null || m.vy === null ? 0 : Math.atan2(m.vx * dy - m.vy * dx, m.vx * dx + m.vy * dy);
+  m.heading = Math.atan2(dy, dx);
+  Object.assign(m, { vx: dx, vy: dy, x, y, time });
+  m.path += length;
+  return { time, dx, dy, length, turn };
+}
+
+/** The smoothed speed at t, fading once the contact stops moving (Flow: after 35 ms, over 170 ms). */
+export const liveSpeed = (m: Motion, t: number): number => m.speed * Math.exp(-Math.max(0, t - m.time - 0.035) / 0.17);
