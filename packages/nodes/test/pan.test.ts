@@ -20,7 +20,7 @@ function build(context: AudioContextLike, options: ContextOptions = {}, stereo =
 /** Left and right RMS over [t, t + width), relative to the input sine's. */
 const sides = (audio: Awaited<ReturnType<typeof renderOffline>>, t: number, width: number) => [busRms(audio, t, width, 0) / SINE, busRms(audio, t, width, 1) / SINE];
 
-const render = (options: ContextOptions, stereo = false) => renderOffline(0.3, (context) => build(context, options, stereo).automate!(0, 0.3));
+const render = (options: ContextOptions, stereo = false) => renderOffline(0.3, (context) => build(context, options, stereo).automate!(0, 0.3, -Infinity));
 
 describe('pan', () => {
   it('places a mono bus left, centre or right, equal-power', async () => {
@@ -49,7 +49,7 @@ describe('pan', () => {
 
   it('follows a cabled pan in automate: a sweep from left to right', async () => {
     const mods = { pan: [{ depth: 2, signal: (t: number) => t }] };
-    const audio = await renderOffline(1, (context) => build(context, { params: { pan: -1 }, mods }).automate!(0, 1));
+    const audio = await renderOffline(1, (context) => build(context, { params: { pan: -1 }, mods }).automate!(0, 1, -Infinity));
     const [l0, r0] = sides(audio, 0.02, 0.03), [lm, rm] = sides(audio, 0.48, 0.04), [l1, r1] = sides(audio, 0.95, 0.03);
     expect(l0).toBeGreaterThan(0.99);
     expect(r0).toBeLessThan(0.1);
@@ -64,7 +64,7 @@ describe('pan', () => {
     const renderCalls = (calls: [number, number][]) =>
       renderOffline(1, (context) => {
         const instance = build(context, { mods });
-        for (const [t0, t1] of calls) instance.automate!(t0, t1);
+        for (const [t0, t1] of calls) instance.automate!(t0, t1, -Infinity);
       });
     const [one, split, rerun] = await Promise.all([renderCalls([[0, 1]]), renderCalls([[0, 0.333], [0.333, 0.6], [0.6, 1]]), renderCalls([[0, 0.7], [0.1, 0.7], [0.7, 1], [0.7, 1]])]);
     expect(maxDifference(one, split)).toBeLessThan(RENDER_TOLERANCE);

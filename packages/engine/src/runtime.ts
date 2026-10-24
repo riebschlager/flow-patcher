@@ -1609,20 +1609,22 @@ export class Runtime {
    * behind the clock has nothing left to automate. The shift goes by the
    * chunk's start, where `send` goes by each event's time, so in a chunk that
    * straddles the stretch's end the two disagree by up to the shift; the next
-   * chunk's cancel at its t0 takes over from there.
+   * chunk's cancel at its t0 takes over from there. The clock goes along, so a
+   * re-run can keep what the render thread may already be playing.
    */
   private automate(id: string, c0: number, c1: number, timing: DeliveryTiming | undefined): void {
     const instance = this.active.audio.get(id);
     if (!instance?.automate) return;
-    let t0 = c0, t1 = c1;
+    let t0 = c0, t1 = c1, clock = -Infinity;
     if (timing) {
       if (timing.catchUp && c0 < timing.catchUp.until) {
         t0 += timing.catchUp.shift;
         t1 += timing.catchUp.shift;
       }
-      t0 = Math.max(t0, clockAt(timing));
+      clock = clockAt(timing);
+      t0 = Math.max(t0, clock);
     }
-    if (t1 > t0) instance.automate(t0, t1);
+    if (t1 > t0) instance.automate(t0, t1, clock);
   }
 
   private send(instance: AudioInstance, port: string, events: readonly EngineEvent[], timing: DeliveryTiming | undefined): void {

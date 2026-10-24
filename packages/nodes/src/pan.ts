@@ -1,4 +1,4 @@
-import { automateParam, editRamp, type NodeDefinition } from '@flow-patcher/engine';
+import { editRamp, paramAutomation, type NodeDefinition } from '@flow-patcher/engine';
 
 export const pan: NodeDefinition = {
   type: 'pan',
@@ -19,12 +19,13 @@ export const pan: NodeDefinition = {
     // Fixed for the instance's life: a change to the cables into params builds a new one.
     const cabled = connected('pan');
     const edit = editRamp(panner.pan, params.pan as number);
+    const automation = paramAutomation(panner.pan);
     return {
       inputs: { in: panner },
       outputs: { out: panner },
-      automate(t0, t1) {
+      automate(t0, t1, clock) {
         // A bus has no event channels: modulation is read on channel 0.
-        if (cabled) automateParam(panner.pan, t0, t1, (t) => param('pan', t));
+        if (cabled) automation.follow(t0, t1, (t) => param('pan', t), clock);
       },
       update(next, time) {
         // A cabled pan follows the re-run's automate, which reads the new base.

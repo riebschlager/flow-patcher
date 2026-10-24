@@ -1,4 +1,4 @@
-import { automateParam, editRamp, type NodeDefinition } from '@flow-patcher/engine';
+import { editRamp, paramAutomation, type NodeDefinition } from '@flow-patcher/engine';
 
 export const FILTER_MODES = ['lowpass', 'highpass', 'bandpass'] as const;
 
@@ -37,13 +37,14 @@ export const filter: NodeDefinition = {
     // Fixed for the instance's life: a change to the cables into params builds a new one.
     const cabled = { cutoff: connected('cutoff'), q: connected('q') };
     const edits = { cutoff: editRamp(biquad.frequency, biquad.frequency.value), q: editRamp(biquad.Q, biquad.Q.value) };
+    const automation = { cutoff: paramAutomation(biquad.frequency), q: paramAutomation(biquad.Q) };
     return {
       inputs: { in: biquad },
       outputs: { out: biquad },
-      automate(t0, t1) {
+      automate(t0, t1, clock) {
         // A bus has no event channels: modulation is read on channel 0.
-        if (cabled.cutoff) automateParam(biquad.frequency, t0, t1, (t) => param('cutoff', t));
-        if (cabled.q) automateParam(biquad.Q, t0, t1, (t) => biquadQ(mode, param('q', t)));
+        if (cabled.cutoff) automation.cutoff.follow(t0, t1, (t) => param('cutoff', t), clock);
+        if (cabled.q) automation.q.follow(t0, t1, (t) => biquadQ(mode, param('q', t)), clock);
       },
       update(next, time) {
         // Cabled params follow the re-run's automate, which reads the new base.

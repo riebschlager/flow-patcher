@@ -1,4 +1,4 @@
-import { automateParam, editRamp, type AudioParamLike, type NodeDefinition, type NumberParamSpec, type PortSpec } from '@flow-patcher/engine';
+import { editRamp, paramAutomation, type AudioParamLike, type NodeDefinition, type NumberParamSpec, type PortSpec } from '@flow-patcher/engine';
 
 /** Inputs on a Mixer. */
 export const MIXER_INPUTS = 4;
@@ -31,14 +31,14 @@ export const mixer: NodeDefinition = {
     const levels = LEVELS.map((name, i) => {
       const target: AudioParamLike = (i < MIXER_INPUTS ? strips[i]! : master).gain;
       target.value = params[name] as number;
-      return { name, target, edit: editRamp(target, params[name] as number), cabled: connected(name) };
+      return { name, edit: editRamp(target, params[name] as number), automation: paramAutomation(target), cabled: connected(name) };
     });
     return {
       inputs: Object.fromEntries(strips.map((strip, i) => [`in${i + 1}`, strip])),
       outputs: { out: master },
-      automate(t0, t1) {
+      automate(t0, t1, clock) {
         // A bus has no event channels: modulation is read on channel 0.
-        for (const { name, target, cabled } of levels) if (cabled) automateParam(target, t0, t1, (t) => param(name, t));
+        for (const { name, automation, cabled } of levels) if (cabled) automation.follow(t0, t1, (t) => param(name, t), clock);
       },
       update(next, time) {
         // Cabled levels follow the re-run's automate, which reads the new base.

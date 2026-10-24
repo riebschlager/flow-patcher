@@ -240,13 +240,16 @@ export interface AudioInstance {
    * moves a chunk that starts in the missed stretch later by its shift, and t0
    * is never before the clock at hand-over. A rewind or swap calls it again for
    * a chunk it already covered, from the re-run's start, so it must be
-   * idempotent: cancel what it scheduled from t0 on and schedule again
-   * (`automateParam` does both). Sample on an absolute grid (t = k /
+   * idempotent: cancel what it scheduled from t0 on and schedule again,
+   * keeping the ramp t0 falls in whole (a `paramAutomation` per param does it). Sample on an absolute grid (t = k /
    * AUTOMATION_RATE, `automationTimes`), not at t0 or per chunk, so the
    * values don't depend on how time was split into windows. Skip params with
    * no cable (`AudioSetupContext.connected`): their base value doesn't move.
+   * `clock` is the audio clock at hand-over (-Infinity when the query has no
+   * delivery timing). Pass it to `paramAutomation`'s `follow`, which keeps
+   * what the render thread may already be playing.
    */
-  automate?(t0: number, t1: number): void;
+  automate?(t0: number, t1: number, clock: number): void;
   /**
    * In-place knob edits (ADR 0031): a hot swap that changes only params listed
    * in the definition's `liveParams` keeps this instance and calls this instead
@@ -254,7 +257,8 @@ export interface AudioInstance {
    * the swap takes effect, on the audio clock and never before it. Ramp each
    * unmodulated param that changed to its new value from `time` (an `editRamp`
    * per param), never jump. Modulated ones need nothing here: the swap re-runs the windows
-   * from `time`, and `automate` (whose `param()` sees the new base) covers them.
+   * from `time`, and `automate` (whose `param()` sees the new base) ramps them
+   * from the end of the ramp being played at `time`, over the next grid step (`paramAutomation`).
    * Without it, the runtime builds a new instance as for any other edit.
    */
   update?(params: ParamValues, time: number): void;
