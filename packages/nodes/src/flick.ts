@@ -1,11 +1,7 @@
 import type { NodeDefinition } from '@flow-patcher/engine';
 import { claimParam, IN_PORT, liveSpeed, motionAt, moveMotion, num, PASS_PORTS, payloadOf, runRecognizer, slot, type Motion } from './recognizer';
 
-/** The up must come within this many seconds of the last move that counted (Flow: 140 ms), so a stroke that stopped before lifting isn't a flick. *
- * Claim is off by default (Flick usually rides along with painting, and claiming would end
- * every such contact early); the claims above happen only with it on (ADR 0028, amended
- * 2026-10-24).
- */
+/** The up must come within this many seconds of the last move that counted (Flow: 140 ms), so a stroke that stopped before lifting isn't a flick. */
 export const MAX_PAUSE = 0.14;
 
 /**
@@ -24,6 +20,10 @@ export const MAX_PAUSE = 0.14;
  * radians, atan2(dy, dx): 0 right, π/2 down) and `speed` (the faded speed at the up). The
  * speed comes from the stream's positions and times, not the source's own `speed`, so it is
  * the same behind any recognizer on Pass.
+ *
+ * Claim is off by default (Flick usually rides along with painting, and claiming would end
+ * every such contact early); the claims above happen only with it on (ADR 0028, amended
+ * 2026-10-24).
  */
 export const flick: NodeDefinition = {
   type: 'flick',

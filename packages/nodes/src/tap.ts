@@ -1,11 +1,7 @@
 import type { EngineEvent, NodeDefinition } from '@flow-patcher/engine';
 import { claimParam, IN_PORT, num, PASS_PORTS, payloadOf, runRecognizer, slot } from './recognizer';
 
-/** A second tap counts as a double tap within this distance of the first (canvas units): fingers rarely land twice on one spot. *
- * Claim is off by default (Tap usually rides along with painting, and claiming would end
- * every such contact early); the claims above happen only with it on (ADR 0028, amended
- * 2026-10-24).
- */
+/** A second tap counts as a double tap within this distance of the first (canvas units): fingers rarely land twice on one spot. */
 export const DOUBLE_RADIUS = 0.05;
 /** The longest Double gap, seconds: the knob's top. */
 export const MAX_GAP = 2;
@@ -59,6 +55,10 @@ interface TapState {
  *
  * Events carry the In event's payload (without `phase`) and `duration`, seconds since the
  * down; Double tap also `gap`, seconds from the previous tap's up to this down.
+ *
+ * Claim is off by default (Tap usually rides along with painting, and claiming would end
+ * every such contact early); the claims above happen only with it on (ADR 0028, amended
+ * 2026-10-24).
  */
 export const tap: NodeDefinition = {
   type: 'tap',
