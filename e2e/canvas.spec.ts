@@ -98,5 +98,23 @@ test('Canvas follows the preview\'s size, its focus and blur, and the page\'s vi
   // Each change came once.
   expect(await Promise.all(EVENT_PORTS.map((port) => count(page, port)))).toEqual([2, 1, 1, 1]);
   await page.getByTestId('preview').screenshot({ path: 'test-results/canvas.png' });
+
+  // A Canvas added while playing is sent the size once its swap lands (#76 review): pushed at once,
+  // the size usually reached a window the new node wasn't in yet, and Width stayed 0.
+  // An empty spot on the editor: the first point on a grid where nothing covers the pane.
+  const spot = await page.evaluate(() => {
+    for (let y = window.innerHeight - 40; y > 80; y -= 40) {
+      for (let x = 40; x < window.innerWidth; x += 40) if (document.elementFromPoint(x, y)?.classList.contains('react-flow__pane')) return { x, y };
+    }
+    return null;
+  });
+  await page.mouse.dblclick(spot!.x, spot!.y);
+  const palette = page.getByTestId('node-palette');
+  await expect(palette).toBeVisible();
+  await page.keyboard.type('canvas');
+  await palette.locator('[data-node-type="canvas"]').click();
+  await expect(page.getByTestId('compile-status')).toHaveText('9 nodes compiled');
+  await page.evaluate(() => void window.flowPatcher!.watchProbe('canvas-1', 'width', 'out', 'signal', () => {}));
+  await expect.poll(() => page.evaluate(() => window.flowPatcher!.probe('canvas-1', 'width')?.value), { timeout: 5000 }).toBeCloseTo(size.width, 3);
   expect(errors).toEqual([]);
 });

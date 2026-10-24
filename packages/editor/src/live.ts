@@ -33,6 +33,7 @@ import {
   type VoiceStats,
 } from '@flow-patcher/engine';
 import { nodeRegistry, rendererImage } from '@flow-patcher/nodes';
+import { CANVAS_TYPES, CanvasLifecycle } from './canvas-lifecycle';
 import { EventTrack, PROBE_HISTORY } from './event-track';
 import { HeldKeys, keyStartsAudio, type KeyFields } from './keys';
 import { MidiHost } from './midi';
@@ -55,21 +56,10 @@ const POINTER_TYPES: Readonly<Record<PointerPort, InputEventType>> = {
  * every CC sent meanwhile.
  * The canvas's lifecycle (resize, focus, blur, visibilitychange): dragging the pane or tabbing about before
  * the first tap would pile them up. The host keeps the canvas's state instead and sends what changed when
- * audio starts (`LivePatch.syncCanvas`).
+ * audio starts (`CanvasLifecycle.start`).
  */
 export const droppedWhileCold = (type: InputEventType): boolean =>
   type === 'pointermove' || type === 'pointerenter' || type === 'pointerleave' || type === 'midi' || CANVAS_TYPES.has(type);
-
-/** The canvas's lifecycle events (Canvas node), which the host sends again as state when audio starts. */
-const CANVAS_TYPES: ReadonlySet<InputEventType> = new Set(['resize', 'focus', 'blur', 'visibilitychange']);
-
-/** The canvas as the host sees it, or as it last reached the source nodes: CSS-pixel size (null before
- *  the first measurement), focus, and the page's visibility. */
-interface CanvasState {
-  size: { width: number; height: number } | null;
-  focused: boolean;
-  visibility: DocumentVisibilityState;
-}
 
 /** The payload of one pointer event (docs/nodes/canvas-sources.md, Event payload): the raw pointerId as `channel`. */
 export interface PointerFields {
@@ -244,11 +234,12 @@ export class LivePatch {
   private readonly probes = new Map<string, ProbeTrack>();
   private readonly firing = new Map<string, Set<() => void>>();
   private readonly onVisibility = () => this.scheduler.wake();
-  /** The canvas's lifecycle: what it is now, and what the running plan's sources last got (Canvas node). */
-  private readonly surface: CanvasState = { size: null, focused: false, visibility: 'visible' };
-  private readonly sent: CanvasState = { size: null, focused: false, visibility: 'visible' };
-  /** Nodes in the running plan that read resize, so a new one is sent the size. */
-  private sized = new Set<string>();
+  /** The canvas's lifecycle for the Canvas node: its size, focus and the page's visibility. */
+  private readonly lifecycle = new CanvasLifecycle({
+    send: (event) => this.input(event),
+    running: () => this.context.state === 'running',
+    now: () => this.context.currentTime,
+  }, document.visibilityState);
   /** The page's visibility for the Canvas node's Hidden and Visible, apart from `onVisibility`, the scheduler's. */
   private readonly onPageVisibility = () => this.canvasVisibility(document.visibilityState);
   private wasRunning = false;
@@ -290,7 +281,7 @@ export class LivePatch {
       this.scheduler.wake();
       // Then the canvas's lifecycle, dropped while audio was stopped, catches up.
       const running = context.state === 'running';
-      if (running && !this.wasRunning) this.syncCanvas();
+      if (running && !this.wasRunning) this.lifecycle.start();
       this.wasRunning = running;
       this.emit();
     });
@@ -327,10 +318,10 @@ export class LivePatch {
     if (key === this.planKey) return { ok: true };
     const compiled = compilePatch(patch, nodeRegistry);
     if (!compiled.ok) return { ok: false, errors: compiled.errors, cycles: (compiled.cycles ?? []).map((c) => c.nodes) };
-    this.scheduler.swap(compiled.plan);
+    const swapped = this.scheduler.swap(compiled.plan);
     this.refreshTracks();
     this.planKey = key;
-    this.adopt(compiled.plan);
+    this.adopt(compiled.plan, swapped.time);
     return { ok: true };
   }
 
@@ -550,45 +541,21 @@ export class LivePatch {
     for (const event of this.keys.releaseAll()) this.input(event);
   }
 
-  // The canvas's lifecycle (Canvas node). The browser reports changes only, so each one is sent while audio
-  // runs; while it doesn't, the state is kept and `syncCanvas` sends what changed once it does.
+  // The canvas's lifecycle (Canvas node): `CanvasLifecycle` decides what's sent when.
 
   /** The canvas's size changed, in CSS pixels: Canvas's Width and Height. */
   canvasResize(width: number, height: number): void {
-    this.surface.size = { width, height };
-    if (this.context.state !== 'running') return;
-    this.sent.size = { width, height };
-    this.input({ type: 'resize', canvasWidth: width, canvasHeight: height });
+    this.lifecycle.resize(width, height);
   }
 
   /** The canvas gained or lost keyboard focus: Canvas's Focus or Blur. */
   canvasFocus(focused: boolean): void {
-    this.surface.focused = focused;
-    if (this.context.state !== 'running') return;
-    this.sent.focused = focused;
-    this.input({ type: focused ? 'focus' : 'blur' });
+    this.lifecycle.focus(focused);
   }
 
   /** The page was hidden or shown: Canvas's Hidden or Visible. */
   canvasVisibility(visibility: DocumentVisibilityState): void {
-    this.surface.visibility = visibility;
-    if (this.context.state !== 'running') return;
-    this.sent.visibility = visibility;
-    this.input({ type: 'visibilitychange', visibility });
-  }
-
-  /**
-   * Sends the canvas's lifecycle state that changed while audio wasn't running, once it runs: the size, then
-   * a Focus or Blur and a Hidden or Visible when they differ from what the sources last got. So the first tap
-   * (which focuses the canvas while audio is still starting) brings a Focus with it, and an interruption
-   * that blurred the canvas brings a Blur when audio comes back.
-   */
-  private syncCanvas(): void {
-    const { size, focused, visibility } = this.surface;
-    const sent = this.sent;
-    if (size && (size.width !== sent.size?.width || size.height !== sent.size.height)) this.canvasResize(size.width, size.height);
-    if (focused !== sent.focused) this.canvasFocus(focused);
-    if (visibility !== sent.visibility) this.canvasVisibility(visibility);
+    this.lifecycle.visibility(visibility);
   }
 
   dispose(): void {
@@ -609,6 +576,8 @@ export class LivePatch {
   private frame(): void {
     this.frameCounts.frames++;
     this.frames.tick();
+    // A Canvas new to the plan gets the size once its swap has landed.
+    this.lifecycle.tick();
     this.followPorts();
     if (this.runtime.warningsVersion !== this.warningsSeen) {
       this.warningsSeen = this.runtime.warningsVersion;
@@ -622,18 +591,11 @@ export class LivePatch {
   }
 
   /** The running plan's host-facing parts: the source nodes canvas events reach, the Renderer, and status watchers. */
-  private adopt(plan: Plan): void {
+  private adopt(plan: Plan, swapTime: number): void {
     this.plan = plan;
     this.router = inputRouter(plan);
-    // A source that reads the size and is new to the plan gets it now; before audio runs, the start sends it.
-    const sized = new Set(plan.order.filter((node) => node.definition.input?.reads.resize !== undefined).map((node) => node.id));
-    const fresh = [...sized].some((id) => !this.sized.has(id));
-    this.sized = sized;
-    const size = this.surface.size;
-    if (fresh && size) {
-      if (this.context.state === 'running') this.canvasResize(size.width, size.height);
-      else this.sent.size = null;
-    }
+    // A source that reads the size and is new to the plan is sent it once the swap has landed.
+    this.lifecycle.adopt(plan.order.filter((node) => node.definition.input?.reads.resize !== undefined).map((node) => node.id), swapTime);
     this.pointers = plan.order.filter((node) => node.definition.input?.reads.pointerdown !== undefined).length;
     this.renderer = plan.order.find((node) => node.definition.type === 'renderer')?.id ?? null;
     this.hasFluid = plan.order.some((node) => node.definition.type === 'fluid');
