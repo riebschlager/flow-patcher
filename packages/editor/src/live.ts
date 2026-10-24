@@ -51,10 +51,11 @@ const POINTER_TYPES: Readonly<Record<PointerPort, InputEventType>> = {
  * Hover moves (coalesced samples too) before the first tap: the Down carries the position anyway.
  * Enter and leave: they only update hover state, and pairs would pile up unbounded while hovering in and out.
  * MIDI: it never starts audio, so a suspended or interrupted context (an iOS call) would otherwise collect
- * every CC sent meanwhile.
+ * every CC sent meanwhile. Wheel: it doesn't start audio either (a wheel isn't a user activation), and a
+ * trackpad sends dozens a second.
  */
 export const droppedWhileCold = (type: InputEventType): boolean =>
-  type === 'pointermove' || type === 'pointerenter' || type === 'pointerleave' || type === 'midi';
+  type === 'pointermove' || type === 'pointerenter' || type === 'pointerleave' || type === 'midi' || type === 'wheel';
 
 /** The payload of one pointer event (docs/nodes/canvas-sources.md, Event payload): the raw pointerId as `channel`. */
 export interface PointerFields {
@@ -93,12 +94,28 @@ export interface ClickFields {
   meta: boolean;
 }
 
+/** The payload of one wheel event (Wheel, docs/nodes/canvas-sources.md): the pointer's position and the
+ *  deltas and deltaMode as the browser reports them; Wheel converts them to pixels. No channel. */
+export interface WheelFields {
+  x: number;
+  y: number;
+  deltaX: number;
+  deltaY: number;
+  /** 0 pixels, 1 lines, 2 pages (`WheelEvent.deltaMode`). */
+  deltaMode: number;
+  shift: boolean;
+  alt: boolean;
+  /** Set on a trackpad pinch (Chrome, Edge and Firefox send it as wheel + ctrlKey) and on Ctrl + wheel: Wheel's Zoom. */
+  ctrl: boolean;
+  meta: boolean;
+}
+
 /**
  * The canvas event types a source reads when the canvas is played with a pointer: a patch with a
  * source reading one doesn't show the preview's "No Pointer" hint. Sources that read other canvas
- * events from a pointer (wheel, say) add their type here.
+ * events from a pointer add their type here.
  */
-const PLAYED_TYPES: readonly InputEventType[] = ['pointerdown', 'click', 'dblclick', 'auxclick', 'contextmenu'];
+const PLAYED_TYPES: readonly InputEventType[] = ['pointerdown', 'click', 'dblclick', 'auxclick', 'contextmenu', 'wheel'];
 
 /** One pointerdown, for the Immediate path gate check (docs/milestones.md, M1). */
 export interface Tap {
@@ -445,6 +462,11 @@ export class LivePatch {
   /** Sends one click event (click, dblclick, auxclick or contextmenu) to every source node that reads it, stamped once. x and y are 0–1, y = 0 at the top. */
   click(type: ClickType, fields: ClickFields, timeStamp?: number): void {
     this.input({ type, ...fields }, timeStamp);
+  }
+
+  /** Sends one wheel event to every source node that reads it, stamped once. Dropped while audio isn't running (`droppedWhileCold`). */
+  wheel(fields: WheelFields, timeStamp?: number): void {
+    this.input({ type: 'wheel', ...fields }, timeStamp);
   }
 
   /** Whether a source node in the running plan reads this canvas event type, such as `contextmenu` (Platform rules). */

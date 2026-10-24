@@ -38,6 +38,7 @@ import { splat } from './splat';
 import { stroke } from './stroke';
 import { switchNode } from './switch';
 import { tap } from './tap';
+import { wheel } from './wheel';
 import { thresholdChange } from './threshold-change';
 import { zone } from './zone';
 
@@ -45,9 +46,9 @@ export { rendererImage } from './renderer';
 export { InstrumentCache, instrumentCache, type InstrumentListener, type InstrumentStatus } from './instruments';
 export { skippedNotes } from './sampled-voice';
 export { INSTRUMENTS, INSTRUMENT_GROUPS, INSTRUMENT_KEYS, instrumentFile } from './music';
-export { chordTone, circle, click, clock, curve, delayEdge, drag, dwell, euclidean, filter, flick, fluid, force, gain, getField, hold, makeNote, mapRange, math, midiIn, mixer, modifierRouter, orbitRings, output, pan, pinch, pointer, pointerHighRate, probability, progression, renderer, sampleAndHold, sampledVoice, simpleSynth, smooth, splat, stroke, switchNode, tap, thresholdChange, zone };
+export { chordTone, circle, click, clock, curve, delayEdge, drag, dwell, euclidean, filter, flick, fluid, force, gain, getField, hold, makeNote, mapRange, math, midiIn, mixer, modifierRouter, orbitRings, output, pan, pinch, pointer, pointerHighRate, probability, progression, renderer, sampleAndHold, sampledVoice, simpleSynth, smooth, splat, stroke, switchNode, tap, thresholdChange, wheel, zone };
 
 /** Every node type, in palette order. Add new node files here. */
-export const nodeDefinitions: readonly NodeDefinition[] = [pointer, pointerHighRate, click, midiIn, drag, tap, hold, flick, circle, pinch, stroke, modifierRouter, zone, dwell, clock, euclidean, probability, delayEdge, sampleAndHold, thresholdChange, math, mapRange, curve, smooth, getField, switchNode, progression, chordTone, makeNote, sampledVoice, simpleSynth, filter, gain, pan, mixer, output, fluid, splat, force, orbitRings, renderer];
+export const nodeDefinitions: readonly NodeDefinition[] = [pointer, pointerHighRate, click, wheel, midiIn, drag, tap, hold, flick, circle, pinch, stroke, modifierRouter, zone, dwell, clock, euclidean, probability, delayEdge, sampleAndHold, thresholdChange, math, mapRange, curve, smooth, getField, switchNode, progression, chordTone, makeNote, sampledVoice, simpleSynth, filter, gain, pan, mixer, output, fluid, splat, force, orbitRings, renderer];
 
 export const nodeRegistry: ReadonlyMap<string, NodeDefinition> = new Map(nodeDefinitions.map((d) => [d.type, d]));

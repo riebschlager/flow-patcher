@@ -36,6 +36,33 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
     return () => observer.disconnect();
   }, []);
 
+  // Wheel (canvas-sources.md): each wheel event pushed once, with the browser's deltas and deltaMode (Wheel
+  // converts them to pixels). A trackpad pinch arrives as wheel + ctrlKey. While a source reads wheel the
+  // canvas keeps it: no page scroll, and no browser zoom on a pinch or Ctrl + wheel. That needs a
+  // non-passive listener, and React's onWheel is passive, so it's added here.
+  useEffect(() => {
+    const element = canvas.current;
+    if (!element || !live) return;
+    const wheel = (event: WheelEvent) => {
+      if (!live.reads('wheel')) return;
+      event.preventDefault();
+      const box = element.getBoundingClientRect();
+      live.wheel({
+        x: clamp01((event.clientX - box.left) / box.width),
+        y: clamp01((event.clientY - box.top) / box.height),
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        deltaMode: event.deltaMode,
+        shift: event.shiftKey,
+        alt: event.altKey,
+        ctrl: event.ctrlKey,
+        meta: event.metaKey,
+      }, event.timeStamp);
+    };
+    element.addEventListener('wheel', wheel, { passive: false });
+    return () => element.removeEventListener('wheel', wheel);
+  }, [live]);
+
   // Each pointer's latest sample time (event.timeStamp, ms), for `interval`: motion is measured on the
   // browser's clock, since the stamps carry render quanta and handler delays (canvas-sources.md).
   const [lastSample] = useState(() => new Map<number, number>());
