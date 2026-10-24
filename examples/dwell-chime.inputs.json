@@ -8,8 +8,7 @@
     {"time":1.6,"type":"pointermove","channel":1,"x":0.6,"y":0.4,"pressure":0,"pointerType":"mouse","button":-1,"buttons":0},
     {"time":1.8,"type":"pointerdown","channel":1,"x":0.6,"y":0.4,"pressure":0.5,"pointerType":"mouse","button":0,"buttons":1},
     {"time":2,"type":"pointerup","channel":1,"x":0.6,"y":0.4,"pressure":0,"pointerType":"mouse","button":0,"buttons":0},
-    {"time":2.3,"type":"pointermove","channel":1,"x":0.8,"y":0.3,"pressure":0,"pointerType":"mouse","button":-1,"buttons":0},
-    {"time":2.4,"type":"pointermove","channel":1,"x":0.81,"y":0.3,"pressure":0,"pointerType":"mouse","button":-1,"buttons":0},
-    {"time":3.4,"type":"pointermove","channel":1,"x":0.9,"y":0.2,"pressure":0,"pointerType":"mouse","button":-1,"buttons":0},
-    {"time":3.5,"type":"pointerleave","channel":1,"x":1,"y":0.2,"pointerType":"mouse"}
+    {"time":2.9,"type":"pointermove","channel":1,"x":0.9,"y":0.2,"pressure":0,"pointerType":"mouse","button":-1,"buttons":0},
+    {"time":3,"type":"pointermove","channel":1,"x":0.905,"y":0.2,"pressure":0,"pointerType":"mouse","button":-1,"buttons":0},
+    {"time":3.7,"type":"pointerleave","channel":1,"x":1,"y":0.2,"pointerType":"mouse"}
   ] }

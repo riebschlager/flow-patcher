@@ -31,20 +31,25 @@ const closed = (open: boolean): Stay => ({ open, anchored: false, ax: 0, ay: 0, 
  * hover move farther than Radius from the anchor starts a new stay there; nearer ones don't. When
  * a stay lasts Time with no such move, Dwell fires once, at the anchor's time + Time, even though
  * a pointer held still sends no events then. It fires again only after the pointer leaves Radius
- * and stays still somewhere else. A `down` ends the stay without firing; after the contact's `up`
- * or `cancel`, the next hover move anchors a new one. Radius and Time are read when a stay is
- * anchored, on its channel. Distances are in canvas units, as x and y are.
+ * and stays still somewhere else. A `down` ends the stay without firing. A mouse or pen `up`
+ * anchors a new stay where it lifted, so a click then holding still dwells; after a `cancel` (or
+ * an up from a touch) the next hover move anchors one. Radius and Time are read when a stay is
+ * anchored, on its channel. Distances are in canvas units, as x and y are. Events whose time or
+ * channel isn't finite are dropped, as the other recognizers drop them.
  *
  * Dwell: `{ x, y, pointerType }` at the fire time, x and y being the latest hover position.
  *
  * Dwell never claims: a hover isn't a contact, so there's nothing to take from downstream. Pass
- * carries every event unchanged, split by phase on Pass Down, Move, Up and Cancel, so Dwell can
- * sit anywhere in a recognizer chain.
+ * carries every event unchanged, and on Pass Down, Move, Up and Cancel without `phase`, so Dwell
+ * can sit anywhere in a recognizer chain (or split a routed output by phase).
  *
- * All has no leave phase: a pointer that leaves the canvas still and its last hover move near
- * the edge fires a Dwell there.
+ * All has no leave phase yet: a pointer that leaves the canvas still and its last hover move
+ * near the edge fires a Dwell there. #101 adds a hover-end marker to Pointer's All, and Dwell
+ * will drop its stay on it.
  *
- * State: `stays` per channel. Events are processed in time order and due fires before each event
+ * State: `stays` per channel, and `cell`, the event budget: forwarded moves and events with no
+ * phase are thinned below NODE_EVENT_LIMIT − RESERVE, so downs, ups, cancels and Dwell's fires
+ * always go out. Events are processed in time order and due fires before each event
  * (a fire due at an event's time comes first), then those due before the window ends, so neither
  * depends on windowing.
  */
@@ -78,25 +83,26 @@ export const dwell: NodeDefinition = {
       }
     };
     for (const event of inputs.in ?? []) {
-      if (!Number.isFinite(event.time)) continue;
+      if (!Number.isFinite(event.time) || !Number.isFinite(event.channel)) continue;
       flush(event.time, true);
       outputs.pass(event);
-      const { channel, phase, x, y, pointerType } = event;
-      if (!Number.isInteger(channel)) continue;
+      const { time, channel, phase, x, y, pointerType } = event;
       const key = String(channel);
+      const hovering = typeof pointerType === 'string' && HOVERING.includes(pointerType) && typeof x === 'number' && typeof y === 'number' && Number.isFinite(x) && Number.isFinite(y);
+      const anchor = () => {
+        stays[key] = { open: false, anchored: true, ax: x as number, ay: y as number, radius: param('radius', time, channel), fireAt: time + param('time', time, channel), x: x as number, y: y as number, pointerType: pointerType as string };
+      };
       if (phase === 'down') stays[key] = closed(true);
-      else if (phase === 'up' || phase === 'cancel') delete stays[key];
-      else if (phase === 'move') {
+      else if (phase === 'cancel') delete stays[key];
+      else if (phase === 'up') {
+        // A mouse or pen still over the canvas hovers from where it lifted: click, then hold still.
+        if (hovering) anchor();
+        else delete stays[key];
+      } else if (phase === 'move') {
         const stay = stays[key];
-        if (stay?.open) continue;
-        if (typeof pointerType !== 'string' || !HOVERING.includes(pointerType)) continue;
-        if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) continue;
-        if (stay?.anchored && !(Math.hypot(x - stay.ax, y - stay.ay) > stay.radius)) {
-          Object.assign(stay, { x, y, pointerType });
-          continue;
-        }
-        const time = event.time;
-        stays[key] = { open: false, anchored: true, ax: x, ay: y, radius: param('radius', time, channel), fireAt: time + param('time', time, channel), x, y, pointerType };
+        if (stay?.open || !hovering) continue;
+        if (stay?.anchored && !(Math.hypot((x as number) - stay.ax, (y as number) - stay.ay) > stay.radius)) Object.assign(stay, { x, y, pointerType });
+        else anchor();
       }
     }
     flush(t1, false);

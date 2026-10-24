@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { compilePatch, inputRouter, replayInput, Runtime, type EngineEvent, type EventField, type InputEvent, type LoggedEvent, type Patch, type SignalSource } from '@flow-patcher/engine';
 import { dwell, nodeRegistry } from '../src';
 import { query, queryTiled } from './helpers';
+import { burst, expectUnderCap, expectWellFormed, splitsMatchPass } from './routing';
 
 const PASS = ['pass', 'passDown', 'passMove', 'passUp', 'passCancel'];
 
@@ -10,8 +11,7 @@ const ev = (time: number, channel: number, phase: string | undefined, x: EventFi
 
 /**
  * Channel 1, a mouse: hovers still from 0.1 (fires at 0.7), wanders within Radius, leaves it at
- * 1.0, stays from 1.0 but presses at 1.3 (no fire), lifts at 1.5 and hovers still from 1.6 (fires
- * at 2.2). Channel 2, a pen, hovers from 0.4, drifts out of Radius at 0.8 and stays (fires at 1.4).
+ * 1.0, stays from 1.0 but presses at 1.3 (no fire), lifts at 1.5 and stays there (fires at 2.1). Channel 2, a pen, hovers from 0.4, drifts out of Radius at 0.8 and stays (fires at 1.4).
  * Channel 3 is a touch: never fires.
  */
 const stream: EngineEvent[] = [
@@ -55,7 +55,7 @@ describe('dwell', () => {
     expect(fires(tiled(3))).toEqual([
       [0.7, 1, 0.5, 0.515, 'mouse'],
       [1.4, 2, 0.25, 0.8, 'pen'],
-      [2.2, 1, 0.6, 0.5, 'mouse'],
+      [2.1, 1, 0.6, 0.5, 'mouse'],
     ]);
   });
 
@@ -75,11 +75,59 @@ describe('dwell', () => {
   });
 
   it('reads Radius and Time when a stay is anchored, per channel', () => {
-    expect(fires(tiled(3, stream, 3, { time: 1, radius: 0.2 }))).toEqual([[1.1, 1, 0.6, 0.5, 'mouse'], [1.4, 2, 0.25, 0.8, 'pen'], [2.6, 1, 0.6, 0.5, 'mouse']]);
+    expect(fires(tiled(3, stream, 3, { time: 1, radius: 0.2 }))).toEqual([[1.1, 1, 0.6, 0.5, 'mouse'], [1.4, 2, 0.25, 0.8, 'pen'], [2.5, 1, 0.6, 0.5, 'mouse']]);
     // Time from a cable: 0.6 + channel × 0.5 s.
     const time: SignalSource = (_t, channel) => channel;
     const two = [ev(0.1, 1, 'move', 0.5, 0.5), ev(0.1, 2, 'move', 0.2, 0.2, 'pen')];
     expect(fires(tiled(3, two, 3, {}, { time: [{ depth: 0.5, signal: time }] }))).toEqual([[1.2, 1, 0.5, 0.5, 'mouse'], [1.7, 2, 0.2, 0.2, 'pen']]);
+  });
+
+  it('starts a stay where a mouse or pen lifts, so click-then-hold-still dwells; a touch or a cancel does not', () => {
+    const click = [ev(0.1, 1, 'down', 0.3, 0.3), ev(0.2, 1, 'up', 0.3, 0.3)];
+    expect(fires(tiled(3, click))).toEqual([[0.8, 1, 0.3, 0.3, 'mouse']]);
+    expect(fires(tiled(3, click.map((e) => ({ ...e, pointerType: 'pen' }))))).toEqual([[0.8, 1, 0.3, 0.3, 'pen']]);
+    expect(fires(tiled(3, click.map((e) => ({ ...e, pointerType: 'touch' }))))).toEqual([]);
+    expect(fires(tiled(3, [click[0]!, ev(0.2, 1, 'cancel', 0.3, 0.3)]))).toEqual([]);
+    // Moving off after the click, before Time, starts over from there.
+    expect(fires(tiled(3, [...click, ev(0.5, 1, 'move', 0.6, 0.6)]))).toEqual([[1.1, 1, 0.6, 0.6, 'mouse']]);
+  });
+
+  it('forgets a stay at a cancel: the next hover anchors afresh', () => {
+    const events = [ev(0.1, 1, 'move', 0.5, 0.5), ev(0.2, 1, 'down', 0.5, 0.5), ev(0.3, 1, 'cancel', 0.5, 0.5), ev(0.4, 1, 'move', 0.505, 0.5)];
+    expect(fires(tiled(3, events))).toEqual([[1.0, 1, 0.505, 0.5, 'mouse']]);
+  });
+
+  it('keeps every output inside its window, a fire landing exactly on a window edge', () => {
+    // Anchored at 0.15, fires at 0.75: the edge of 0.25 s windows (and of 0.05 s ones).
+    const events = [ev(0.15, 1, 'move', 0.5, 0.5), ev(0.75, 2, 'move', 0.2, 0.2, 'pen')];
+    for (const step of [0.05, 0.25]) {
+      const state = {};
+      const fired: number[] = [];
+      for (let i = 0; i * step < 2 - 1e-9; i++) {
+        const t0 = i * step, t1 = Math.min(2, (i + 1) * step);
+        const result = query(dwell, t0, t1, { state, inputs: { in: events.filter((e) => e.time >= t0 && e.time < t1) } });
+        for (const list of Object.values(result)) for (const e of list!) {
+          expect(e.time, `step ${step}`).toBeGreaterThanOrEqual(t0);
+          expect(e.time, `step ${step}`).toBeLessThan(t1);
+        }
+        fired.push(...(result.dwell ?? []).map((e) => +e.time.toFixed(9)));
+      }
+      expect(fired).toEqual([0.75, 1.35]);
+    }
+    expect(fires(tiled(0.25, events))).toEqual(fires(tiled(3, events)));
+  });
+
+  it('thins forwarded moves in an over-budget burst, but never a fire, a down or an end', () => {
+    // 10 mice hovering still from 0.0005 fire at 0.6005, in a limit window full of other channels' moves.
+    const still = Array.from({ length: 10 }, (_, i) => ev(0.0005, 100 + i, 'move', 0.1 * i, 0.5));
+    const flood = burst(12, 60, (c, step) => ({ x: 0.5 + step / 1000, y: c / 20, pointerType: 'touch' }), 0.5);
+    const events = [...still, ...flood].sort((a, b) => a.time - b.time);
+    const out = query(dwell, 0, 1, { state: {}, inputs: { in: events } }) as Record<string, EngineEvent[]>;
+    expectUnderCap(out);
+    expectWellFormed(out);
+    splitsMatchPass(out);
+    expect(out.dwell).toHaveLength(10);
+    expect(out.passMove!.length).toBeLessThan(12 * 60);
   });
 
   it('passes every event unchanged, never claiming', () => {
@@ -95,7 +143,7 @@ describe('dwell', () => {
   it('gives the same events in any windows, a fire landing in a window with no input', () => {
     const whole = tiled(3);
     for (const step of [0.025, 0.1, 0.3, 0.7]) expect(tiled(step)).toEqual(whole);
-    expect(queryTiled(dwell, 'dwell', 3, 0.05, { state: {}, inputsFor: (t0, t1) => ({ in: stream.filter((e) => e.time >= t0 && e.time < t1) }) }).map((e) => +e.time.toFixed(9))).toEqual([0.7, 1.4, 2.2]);
+    expect(queryTiled(dwell, 'dwell', 3, 0.05, { state: {}, inputsFor: (t0, t1) => ({ in: stream.filter((e) => e.time >= t0 && e.time < t1) }) }).map((e) => +e.time.toFixed(9))).toEqual([0.7, 1.4, 2.1]);
   });
 
   it('copes with weird input', () => {
@@ -114,8 +162,10 @@ describe('dwell', () => {
     ];
     // A non-finite knob reads its default, one out of range clamps (Time −1 → 0.1 s).
     const out = tiled(1, weird, 2, { radius: NaN, time: -1 });
-    expect(fires(out)).toEqual([[0.4, 8, -4, 9, 'mouse']]);
+    // Any finite channel counts (5.5); a mouse up anchors a stay where it lifted (7).
+    expect(fires(out)).toEqual([[0.2, 5.5, 0.5, 0.5, 'mouse'], [0.3, 7, 0.5, 0.5, 'mouse'], [0.4, 8, -4, 9, 'mouse']]);
     expect(out.pass).toHaveLength(weird.length - 1);
+    expect(query(dwell, 0, 1, { inputs: { in: [ev(0.1, NaN, 'move', 0.5, 0.5), ev(0.2, Infinity, 'up', 0.5, 0.5)] } })).toEqual({});
   });
 
   /** A Pointer → Dwell patch, and a mouse stream that hovers, stops, then moves on before Time. */
