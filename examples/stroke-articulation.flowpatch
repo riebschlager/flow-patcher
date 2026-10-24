@@ -1,0 +1,166 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261031,
+  "nodes": [
+    {
+      "id": "pointer",
+      "type": "pointer",
+      "typeVersion": 2,
+      "params": {},
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "stroke",
+      "type": "stroke",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 240,
+        "y": 100
+      }
+    },
+    {
+      "id": "silk",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.8,
+        "pitch": 62,
+        "velocity": 0.4
+      },
+      "position": {
+        "x": 480,
+        "y": 0
+      }
+    },
+    {
+      "id": "rush",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.12,
+        "pitch": 74,
+        "velocity": 0.9
+      },
+      "position": {
+        "x": 480,
+        "y": 120
+      }
+    },
+    {
+      "id": "synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.01,
+        "level": 0.25,
+        "release": 0.3,
+        "wave": "triangle"
+      },
+      "position": {
+        "x": 720,
+        "y": 100
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 960,
+        "y": 100
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "pointer",
+        "port": "all"
+      },
+      "to": {
+        "node": "stroke",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "stroke",
+        "port": "silk"
+      },
+      "to": {
+        "node": "silk",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "stroke",
+        "port": "rush"
+      },
+      "to": {
+        "node": "rush",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "y"
+      },
+      "to": {
+        "node": "silk",
+        "port": "pitch"
+      },
+      "depth": -12
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "y"
+      },
+      "to": {
+        "node": "rush",
+        "port": "pitch"
+      },
+      "depth": -12
+    },
+    {
+      "from": {
+        "node": "silk",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "rush",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    }
+  ]
+}
