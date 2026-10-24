@@ -30,21 +30,71 @@ export function automationTimes(t0: number, t1: number, rate = AUTOMATION_RATE):
   return times;
 }
 
+/** How far before a run's start a ParamAutomation keeps the points it scheduled, in seconds. A re-run starts
+ *  at the clock or later, and the clock is never more than a lookahead (1.25 s while hidden) behind a run. */
+export const AUTOMATION_MEMORY = 4;
+
+/** A param that follows a modulated value on the automation grid (`paramAutomation`). */
+export interface ParamAutomation {
+  /** Follows `value(t)` on the grid in [t0, t1), replacing what was scheduled from t0 on. */
+  follow(t0: number, t1: number, value: (t: number) => number): void;
+}
+
 /**
- * Follows `value(t)` on the grid in [t0, t1): withdraws what was scheduled on
- * `target` from t0 on, then a linear ramp to each grid point's value, ending
- * there. The timeline after a run of calls depends only on the grid points
- * covered, so calling it again for a stretch already covered (a rewind or
- * swap re-run) gives what one call would have. Non-finite values are skipped:
- * the ramp goes on to the next point.
+ * Follows a modulated value on `target` (ADR 0031): each `follow(t0, t1, value)`
+ * withdraws what was scheduled from t0 on, then ramps linearly to each grid
+ * point's value, ending there. Non-finite values are skipped: the ramp goes on
+ * to the next point.
+ *
+ * It remembers the points it scheduled, so a re-run (a rewind or swap calling
+ * it again for a stretch already covered) whose t0 falls inside a scheduled ramp
+ * keeps that ramp's shape up to t0: it adds a point at t0 on the ramp, then
+ * cancels the ramp's end, and the new values start at the next grid point after
+ * t0. Without that, the ramp being played would get a new end, and
+ * the param would step by the change times the share of the ramp already played
+ * (#103). With an unchanged value the point at t0 lies on the old line, so a
+ * re-run leaves the param's course as it was, and the course after forward runs
+ * depends only on the grid points covered, not on window splits.
  */
-export function automateParam(target: AudioParamLike, t0: number, t1: number, value: (t: number) => number, rate = AUTOMATION_RATE): void {
-  if (!Number.isFinite(t0)) return;
-  target.cancelScheduledValues(t0);
-  for (const t of automationTimes(t0, t1, rate)) {
-    const v = value(t);
-    if (Number.isFinite(v)) target.linearRampToValueAtTime(v, t);
-  }
+export function paramAutomation(target: AudioParamLike, rate = AUTOMATION_RATE): ParamAutomation {
+  // What is scheduled on target, in time order; times are distinct.
+  let points: { time: number; value: number }[] = [];
+  return {
+    follow(t0, t1, value) {
+      if (!Number.isFinite(t0)) return;
+      let at = points.length;
+      while (at > 0 && points[at - 1]!.time >= t0) at--;
+      const before = points[at - 1], after = points[at];
+      // The first point the new values replace: where the param is at t0 stays.
+      let from = -Infinity;
+      if (after && after.time === t0) {
+        // t0 is on a scheduled point: keep it, and replace what follows it.
+        at++;
+        from = t0;
+      } else if (before && after) {
+        // Inside a ramp: add its value at t0 before cancelling its end. In this order the param's course
+        // never changes between the two calls, so a render that runs between them sees the old one.
+        const v = before.value + ((after.value - before.value) * (t0 - before.time)) / (after.time - before.time);
+        target.linearRampToValueAtTime(v, t0);
+        points.splice(at++, 0, { time: t0, value: v });
+        from = t0;
+      }
+      // Cancels from the first point replaced; with none scheduled from t0 on, from t0 as before.
+      target.cancelScheduledValues(points[at]?.time ?? t0);
+      points.length = at;
+      for (const t of automationTimes(t0, t1, rate)) {
+        if (!(t > from)) continue;
+        const v = value(t);
+        if (!Number.isFinite(v)) continue;
+        target.linearRampToValueAtTime(v, t);
+        points.push({ time: t, value: v });
+      }
+      // Forget points no re-run can reach, keeping the one a ramp after them starts from.
+      let old = 0;
+      while (old + 1 < points.length && points[old + 1]!.time < t0 - AUTOMATION_MEMORY) old++;
+      if (old > 0) points = points.slice(old);
+    },
+  };
 }
 
 /** A param's knob edits made in place, one ramp after another (`editRamp`). */
