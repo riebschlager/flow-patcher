@@ -62,8 +62,8 @@ describe('filter', () => {
   });
 
   it('follows a cabled cutoff in automate, sweeping a sine that is already sounding', async () => {
-    // Cutoff 200 Hz, plus 4800 Hz from 0.5 s on: a 2 kHz sine is cut, then passes.
-    const mods = { cutoff: [{ depth: 4800, signal: (t: number) => (t >= 0.5 ? 1 : 0) }] };
+    // Cutoff 200 Hz, five octaves up (6.4 kHz) from 0.5 s on: a 2 kHz sine is cut, then passes.
+    const mods = { cutoff: [{ depth: 5, signal: (t: number) => (t >= 0.5 ? 1 : 0) }] };
     const audio = await renderOffline(1, (context) => build(context, 2000, { params: { cutoff: 200 }, mods }).automate!(0, 1, -Infinity));
     expect(busRms(audio, 0.3, 0.1)).toBeLessThan(SINE * 0.03);
     expect(busRms(audio, 0.8, 0.1)).toBeGreaterThan(SINE * 0.95);
@@ -74,7 +74,8 @@ describe('filter', () => {
   });
 
   it('gives the same audio however automate is split, and after a re-run over a stretch already covered', async () => {
-    const mods = { cutoff: [{ depth: 3000, signal: (t: number) => 0.5 + 0.5 * Math.sin(2 * Math.PI * 3 * t) }], q: [{ depth: 4, signal: (t: number) => t }] };
+    // Cutoff swept over three octaves from 300 Hz (ADR 0032), Q linear.
+    const mods = { cutoff: [{ depth: 3, signal: (t: number) => 0.5 + 0.5 * Math.sin(2 * Math.PI * 3 * t) }], q: [{ depth: 4, signal: (t: number) => t }] };
     const render = (calls: [number, number][]) =>
       renderOffline(1, (context) => {
         const instance = build(context, 1500, { params: { cutoff: 300, mode: 'bandpass' }, mods });
@@ -88,6 +89,19 @@ describe('filter', () => {
     expect(peak(one)).toBeGreaterThan(0.1);
     expect(maxDifference(one, split)).toBeLessThan(RENDER_TOLERANCE);
     expect(maxDifference(one, rerun)).toBeLessThan(RENDER_TOLERANCE);
+  });
+
+  it('reads cutoff depth in octaves (ADR 0032): two octaves up from 500 Hz puts the cutoff on a 2 kHz sine', async () => {
+    expect(filter.params.find((p) => p.name === 'cutoff')).toMatchObject({ scale: 'log', min: 20, max: 20000, unit: 'Hz' });
+    const render = (depth: number, signal: number) =>
+      renderOffline(0.4, (context) => build(context, 2000, { params: { cutoff: 500 }, mods: { cutoff: [{ depth, signal: () => signal }] } }).automate!(0, 0.4, -Infinity));
+    const [atCutoff, below, down] = await Promise.all([render(2, 1), render(1, 1), render(-2, 1)]);
+    // A Butterworth low-pass is −3 dB at its cutoff: 500 × 2² = 2 kHz. Read as Hz, 502 Hz would cut it by about 24 dB.
+    expect(busRms(atCutoff, 0.3, 0.1) / SINE).toBeCloseTo(Math.SQRT1_2, 1);
+    // One octave (1 kHz) is an octave short: about −12 dB. Two down (125 Hz) is four octaves short: about −48 dB.
+    expect(busRms(below, 0.3, 0.1) / SINE).toBeLessThan(0.3);
+    expect(busRms(below, 0.3, 0.1) / SINE).toBeGreaterThan(0.2);
+    expect(busRms(down, 0.3, 0.1) / SINE).toBeLessThan(0.01);
   });
 
   it('leaves an uncabled cutoff alone in automate', async () => {
@@ -129,7 +143,8 @@ describe('filter', () => {
     const cut = busRms(audio, 0.45, 0.05), open = busRms(audio, 0.6, 0.1);
     expect(cut).toBeLessThan(SINE * 0.03);
     expect(open).toBeGreaterThan(SINE * 0.95);
-    // Still held until 0.5 s; the 20 ms ramp passes 2 kHz about 5 ms in, so the first 5 ms stay below half open.
+    // Still held until 0.5 s. The 20 ms ramp is linear in Hz on the log-scaled cutoff too (ADR 0032): it passes 2 kHz
+    // about 5 ms in, so the first 5 ms stay below half open.
     expect(busRms(audio, 0.49, 0.01)).toBeLessThan(SINE * 0.03);
     expect(busRms(audio, 0.5, 0.004)).toBeLessThan(open * 0.5);
     expect(busRms(audio, 0.53, 0.01)).toBeGreaterThan(open * 0.9);

@@ -24,7 +24,8 @@ export function rescale(x: number, inMin: number, inMax: number, outMin: number,
  * input range onto the output range, optionally clamped to it. The defaults
  * (0–1 onto 0–1, clamped) pass a 0–1 Signal through and keep anything else
  * inside 0–1. Typical use: pointer y or a Clock phase (0–1) onto a pitch or
- * cutoff range. Several cables into In are summed, an unconnected In is 0.
+ * cutoff range (into a log-scaled cutoff, a cable is in octaves: map onto an
+ * octave range, ADR 0032). Several cables into In are summed, an unconnected In is 0.
  * Every bound is a knob, so a cable can move the range.
  *
  * Stateless, so it has no query(): Out is a pure function of its inputs at t,

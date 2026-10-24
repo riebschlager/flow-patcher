@@ -13,17 +13,19 @@ export function biquadQ(mode: string, q: number): number {
 
 export const filter: NodeDefinition = {
   type: 'filter',
-  version: 1,
+  // 2: cutoff is log-scaled, so a cable's depth into it is in octaves (ADR 0032).
+  version: 2,
   label: 'Filter',
   category: 'effects-mix',
-  description: 'Low-pass, high-pass or band-pass filter on an audio bus. Cutoff and Q follow their cables, so a sweep reaches notes already sounding.',
+  description: 'Low-pass, high-pass or band-pass filter on an audio bus. Cutoff and Q follow their cables, so a sweep reaches notes already sounding. Cutoff turns by octaves, and a cable into it moves it by depth octaves.',
   ports: [
     { name: 'in', type: 'audio', direction: 'in', label: 'In' },
     { name: 'out', type: 'audio', direction: 'out', label: 'Out' },
   ],
   params: [
     { name: 'mode', kind: 'enum', options: FILTER_MODES, default: 'lowpass', label: 'Mode' },
-    { name: 'cutoff', kind: 'number', min: 20, max: 20000, default: 1200, unit: 'Hz', label: 'Cutoff' },
+    // Log-scaled: every octave gets the same knob travel, and cable depth is in octaves (ADR 0032).
+    { name: 'cutoff', kind: 'number', min: 20, max: 20000, default: 1200, unit: 'Hz', label: 'Cutoff', scale: 'log' },
     { name: 'q', kind: 'number', min: 0.1, max: 20, default: 0.71, label: 'Q' },
   ],
   // Knob turns ramp in place; a mode change builds a new filter (ADR 0031).

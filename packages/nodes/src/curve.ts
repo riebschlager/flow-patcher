@@ -13,7 +13,9 @@ export const CURVE_AMOUNT_MAX = 100;
  * - power: x^amount. Above 1 it starts slow (ease in), below 1 it starts fast.
  * - exponential: (amount^x − 1) / (amount − 1). Followed by a Map Range onto
  *   [lo, hi] with amount = hi / lo, this is lo · (hi / lo)^x: equal steps in x
- *   give equal ratios, the right response for cutoff in Hz.
+ *   give equal ratios, the right response for a frequency on a linear param.
+ *   A log-scaled param (Filter's cutoff, ADR 0032) needs no curve for that: a
+ *   0–1 Signal with depth log2(hi / lo) on a base of lo gives the same course.
  * - s-curve: power mirrored about the middle. Above 1 it eases in and out,
  *   below 1 it rushes from both ends and lingers in the middle.
  * Non-finite x or amount, or an amount that isn't positive, gives 0.
@@ -35,9 +37,10 @@ export function shape(curve: CurveShape, x: number, amount: number): number {
  * A 0–1 response curve, per channel: In, read on each channel and clamped to
  * 0–1, bent by Shape and Amount into 0–1. Amount 1 is a straight line for
  * every shape, so the defaults pass a 0–1 Signal through. Typical use:
- * pressure → velocity through a power curve, or pointer y → cutoff through an
- * exponential one, with Map Range after it for the output range (Map Range is
- * linear and leaves the shaping here). Several cables into In are summed, an
+ * pressure → velocity through a power curve, or pointer y → a frequency through
+ * an exponential one, with Map Range after it for the output range (Map Range is
+ * linear and leaves the shaping here). A cable into a log-scaled param is in
+ * octaves, not Hz (ADR 0032). Several cables into In are summed, an
  * unconnected In is 0, and Amount is a knob, so a cable can bend the curve.
  *
  * Stateless, so it has no query(): Out is a pure function of its inputs at t,
