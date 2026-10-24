@@ -137,6 +137,22 @@ describe('touch-extras', () => {
     close(read(session, 0.9, 0), { width: 0, height: 0, scale: 2 });
   });
 
+  it("reads 0 on a slot taken by an enter alone, not the previous finger's size, until the new touch's down", () => {
+    const list: Push[] = [
+      { port: 'down', event: touch(0.1, 41, 20, 22) },
+      { port: 'up', event: touch(0.2, 41, 20, 22, { pressure: 0, buttons: 0 }) },
+      { port: 'enter', event: touch(0.3, 42, 30, 34, { buttons: 0 }) },
+      { port: 'down', event: touch(0.4, 42, 30, 34) },
+    ];
+    // 42's enter takes slot 1, whose payload is still 41's.
+    for (const channel of [0, 1]) {
+      close(read(list, 0.15, channel), { width: 20, height: 22 });
+      close(read(list, 0.35, channel), { width: 0, height: 0 });
+      close(read(list, 0.45, channel), { width: 30, height: 34 });
+    }
+    for (const step of [0.1, 0.025]) expect(readSignals(list, step, [0.35, 0.45], [0, 1])).toEqual(readSignals(list, 1, [0.35, 0.45], [0, 1]));
+  });
+
   it('keeps mice and pens out of the slots, live from the stream, with Pointer beside it numbering all of them', () => {
     const stream: InputEvent[] = [
       { time: 0.05, type: 'pointerdown', channel: 1, x: 0.1, y: 0.2, pressure: 0.5, pointerType: 'mouse', width: 1, height: 1, buttons: 1 },

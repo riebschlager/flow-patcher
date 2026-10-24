@@ -94,10 +94,11 @@ function touchExtrasQuery({ state, pushed }: Pick<QueryContext, 'state' | 'pushe
   return out.length ? { gesture: out } : {};
 }
 
-/** Width and Height: the touch slot's latest size, 0 once the slot is free or before any touch. */
+/** Width and Height: the touch slot's latest size, 0 once the slot is free, before any touch, and on a
+ *  slot whose holder has only entered (no down or move of its own, so its payload is still the previous finger's). */
 function sizeAt(state: NodeState, port: 'width' | 'height', t: number, channel: number): number {
   const contact = pointerContactAt(state, t, channel);
-  if (!contact || contact.id === null) return 0;
+  if (!contact || contact.id === null || contact.refAt === null) return 0;
   return contactSize(contact.payload[port]);
 }
 
@@ -110,8 +111,11 @@ function sizeAt(state: NodeState, port: 'width' | 'height', t: number, channel: 
  * slots, its own map as Pen keeps one: the first finger is slot 1 here whatever Pointer gave it,
  * and with only fingers on the canvas the two agree. **Width** and **Height**, per channel (slot),
  * are the slot's latest event's `width` and `height`, in CSS pixels as the browser reports them
- * (Chrome: the contact ellipse's bounding box), clamped to 0–MAX_SIZE, 0 when missing or not finite.
- * They read 0 once the finger lifts (Up or Cancel) and before any touch. Channel 0, or a channel no
+ * (Chrome: the contact ellipse's bounding box), clamped to 0–MAX_SIZE. A browser with no contact
+ * geometry reports 1 × 1 (the Pointer Events spec's default), so they read 1 there; only hand-written
+ * streams can leave a size out, and a missing or non-finite one reads 0. They read 0 once the finger
+ * lifts (Up or Cancel), before any touch, and on a slot taken by an enter alone until that touch's
+ * first down or move. Channel 0, or a channel no
  * slot has had, reads the latest touch. Mice and pens never reach it (a mouse reports 1 × 1).
  *
  * **Gesture.** Safari sends a pinch or twist (two fingers on iOS, the trackpad on macOS) as
@@ -123,8 +127,9 @@ function sizeAt(state: NodeState, port: 'width' | 'height', t: number, channel: 
  * clamped to 0–1 or left out; a non-positive or non-finite scale, or a non-finite rotation, keeps
  * the previous value. **Scale** and **Rotation**, the same on every channel, hold the latest
  * gesturechange's values, and read 1 and 0 before any. gesturestart and gestureend aren't stream
- * types, so after a gesture ends they hold its last values until the next gesture's first change
- * (which starts near 1 and 0 again). Other browsers send no gesturechange: there Gesture never
+ * types, so after a gesture ends they hold its last values until the next gesture's first change,
+ * which starts near 1 and 0 again: Safari's scale and rotation are per gesture, not running totals,
+ * so a patch mapping Scale or Rotation to a param jumps back at the start of every new pinch. Other browsers send no gesturechange: there Gesture never
  * fires and Scale and Rotation stay 1 and 0 (Chrome, Edge and Firefox send a trackpad pinch as
  * wheel + ctrlKey: Wheel's Zoom; on touch screens, Pinch).
  *
