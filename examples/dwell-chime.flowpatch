@@ -1,0 +1,147 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261024,
+  "nodes": [
+    {
+      "id": "pointer",
+      "type": "pointer",
+      "typeVersion": 2,
+      "params": {},
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "dwell",
+      "type": "dwell",
+      "typeVersion": 1,
+      "params": {
+        "radius": 0.02,
+        "time": 0.6
+      },
+      "position": {
+        "x": 240,
+        "y": 100
+      }
+    },
+    {
+      "id": "chime",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.8,
+        "pitch": 84,
+        "velocity": 0.5
+      },
+      "position": {
+        "x": 480,
+        "y": 0
+      }
+    },
+    {
+      "id": "tap",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.2,
+        "pitch": 60,
+        "velocity": 0.7
+      },
+      "position": {
+        "x": 480,
+        "y": 180
+      }
+    },
+    {
+      "id": "synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.005,
+        "level": 0.3,
+        "release": 0.3,
+        "wave": "triangle"
+      },
+      "position": {
+        "x": 720,
+        "y": 100
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 960,
+        "y": 100
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "pointer",
+        "port": "all"
+      },
+      "to": {
+        "node": "dwell",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "dwell",
+        "port": "dwell"
+      },
+      "to": {
+        "node": "chime",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "dwell",
+        "port": "passDown"
+      },
+      "to": {
+        "node": "tap",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "chime",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "tap",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    }
+  ]
+}
