@@ -37,6 +37,41 @@ const feed: NodeDefinition = {
   },
 };
 
+/**
+ * Pure: a contact source's tagged stream (ADR 0028) for the gesture recognizers' In, so the
+ * checks reach their recognition and claims, not just the no-phase path. Two channels, each
+ * with a contact every 1.1 s (channel 1 offset by 0.37 s), 0.8 s long, moving every 25 ms: held
+ * still, circling 1.2 turns, or a fast line ending in a release at speed; every fourth ends in
+ * a cancel instead of an up.
+ */
+const contacts: NodeDefinition = {
+  type: 'window-test-contacts', version: 1, label: 'Contacts', category: 'canvas-sources', description: '',
+  ports: [{ name: 'out', type: 'event', direction: 'out' }],
+  params: [],
+  query: ({ t0, t1 }) => {
+    const out: EngineEvent[] = [];
+    for (const channel of [0, 1]) {
+      for (let k = Math.max(0, Math.floor((t0 - 0.37 * channel - 0.8) / 1.1) - 1); k * 1.1 + 0.37 * channel < t1; k++) {
+        const start = k * 1.1 + 0.37 * channel, cx = 0.3 + 0.4 * channel;
+        const at = (i: number) => {
+          const f = i / 32;
+          if (k % 3 === 0) return [cx + 0.002 * Math.sin(i), 0.5];
+          if (k % 3 === 1) return [cx + 0.1 * Math.cos(f * 2.4 * Math.PI), 0.5 + 0.1 * Math.sin(f * 2.4 * Math.PI)];
+          return [cx - 0.2 + 0.4 * f * f, 0.3 + 0.1 * f];
+        };
+        for (let i = 0; i <= 32; i++) {
+          const time = start + i * 0.025;
+          if (time < t0 || time >= t1) continue;
+          const [x, y] = at(i);
+          const phase = i === 0 ? 'down' : i < 32 ? 'move' : k % 4 === 3 ? 'cancel' : 'up';
+          out.push({ time, channel, phase, x: x!, y: y!, pointerType: 'touch' });
+        }
+      }
+    }
+    return { out: out.sort((a, b) => a.time - b.time || a.channel - b.channel) };
+  },
+};
+
 /** Pure: a slow wave per channel, crossing 0.5 now and then. */
 const wave: NodeDefinition = {
   type: 'window-test-wave', version: 1, label: 'Wave', category: 'control-logic', description: '',
@@ -144,13 +179,16 @@ export function rewindLogs(definition: NodeDefinition, { seconds = REWIND_SECOND
 
 /** The node as `n`, its inputs fed, its Signal/Value outputs probed, and with `taps`, a tap into each Event input. */
 function buildPlan(definition: NodeDefinition, seed: number, taps: boolean) {
-  const definitions = new Map([definition, feed, wave, probe, tap].map((d) => [d.type, d]));
+  const definitions = new Map([definition, feed, contacts, wave, probe, tap].map((d) => [d.type, d]));
   const nodes: Patch['nodes'] = [{ id: 'n', type: definition.type, typeVersion: definition.version, params: {}, position: { x: 0, y: 0 } }];
   const cables: Patch['cables'] = [];
   const add = (id: string, type: string) => nodes.push({ id, type, typeVersion: 1, params: {}, position: { x: 0, y: 0 } });
   for (const port of definition.ports.filter((p) => p.direction === 'in')) {
     const events = port.type === 'event' || port.type === 'note';
-    const source = events ? feed : port.type === 'signal' ? wave : null;
+    // A recognizer's In gets a tagged contact stream. The live pushes (`taps`) stay phase-less:
+    // they reach the recognizers' no-phase path only (their timer claims under live input are
+    // covered in packages/nodes/test/recognizer-chain.test.ts).
+    const source = events ? (definition.category === 'gesture-recognizers' && port.name === 'in' ? contacts : feed) : port.type === 'signal' ? wave : null;
     if (!source) continue;
     add(`src-${port.name}`, source.type);
     cables.push({ from: { node: `src-${port.name}`, port: 'out' }, to: { node: 'n', port: port.name } });
