@@ -692,6 +692,7 @@ export class LivePatch {
       createDynamicsCompressor: () => context.createDynamicsCompressor(),
       createWaveShaper: () => context.createWaveShaper(),
       createBiquadFilter: () => context.createBiquadFilter(),
+      createStereoPanner: () => context.createStereoPanner(),
       decodeAudioData: (data) => context.decodeAudioData(data),
       createOscillator: () => {
         const osc = context.createOscillator();
