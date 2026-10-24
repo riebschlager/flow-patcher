@@ -16,12 +16,12 @@
     {
       "id": "pads",
       "type": "zone",
-      "typeVersion": 1,
+      "typeVersion": 2,
       "params": {
         "centerX": 0.5,
         "centerY": 0.5,
         "columns": 2,
-        "mask": "0.25,0.25 0.75,0.25 0.75,0.75 0.25,0.75",
+        "outputs": "Presses only",
         "radius": 0.5,
         "rings": 3,
         "rows": 2,

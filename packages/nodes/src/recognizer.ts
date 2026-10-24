@@ -55,6 +55,12 @@ export class Outputs {
     return true;
   }
 
+  /** Whether `cost` more events at `time` still fit below RESERVE, without counting them. */
+  fits(time: number, cost: number): boolean {
+    const n = limitWindowOf(time) === this.cell.k ? this.cell.n : 0;
+    return n + cost <= NODE_EVENT_LIMIT - RESERVE;
+  }
+
   push(port: string, event: EngineEvent): void {
     (this.out[port] ??= []).push(event);
   }
