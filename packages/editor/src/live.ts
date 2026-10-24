@@ -77,6 +77,29 @@ export interface PointerFields {
   interval?: number;
 }
 
+/** The click events the canvas forwards (Click, docs/nodes/canvas-sources.md): auxclick is Middle's, contextmenu Right's. */
+export type ClickType = 'click' | 'dblclick' | 'auxclick' | 'contextmenu';
+
+/** The payload of one click event (Event payload): position and the base fields that apply. No channel: a click isn't a contact. */
+export interface ClickFields {
+  x: number;
+  y: number;
+  pointerType: string;
+  button: number;
+  buttons: number;
+  shift: boolean;
+  alt: boolean;
+  ctrl: boolean;
+  meta: boolean;
+}
+
+/**
+ * The canvas event types a source reads when the canvas is played with a pointer: a patch with a
+ * source reading one doesn't show the preview's "No Pointer" hint. Sources that read other canvas
+ * events from a pointer (wheel, say) add their type here.
+ */
+const PLAYED_TYPES: readonly InputEventType[] = ['pointerdown', 'click', 'dblclick', 'auxclick', 'contextmenu'];
+
 /** One pointerdown, for the Immediate path gate check (docs/milestones.md, M1). */
 export interface Tap {
   /** currentTime when the handler ran, in seconds. */
@@ -174,6 +197,7 @@ interface ProbeTrack {
 
 export interface LiveStatus {
   audio: AudioContextState;
+  /** Source nodes the canvas plays with a pointer (`PLAYED_TYPES`): Pointer, Click and the like. */
   pointers: number;
 }
 
@@ -418,6 +442,11 @@ export class LivePatch {
     this.input({ type: POINTER_TYPES[port], ...fields }, timeStamp);
   }
 
+  /** Sends one click event (click, dblclick, auxclick or contextmenu) to every source node that reads it, stamped once. x and y are 0–1, y = 0 at the top. */
+  click(type: ClickType, fields: ClickFields, timeStamp?: number): void {
+    this.input({ type, ...fields }, timeStamp);
+  }
+
   /** Whether a source node in the running plan reads this canvas event type, such as `contextmenu` (Platform rules). */
   reads(type: InputEventType): boolean {
     return this.router.reads(type);
@@ -530,7 +559,7 @@ export class LivePatch {
   private adopt(plan: Plan): void {
     this.plan = plan;
     this.router = inputRouter(plan);
-    this.pointers = plan.order.filter((node) => node.definition.input?.reads.pointerdown !== undefined).length;
+    this.pointers = plan.order.filter((node) => PLAYED_TYPES.some((type) => node.definition.input?.reads[type] !== undefined)).length;
     this.renderer = plan.order.find((node) => node.definition.type === 'renderer')?.id ?? null;
     this.hasFluid = plan.order.some((node) => node.definition.type === 'fluid');
     this.needed = neededPermissions(plan.order);

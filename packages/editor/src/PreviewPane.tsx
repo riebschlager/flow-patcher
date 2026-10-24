@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import type { LivePatch, PointerPort } from './live';
+import type { ClickType, LivePatch, PointerPort } from './live';
 
 const MIN = { width: 200, height: 120 };
 const DEFAULT = { width: 248, height: 156 };
@@ -107,9 +107,36 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
     else event.stopPropagation();
   };
 
+  // Click (canvas-sources.md): click, dblclick, auxclick and contextmenu, each pushed once, at one stamp
+  // shared by every source that reads it (ADR 0029). Clicks aren't contacts, so they carry no channel.
+  // Chromium sends them as PointerEvents, with a pointerType; elsewhere they're mouse events.
+  const sendClick = (type: ClickType) => (event: ReactMouseEvent<HTMLCanvasElement>) => {
+    if (!live?.reads(type)) return;
+    const box = event.currentTarget.getBoundingClientRect();
+    const native = event.nativeEvent as MouseEvent & { pointerType?: string };
+    live.click(type, {
+      x: clamp01((event.clientX - box.left) / box.width),
+      y: clamp01((event.clientY - box.top) / box.height),
+      pointerType: native.pointerType || 'mouse',
+      button: event.button,
+      buttons: event.buttons,
+      shift: event.shiftKey,
+      alt: event.altKey,
+      ctrl: event.ctrlKey,
+      meta: event.metaKey,
+    }, event.timeStamp);
+  };
+  // A middle press would start autoscroll (or paste, on Linux) and swallow its auxclick, so it's
+  // suppressed while a source reads middle clicks, as the context menu is for right-clicks.
+  const middleDown = (event: ReactMouseEvent<HTMLCanvasElement>) => {
+    if (event.button === 1 && live?.reads('auxclick')) event.preventDefault();
+  };
+  const clicked = sendClick('click'), doubled = sendClick('dblclick'), auxClicked = sendClick('auxclick'), rightClicked = sendClick('contextmenu');
+
   // The context menu stays unless a source in the patch reads right-clicks (Platform rules).
   const contextMenu = (event: ReactMouseEvent<HTMLCanvasElement>) => {
     if (live?.reads('contextmenu')) event.preventDefault();
+    rightClicked(event);
   };
 
   const resize = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -148,6 +175,10 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
           aria-label="Performance canvas"
           onKeyDown={keep}
           onContextMenu={contextMenu}
+          onClick={clicked}
+          onDoubleClick={doubled}
+          onAuxClick={auxClicked}
+          onMouseDown={middleDown}
           onPointerDown={send('down')}
           onPointerMove={send('move')}
           onPointerUp={send('up')}

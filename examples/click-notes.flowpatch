@@ -1,0 +1,192 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261024,
+  "nodes": [
+    {
+      "id": "click",
+      "type": "click",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "single",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.2,
+        "pitch": 72,
+        "velocity": 0.6
+      },
+      "position": {
+        "x": 240,
+        "y": 0
+      }
+    },
+    {
+      "id": "double",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.4,
+        "pitch": 79,
+        "velocity": 0.7
+      },
+      "position": {
+        "x": 240,
+        "y": 120
+      }
+    },
+    {
+      "id": "middle",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.3,
+        "pitch": 64,
+        "velocity": 0.6
+      },
+      "position": {
+        "x": 240,
+        "y": 240
+      }
+    },
+    {
+      "id": "right",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.8,
+        "pitch": 48,
+        "velocity": 0.7
+      },
+      "position": {
+        "x": 240,
+        "y": 360
+      }
+    },
+    {
+      "id": "synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.005,
+        "level": 0.3,
+        "release": 0.3,
+        "wave": "triangle"
+      },
+      "position": {
+        "x": 480,
+        "y": 100
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 720,
+        "y": 100
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "click",
+        "port": "click"
+      },
+      "to": {
+        "node": "single",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "click",
+        "port": "double"
+      },
+      "to": {
+        "node": "double",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "click",
+        "port": "middle"
+      },
+      "to": {
+        "node": "middle",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "click",
+        "port": "right"
+      },
+      "to": {
+        "node": "right",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "single",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "double",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "middle",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "right",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    }
+  ]
+}
