@@ -1755,6 +1755,49 @@
    "index": 27
   }
  ],
+ "filter-sweep.flowpatch": [
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "sweep",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 0,
+   "channel": 0,
+   "index": 0,
+   "pitch": 45,
+   "velocity": 0.8,
+   "duration": 1.8
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2,
+   "channel": 0,
+   "index": 1
+  },
+  {
+   "node": "note",
+   "port": "note",
+   "time": 2,
+   "channel": 0,
+   "index": 1,
+   "pitch": 45,
+   "velocity": 0.8,
+   "duration": 1.8
+  }
+ ],
  "force-sweep.flowpatch": [
   {
    "node": "clock",

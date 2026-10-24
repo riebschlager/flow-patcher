@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import {
+  compilePatch,
   createNodeContext,
   resolveParams,
   type AudioContextLike,
@@ -9,9 +10,15 @@ import {
   type HostServices,
   type NodeDefinition,
   type NodeWiring,
+  type ParamValue,
+  type Patch,
   type QueryResult,
+  Runtime,
+  type SwapReport,
   VoicePool,
 } from '@flow-patcher/engine';
+import { nodeRegistry } from '../src';
+import { renderOffline } from '../../../tools/lib/audio';
 
 export interface ContextOptions {
   params?: Record<string, unknown>;
@@ -118,4 +125,51 @@ export function vendorSamples(): ((file: string) => Promise<string>) & { calls: 
     return readFile(new URL(`../../../vendor/${file}`, import.meta.url), 'utf8');
   };
   return Object.assign(samples, { calls });
+}
+
+/** RMS of a render over [t, t + width), on one channel or (by default) across all of them. */
+export function busRms(audio: { sampleRate: number; channels: Float32Array[] }, t: number, width: number, channel?: number): number {
+  const from = Math.round(t * audio.sampleRate), to = Math.round((t + width) * audio.sampleRate);
+  let sum = 0, count = 0;
+  for (const [index, data] of audio.channels.entries()) {
+    if (channel !== undefined && index !== channel) continue;
+    for (let i = from; i < Math.min(to, data.length); i++, count++) sum += data[i]! ** 2;
+  }
+  return Math.sqrt(sum / Math.max(1, count));
+}
+
+/**
+ * Runs a patch of one `definition` node (id `n`) and an Output through the runtime on an offline
+ * context, swapping to each later entry of `params` in turn (one swap per 0.1 s, from 0.2 s).
+ * Returns each swap's report and how many instances of the node were built: an in-place edit
+ * (ADR 0031) lists `n` in `updated` and builds none.
+ */
+export async function swapRun(definition: NodeDefinition, params: Record<string, ParamValue>[]): Promise<{ reports: SwapReport[]; built: number }> {
+  let built = 0;
+  const counted: NodeDefinition = { ...definition, audio: (ctx) => (built++, definition.audio!(ctx)) };
+  const definitions = new Map([...nodeRegistry, [definition.type, counted]]);
+  const patch = (values: Record<string, ParamValue>): Patch => ({
+    format: 'flowpatch', version: 1, seed: 1,
+    nodes: [
+      { id: 'n', type: definition.type, typeVersion: definition.version, params: values, position: { x: 0, y: 0 } },
+      { id: 'out', type: 'output', typeVersion: nodeRegistry.get('output')!.version, params: {}, position: { x: 0, y: 0 } },
+    ],
+    cables: [],
+  });
+  const compile = (p: Patch) => {
+    const compiled = compilePatch(p, definitions);
+    if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+    return compiled.plan;
+  };
+  const reports: SwapReport[] = [];
+  let swap: (values: Record<string, ParamValue>) => void = () => {};
+  await renderOffline(0.2 + 0.1 * params.length, (audio) => {
+    built = 0;
+    reports.length = 0;
+    const runtime = new Runtime(compile(patch(params[0]!)));
+    runtime.attachAudio(audio);
+    runtime.query(0, 0.5);
+    swap = (values) => reports.push(runtime.swap(compile(patch(values)), { now: audio.currentTime }));
+  }, { edits: params.slice(1).map((values, i) => ({ time: 0.2 + 0.1 * i, apply: () => swap(values) })) });
+  return { reports, built };
 }
