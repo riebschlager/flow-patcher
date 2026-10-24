@@ -1,11 +1,11 @@
 import { useContext, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type Edge, type EdgeProps } from '@xyflow/react';
-import type { NumberParamSpec, PatchCable, PatchEdit, PortType } from '@flow-patcher/engine';
+import { isLogParam, type NumberParamSpec, type PatchCable, type PatchEdit, type PortType } from '@flow-patcher/engine';
 import { CABLE_STYLES, PORT_COLORS } from './ports';
 import { ABOVE_NODES, cableId, type CableEdgeData } from './patch-graph';
 import { snapTo, startDrag } from './drag-edit';
 import { EditorStoreContext, LivePatchContext, TypedNumber } from './ParamField';
-import { formatParam, keyedValue } from './param-format';
+import { depthScale, formatDepth, keyedValue } from './param-format';
 
 /** How long a refused cable shows before it's gone, ms; its fade runs over the same time. */
 export const REFUSED_MS = 900;
@@ -123,7 +123,8 @@ export function CableEdge({ sourceX, sourceY, targetX, targetY, sourcePosition, 
   );
 }
 
-/** A param cable's depth (design system CableChip "depth"), in the param's units: drag, Shift for fine, double-click to type, right-click to reset to 1. */
+/** A param cable's depth (design system CableChip "depth"), in the param's units, or in octaves into a log-scaled param
+ *  (ADR 0032): drag, Shift for fine, double-click to type, right-click to reset to 1. */
 function DepthChip({ cable, spec, onBusy }: { cable: PatchCable; spec: NumberParamSpec; onBusy: (busy: boolean) => void }) {
   const store = useContext(EditorStoreContext);
   const [typing, setTypingState] = useState(false);
@@ -133,7 +134,7 @@ function DepthChip({ cable, spec, onBusy }: { cable: PatchCable; spec: NumberPar
     onBusy(on);
   };
   const depth = cable.depth ?? 1;
-  const range = spec.max - spec.min;
+  const { range, step } = depthScale(spec);
   // A depth edit is the cable taken out and put back at the same index, so cable order (and fan-in order) holds.
   const edits = (value: number): PatchEdit[] => {
     const index = store?.getState().doc.cables.findIndex((c) => cableId(c) === cableId(cable)) ?? -1;
@@ -144,7 +145,7 @@ function DepthChip({ cable, spec, onBusy }: { cable: PatchCable; spec: NumberPar
   const set = (value: number) => {
     if (store && value !== depth) store.getState().apply(edits(value));
   };
-  const clamp = (value: number) => snapTo(value, -range, range, spec.step);
+  const clamp = (value: number) => snapTo(value, -range, range, step);
 
   const onPointerDown = (event: ReactPointerEvent<HTMLSpanElement>) => {
     if (event.button !== 0 || typing || !store) return;
@@ -158,12 +159,13 @@ function DepthChip({ cable, spec, onBusy }: { cable: PatchCable; spec: NumberPar
       onEnd: () => onBusy(false),
     });
   };
-  const text = `${depth >= 0 ? '+' : ''}${formatParam(spec, depth)}`;
+  const text = formatDepth(spec, depth);
   const pct = range > 0 ? Math.min(1, Math.abs(depth) / range) * 100 : 0;
   return (
     <span
       ref={chip}
-      className="cable-chip cable-chip--depth"
+      // nokey: a Shift press (a fine drag) stays the chip's, not a selection box's.
+      className="cable-chip cable-chip--depth nokey"
       data-testid="depth-chip"
       data-depth={depth}
       role="slider"
@@ -176,8 +178,10 @@ function DepthChip({ cable, spec, onBusy }: { cable: PatchCable; spec: NumberPar
       onPointerDown={onPointerDown}
       onKeyDown={(event) => {
         if (event.key === 'Enter') return setTyping(true);
-        const next = keyedValue(event.key, event.shiftKey, depth, -range, range, spec.step);
-        if (next === undefined) return;
+        // Octaves step by a hundredth of the reach (Shift a thousandth), then snap to OCTAVE_STEP.
+        const keyed = keyedValue(event.key, event.shiftKey, depth, -range, range, isLogParam(spec) ? undefined : step);
+        if (keyed === undefined) return;
+        const next = clamp(keyed);
         event.preventDefault();
         event.stopPropagation();
         set(next);
