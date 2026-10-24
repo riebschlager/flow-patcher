@@ -39,7 +39,7 @@ test('clicks on the preview canvas reach Click, Double, Middle and Right with th
 
   await page.goto('/?patch=click-notes');
   await expect(page.getByTestId('compile-status')).toHaveText('7 nodes compiled');
-  // Click plays the canvas, so there's no "No Pointer" hint.
+  // Click plays the canvas, so there's no "No canvas input" hint.
   await expect(page.locator('.preview__hint')).toHaveCount(0);
   const canvas = page.getByTestId('performance-canvas');
   await canvas.click({ position: { x: 20, y: 20 } });
@@ -50,6 +50,10 @@ test('clicks on the preview canvas reach Click, Double, Middle and Right with th
     (window as unknown as { unwatch: (() => void)[] }).unwatch = ports.map((port) => live.watchProbe('click', port, 'out', 'event', () => {}));
   }, [...PORTS]);
   const box = (await canvas.boundingBox())!;
+  // The click that started audio may have been held while the context was cold, and is stamped at the
+  // first running wake. Let the clock run well past that before taking the start of what counts.
+  const live = await page.evaluate(() => window.flowPatcher!.clock.currentTime);
+  await expect.poll(() => page.evaluate(() => window.flowPatcher!.clock.currentTime)).toBeGreaterThan(live + 0.25);
   const since = await page.evaluate(() => window.flowPatcher!.clock.currentTime);
   const pushes = () => page.evaluate(() => window.flowPatcher!.stats.pushes);
 
@@ -113,6 +117,26 @@ test('clicks on the preview canvas reach Click, Double, Middle and Right with th
   expect(ctrl).toMatchObject({ x: 1, y: 0, button: 0, ctrl: true });
   // Only the middle button's auxclick ever reached Middle.
   expect((await seen(page, 'middle', since)).map((e) => e.button)).toEqual([1]);
+
+  // Safari: click and contextmenu are plain MouseEvents with no pointerType, so they take the last
+  // pointerdown's. A touch press (pointerId 1, Chromium's mouse, so capture finds it), then its click
+  // and a long press's contextmenu, both report touch.
+  await page.evaluate(() => {
+    const element = document.querySelector('[data-testid="performance-canvas"]')!;
+    const r = element.getBoundingClientRect();
+    const at = { bubbles: true, cancelable: true, clientX: r.left + r.width * 0.3, clientY: r.top + r.height * 0.3 };
+    element.dispatchEvent(new PointerEvent('pointerdown', { ...at, pointerId: 1, pointerType: 'touch', isPrimary: true, button: 0, buttons: 1 }));
+    element.dispatchEvent(new PointerEvent('pointerup', { ...at, pointerId: 1, pointerType: 'touch', isPrimary: true, button: 0, buttons: 0 }));
+    element.dispatchEvent(new MouseEvent('click', { ...at, button: 0 }));
+    element.dispatchEvent(new MouseEvent('contextmenu', { ...at, button: 0 }));
+  });
+  await expect.poll(async () => (await seen(page, 'click', since)).length).toBe(5);
+  await expect.poll(async () => (await seen(page, 'right', since)).length).toBe(3);
+  for (const port of ['click', 'right']) {
+    const tap = (await seen(page, port, since)).at(-1)!;
+    expectPayload(tap);
+    expect(tap, port).toMatchObject({ pointerType: 'touch', x: expect.closeTo(0.3, 1), y: expect.closeTo(0.3, 1) });
+  }
 
   await page.evaluate(() => (window as unknown as { unwatch: (() => void)[] }).unwatch.forEach((stop) => stop()));
   await page.screenshot({ path: 'test-results/click.png' });

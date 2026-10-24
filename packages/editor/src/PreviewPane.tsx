@@ -106,6 +106,8 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
   // Each pointer's latest sample time (event.timeStamp, ms), for `interval`: motion is measured on the
   // browser's clock, since the stamps carry render quanta and handler delays (canvas-sources.md).
   const [lastSample] = useState(() => new Map<number, number>());
+  // The pointerType of the last pointerdown on the canvas, for click events that carry none (Safari).
+  const lastDownType = useRef('mouse');
   /** Seconds since this pointer's previous sample, or nothing for its first; and `timeStamp` becomes the latest. */
   const intervalOf = (pointerId: number, timeStamp: number): { interval?: number } => {
     const last = lastSample.get(pointerId);
@@ -132,6 +134,7 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
   };
 
   const send = (port: PointerPort) => (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (port === 'down') lastDownType.current = event.pointerType;
     if (!live) return;
     const box = event.currentTarget.getBoundingClientRect();
     if (port === 'down') {
@@ -195,7 +198,8 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
 
   // Click (canvas-sources.md): click, dblclick, auxclick and contextmenu, each pushed once, at one stamp
   // shared by every source that reads it (ADR 0029). Clicks aren't contacts, so they carry no channel.
-  // Chromium sends them as PointerEvents, with a pointerType; elsewhere they're mouse events.
+  // Chromium sends them as PointerEvents, with a pointerType. Safari sends plain MouseEvents, so a tap's
+  // click or a long press's contextmenu takes the pointerType of the last pointerdown on the canvas.
   const sendClick = (type: ClickType) => (event: ReactMouseEvent<HTMLCanvasElement>) => {
     if (!live?.reads(type)) return;
     const box = event.currentTarget.getBoundingClientRect();
@@ -203,7 +207,7 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
     live.click(type, {
       x: clamp01((event.clientX - box.left) / box.width),
       y: clamp01((event.clientY - box.top) / box.height),
-      pointerType: native.pointerType || 'mouse',
+      pointerType: native.pointerType || lastDownType.current,
       button: event.button,
       buttons: event.buttons,
       shift: event.shiftKey,
@@ -272,7 +276,7 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
           onPointerEnter={send('enter')}
           onPointerLeave={send('leave')}
         />
-        {live && !pointers && <span className="preview__hint">No Pointer in this patch</span>}
+        {live && !pointers && <span className="preview__hint">No canvas input in this patch</span>}
       </div>
       <div className="preview__grip" onPointerDown={resize} aria-label="Resize preview" role="separator" />
     </section>

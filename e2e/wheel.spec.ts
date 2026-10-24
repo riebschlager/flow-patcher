@@ -54,7 +54,7 @@ test('wheel on the preview canvas reaches DeltaX, DeltaY, Zoom and the accumulat
 
   await page.goto('/?patch=wheel-scroll');
   await expect(page.getByTestId('compile-status')).toHaveText('6 nodes compiled');
-  // Wheel plays the canvas, so there's no "No Pointer" hint.
+  // Wheel plays the canvas, so there's no "No canvas input" hint.
   await expect(page.locator('.preview__hint')).toHaveCount(0);
   const canvas = page.getByTestId('performance-canvas');
   await canvas.click({ position: { x: 20, y: 20 } });

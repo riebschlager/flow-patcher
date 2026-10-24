@@ -146,7 +146,7 @@ export interface GestureFields {
 
 /**
  * The canvas event types a source reads when the canvas is played with a pointer: a patch with a
- * source reading one doesn't show the preview's "No Pointer" hint. Sources that read other canvas
+ * source reading one doesn't show the preview's "No canvas input" hint. Sources that read other canvas
  * events from a pointer add their type here.
  */
 const PLAYED_TYPES: readonly InputEventType[] = ['pointerdown', 'click', 'dblclick', 'auxclick', 'contextmenu', 'wheel'];
