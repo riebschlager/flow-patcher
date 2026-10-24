@@ -147,7 +147,7 @@ describe('filter', () => {
     expect(20 * Math.log10(peaked)).toBeGreaterThan(11);
     expect(20 * Math.log10(peaked)).toBeLessThan(13);
     // Not a jump: in the first 5 ms after the edit time the resonance is still building.
-    expect(busRms(audio, 0.5, 0.005) / SINE).toBeLessThan(peaked * 0.75);
+    expect(busRms(audio, 0.5, 0.005) / SINE).toBeLessThan(peaked * 0.5);
   });
 
   it('keeps its instance for a cutoff or Q edit through the runtime, and rebuilds for a mode change', async () => {

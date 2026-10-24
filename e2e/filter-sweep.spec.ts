@@ -138,9 +138,9 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
 
   // How far before a step its re-run's cancel may have run: the mirror gets each call just after the real
   // param, in the same task, but currentTime is read at the cancel and the step lands at the next quantum the
-  // render thread plays. Main-thread stalls of 9–12 ms were logged on CI (#97), plus one clock step.
+  // render thread plays. Main-thread stalls of 9–12 ms were logged on CI (#97), plus one clock step, capped at one grid step.
   const { callback, largestStep } = await audioCallback(page);
-  const lead = 0.012 + Math.max(callback, largestStep);
+  const lead = 0.012 + Math.min(1 / 60, Math.max(callback, largestStep));
   const result = await page.evaluate((lead) => {
     const probe = window.sweep!;
     const rate = probe.sampleRate;
@@ -219,7 +219,7 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     `filter sweep: ${result.seconds.toFixed(2)} s recorded at ${result.rate} Hz, cutoff ${result.smallest.toFixed(0)}–${result.largest.toFixed(0)} Hz; ` +
       `${final.swaps - first.swaps} swaps; ${result.cancels} cancels, ${result.reruns} re-run cancels, ${result.exposed} within one grid step of the clock (leads ms: ${result.leads.join(', ')}); ` +
       `${result.holds.length} held quanta ${JSON.stringify(result.holds)}; ${result.steps.length} steps off the grid (largest ${Math.max(0, ...result.steps.map((s) => Math.abs(s.size))).toFixed(1)} Hz, ` +
-      `${result.steps.filter((s) => !s.cause).length} without an exposed re-run cancel just before); ${result.gaps} samples missing from the recording, ${result.besideGaps} steps beside them; brightness vs cutoff r = ${result.r.toFixed(3)} over ${result.blocks} blocks; ` +
+      `${result.steps.filter((s) => !s.cause).length} without an exposed re-run cancel in the ${(lead * 1000).toFixed(1)} ms before); ${result.gaps} samples missing from the recording, ${result.besideGaps} steps beside them; brightness vs cutoff r = ${result.r.toFixed(3)} over ${result.blocks} blocks; ` +
       `late ${final.lateScheduled} (${first.lateScheduled} before the turns), skipped ${final.skipped}`,
   );
 
