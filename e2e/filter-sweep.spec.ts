@@ -162,12 +162,14 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     };
     const mirror = stitch(probe.mirror), out = stitch(probe.out);
     const gaps = mirror.data.filter(Number.isNaN).length;
-    // Re-run cancels: before the last time still scheduled, so they withdraw something. A re-run keeps the ramp its start falls
-    // in and cancels from the grid point after it (#103), so an exposed one, whose start is in the ramp the
-    // render thread is in, cancels within two grid steps of the clock (three when AUTOMATION_RENDER_MARGIN
-    // keeps one more ramp; those within two are enough to show the checks below mean something).
+    // Re-run cancels: before the last time still scheduled, so they withdraw something. A re-run keeps the ramp its
+    // start falls in, ending at g, and cancels from the grid point after it (#103); when g is less than
+    // AUTOMATION_RENDER_MARGIN (15 ms) past the clock it keeps one more ramp and cancels a grid step later. So an
+    // exposed one, whose start is in the ramp the render thread is in (g less than a grid step past the clock),
+    // cancels less than two grid steps plus the margin past the clock; a re-run starting in a later ramp cancels
+    // at least three grid steps past it.
     const reruns = probe.cancels.filter((c) => c.t0 < c.reached);
-    const exposed = reruns.filter((c) => c.t0 - c.now < 2 / 60);
+    const exposed = reruns.filter((c) => c.t0 - c.now < 2 / 60 + 0.015);
     const v = mirror.data;
     let smallest = Infinity, largest = -Infinity;
     for (const x of v) {
@@ -266,7 +268,7 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
   });
   console.log(
     `filter sweep: ${result.seconds.toFixed(2)} s recorded at ${result.rate} Hz, cutoff ${result.smallest.toFixed(0)}–${result.largest.toFixed(0)} Hz; ` +
-      `${final.swaps - first.swaps} swaps; ${result.cancels} cancels, ${result.reruns} re-run cancels, ${result.exposed} within two grid steps of the clock (leads ms: ${result.leads.join(', ')}); ` +
+      `${final.swaps - first.swaps} swaps; ${result.cancels} cancels, ${result.reruns} re-run cancels, ${result.exposed} exposed (leads ms: ${result.leads.join(', ')}); ` +
       `${result.holds.length} held quanta ${JSON.stringify(result.holds)}; ${result.freezes.length} frozen quanta back on their line ${JSON.stringify(result.freezes)} (${result.nearReruns} within four quanta after a re-run cancel); ${result.steps.length} steps off the grid ${JSON.stringify(result.steps)}; ` +
       `${result.bends} bends off the grid; steepest ${result.steepest.toFixed(2)} Hz a sample (largest turn ${largestTurn.toFixed(0)} Hz); ${result.gaps} samples missing from the recording, ${result.besideGaps} steps beside them; brightness vs cutoff r = ${result.r.toFixed(3)} over ${result.blocks} blocks; ` +
       `late ${final.lateScheduled} (${first.lateScheduled} before the turns), skipped ${final.skipped}`,
