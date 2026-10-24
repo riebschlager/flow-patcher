@@ -39,7 +39,7 @@ Rules for connections:
 
 - **Adapters do conversions.** Event → Signal is Sample & Hold or Envelope; Signal → Event is Threshold or Change. The editor offers to insert one when you drag an incompatible cable.
 - **Every Event, Note and Signal port carries channels.** A pointer is really N pointers: up to 5 touches plus a mouse and a pen. Each event has a `channel` id and nodes keep per-channel state. Merge and Split nodes combine and separate channels. This is built in from day one, because adding it later would mean rewriting every node.
-- **One output can feed many inputs.** Several cables can feed one Event input; their events merge in time order. Several cables into a Signal input are summed. Into a parameter, the cable is added to the knob's base value and scaled by a per-cable depth attenuator, as in modular synths.
+- **One output can feed many inputs.** Several cables can feed one Event input; their events merge in time order. Several cables into a Signal input are summed. Into a parameter, the cable is added to the knob's base value and scaled by a per-cable depth attenuator, as in modular synths. On a log-scaled knob (a frequency or a time) the depth is in octaves: the cable scales the base by 2^(depth × signal) ([ADR 0032](decisions/0032-log-knobs-depth-in-octaves.md)).
 - **Parameters are numbers or text.** Most are knobs and menus. Some are text, such as a chord string, and a preset menu can fill a text parameter; editing the text by hand sets the menu back to Custom.
 - **Subpatches** wrap a group of nodes as one node with exposed ports and knobs. Presets and the node library build on them.
 
@@ -246,7 +246,7 @@ The visual language (colors, type, spacing, port shapes, motion and the componen
 - Connecting incompatible types offers the matching adapter (Event → Signal via Sample & Hold, and so on).
 - Ports have a hit area larger than their drawn size, larger still for a coarse pointer, so a finger can start a cable.
 - A cable's remove control stays reachable when the cable runs behind a node: it draws above the nodes, and selecting a cable anywhere along its path lets you remove it.
-- Knobs: drag to turn, Shift for fine control, double-click to type a value, right-click to reset. A modulated knob shows its base value and a live ring for the modulated value.
+- Knobs: drag to turn, Shift for fine control, double-click to type a value, right-click to reset. A modulated knob shows its base value and a live ring for the modulated value. A log-scaled knob (cutoff, later delay time) turns by ratio, so every octave gets the same travel; its value still reads and types in its unit.
 - Any knob can be **pinned** to the Play view strip and renamed there.
 - Select nodes and collapse them into a subpatch; choose which ports and knobs to expose.
 - Undo/redo covers every edit. Copy and paste works between patches.
@@ -296,7 +296,7 @@ A patch is a small JSON document, usually a few kilobytes. Sharing a patch is th
 
 - `format: "flowpatch"`, a `version`, and a random `seed`.
 - `nodes[]`: id, type, type version, parameter values, editor position, pinned knobs.
-- `cables[]`: from node/port to node/port, with a depth for modulation cables.
+- `cables[]`: from node/port to node/port, with a depth for modulation cables (in octaves into a log-scaled param, [ADR 0032](decisions/0032-log-knobs-depth-in-octaves.md)).
 - `subpatches{}`: reusable definitions, referenced by id.
 - No code, no samples, no media. Instruments are referenced by name, as Flow's sessions do.
 

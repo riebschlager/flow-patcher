@@ -1,7 +1,7 @@
 // Builds the accessors a node reads its cables through (design.md, Core
 // concepts: fan-in). The runtime and the node tests share this one
 // implementation, so a rule proven in a test is the rule the runtime applies.
-import { resolveParam, type FrameContext, type HostServices, type NodeContext, type NodeDefinition, type NodeState, type ParamValues } from './definition';
+import { isLogParam, modulate, resolveParam, type FrameContext, type HostServices, type NodeContext, type NodeDefinition, type NodeState, type ParamValues } from './definition';
 
 export type SignalSource = (t: number, channel: number) => number;
 export type ValueSource = (t: number) => unknown;
@@ -15,7 +15,7 @@ export interface NodeWiring {
   /** One cable per Value input; the compiler rejects a second. */
   values?: Readonly<Record<string, ValueSource>>;
   fields?: Readonly<Record<string, readonly FieldSource[]>>;
-  /** Cables into number params, each scaled by its depth. */
+  /** Cables into number params, each scaled by its depth (in octaves on a log param, ADR 0032). */
   mods?: Readonly<Record<string, readonly { depth: number; signal: SignalSource }[]>>;
 }
 
@@ -66,11 +66,14 @@ export function createNodeContext({ nodeId, seed, definition, params, state, ser
       const base = params[name] as number;
       const cables = spec.modulatable === false ? undefined : wiring.mods?.[name];
       if (!cables?.length) return base;
-      let sum = base;
+      // Linear: the cables add to the base, in its unit. Log: they add octaves, applied by `modulate` (ADR 0032).
+      const log = isLogParam(spec);
+      let sum = log ? 0 : base;
       for (const { depth, signal } of cables) {
         const v = depth * signal(t, channel);
         if (Number.isFinite(v)) sum += v;
       }
+      if (log) return modulate(spec, base, sum);
       // Huge finite terms can still overflow; fall back to the knob, not the spec default.
       return Number.isFinite(sum) ? (resolveParam(spec, sum) as number) : base;
     },

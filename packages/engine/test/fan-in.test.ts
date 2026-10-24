@@ -59,6 +59,8 @@ const reader: NodeDefinition = {
     { name: 'knob', kind: 'number', min: 0, max: 260, default: 2 },
     { name: 'fixed', kind: 'number', min: 0, max: 1, default: 0, modulatable: false },
     { name: 'mode', kind: 'enum', options: ['a', 'b'], default: 'a' },
+    // A log-scaled knob: cables into it are in octaves (ADR 0032).
+    { name: 'hz', kind: 'number', min: 20, max: 20000, default: 400, unit: 'Hz', scale: 'log' },
   ],
   query: (ctx) => ({
     out: (ctx.inputs.trig ?? []).map((e) => ({
@@ -66,6 +68,7 @@ const reader: NodeDefinition = {
       channel: e.channel,
       sig: ctx.signal('sig', e.time, e.channel),
       knob: ctx.param('knob', e.time, e.channel),
+      hz: ctx.param('hz', e.time, e.channel),
       chord: String(ctx.value('chord', e.time)),
       wired: ['sig', 'chord', 'knob'].filter((p) => ctx.connected(p)).join(','),
     })),
@@ -157,6 +160,24 @@ describe('fan-in', () => {
     expect(run(p, 1)).toEqual(log);
   });
 
+  it('scales a log param\'s base by 2^(Σ depth × cable): depth in octaves, clamped to the range, the same in any windows', () => {
+    const p = patch([...twoChannels, node('a', 'lfo', { level: 1 }), node('c', 'lfo', { level: -1 })], [
+      ...intoReader, cable('a', 'out', 'r', 'hz'), cable('c', 'out', 'r', 'hz', 0.5),
+    ]);
+    const log = run(p, 0.025);
+    // Base 400 Hz. Before 0.5 s, channel 0: 1 − 0.5 × 1 = 0.5 octave up; channel 1: 11 + 0.5 × 9 = 15.5 octaves, clamped
+    // to 20 kHz. From 0.5 s each cable is 100 higher: 150 more octaves, clamped.
+    const half = 400 * 2 ** 0.5;
+    expect(log.filter((e) => e.channel === 0).map((e) => e.hz)).toEqual([half, half, half, half, 20000, 20000, 20000, 20000]);
+    expect(log.filter((e) => e.channel === 1).map((e) => e.hz)).toEqual(Array(8).fill(20000));
+    // A linear param on the same node is untouched by the change: no cable, its base.
+    expect(log.every((e) => e.knob === 2)).toBe(true);
+    for (const step of [1, 0.1, 1 / 60, 0.0371]) expect(run(p, step), `${step} s windows`).toEqual(log);
+    // Octaves down clamp to the bottom of the range.
+    const down = patch([...twoChannels, node('c', 'lfo', { level: -1 })], [...intoReader, cable('c', 'out', 'r', 'hz', 20)]);
+    expect(run(down, 1).filter((e) => e.channel === 0).map((e) => e.hz)).toEqual([20, 20, 20, 20, 20000, 20000, 20000, 20000]);
+  });
+
   it('gives unconnected inputs their defaults: Signal 0, Value undefined, param at its base', () => {
     const [first] = run(patch(twoChannels, intoReader), 1);
     expect(first).toMatchObject({ sig: 0, chord: 'undefined', knob: 2, wired: '' });
@@ -203,6 +224,13 @@ describe('Runtime.paramAt', () => {
     expect(steep.paramAt('r', 'knob', 0.5, 1)).toBe(260);
     const negative = runtime(patch([node('a', 'lfo', { level: 1 }), node('r', 'reader')], [cable('a', 'out', 'r', 'knob', -24)]));
     expect(negative.paramAt('r', 'knob', 0)).toBe(0);
+  });
+
+  it('reads a log param as the node does: base × 2^(depth × cable)', () => {
+    const rt = runtime(patch([node('a', 'lfo', { level: -1 }), node('r', 'reader', { hz: 1000 })], [cable('a', 'out', 'r', 'hz', 2)]));
+    // −1 × 2 octaves: 250 Hz; channel 1 is 9 × 2 = 18 octaves up, clamped.
+    expect(rt.paramAt('r', 'hz', 0)).toBe(250);
+    expect(rt.paramAt('r', 'hz', 0, 1)).toBe(20000);
   });
 
   it('gives the base without cables, and undefined for a non-number param or an unknown node', () => {

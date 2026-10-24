@@ -40,8 +40,17 @@ export interface NumberParamSpec {
   label?: string;
   /** Integer-valued knob. */
   step?: number;
-  /** Cables into this param add depth × signal to the knob. Default true. */
+  /** Cables into this param modulate the knob (`modulate`). Default true. */
   modulatable?: boolean;
+  /**
+   * How the knob's travel and its cables' depth read the range (ADR 0032). Default 'linear'.
+   * - 'linear': equal travel, equal difference; a cable adds depth × signal, in the param's unit.
+   * - 'log': equal travel, equal ratio, for frequencies and times. A cable's depth is in octaves:
+   *   value = base × 2^(Σ depth × signal), clamped to the range. Needs min > 0 (`paramSpecError`).
+   * Either way the stored value, the typed value and what `param()` gives the node are in the param's
+   * own unit (Hz, s); only the knob position (`knobPosition`, `knobValue`) and the depth change.
+   */
+  scale?: 'linear' | 'log';
 }
 
 export interface EnumParamSpec {
@@ -147,7 +156,8 @@ export interface NodeContext {
   signal(port: string, t: number, channel?: number): number;
   /** The Value on `port` at time t; undefined when unconnected. */
   value(port: string, t: number): unknown;
-  /** A number param at time t: base + Σ depth × cable, clamped like the knob. NaN for non-number params. */
+  /** A number param at time t: the base with its cables applied (`modulate`: base + Σ depth × cable, or
+   *  base × 2^(Σ depth × cable) on a log param), clamped like the knob. NaN for non-number params. */
   param(name: string, t: number, channel?: number): number;
   /** True when a cable feeds this input port or param. */
   connected(port: string): boolean;
@@ -444,6 +454,73 @@ export function presetFor(spec: TextParamSpec, text: string): string {
   for (const [label, preset] of Object.entries(spec.presets ?? {})) if (preset === text) return label;
   return CUSTOM_PRESET;
 }
+
+/** Whether a number param's knob and cable depth are logarithmic (`NumberParamSpec.scale`, ADR 0032). */
+export const isLogParam = (spec: ParamSpec | undefined): boolean => spec?.kind === 'number' && spec.scale === 'log';
+
+/**
+ * What is wrong with a param spec, or null when it's usable. The compiler rejects a patch that uses a
+ * node whose definition has one, and the catalog test checks every node. Today it checks only what
+ * a log scale needs: a finite range with 0 < min < max.
+ */
+export function paramSpecError(spec: ParamSpec): string | null {
+  if (spec.kind !== 'number' || spec.scale !== 'log') return null;
+  if (!(Number.isFinite(spec.min) && Number.isFinite(spec.max) && spec.min > 0 && spec.max > spec.min)) return `a log-scaled param needs 0 < min < max (has ${spec.min}–${spec.max})`;
+  return null;
+}
+
+/**
+ * Where a value sits on its knob's travel, 0–1: linear in the value, or in its logarithm on a log param
+ * (ADR 0032). A value outside the range gives the nearest end; a non-number or NaN gives the default's
+ * position, as `resolveParam` would store the default.
+ */
+export function knobPosition(spec: NumberParamSpec, value: number): number {
+  const v = typeof value === 'number' && !Number.isNaN(value) ? Math.max(spec.min, Math.min(spec.max, value)) : spec.default;
+  if (!(spec.max > spec.min)) return 0;
+  const p = isLogParam(spec) ? Math.log(v / spec.min) / Math.log(spec.max / spec.min) : (v - spec.min) / (spec.max - spec.min);
+  return Math.max(0, Math.min(1, p));
+}
+
+/**
+ * The value at a knob position, 0–1: the inverse of `knobPosition`, in the param's unit. Positions past
+ * the ends give the ends (exactly min and max), NaN gives the default. Not rounded to `step`; the caller
+ * snaps it (`resolveParam` rounds a stored value).
+ */
+export function knobValue(spec: NumberParamSpec, position: number): number {
+  if (typeof position !== 'number' || Number.isNaN(position)) return spec.default;
+  if (position <= 0) return spec.min;
+  if (position >= 1) return spec.max;
+  const v = isLogParam(spec) ? spec.min * (spec.max / spec.min) ** position : spec.min + position * (spec.max - spec.min);
+  return Math.max(spec.min, Math.min(spec.max, v));
+}
+
+/**
+ * A number param with its cables applied (design.md, Core concepts: cables into a param; ADR 0032).
+ * `offset` is Σ depth × signal over the cables, with non-finite terms already left out. On a linear
+ * param it is in the param's unit and adds to the base; on a log param it is in octaves and scales it:
+ * base × 2^offset. The result is clamped to the range and rounded to `step`. A non-finite offset (huge
+ * finite terms overflowing) falls back to the base, not the default. On a log param a finite offset
+ * whose power over- or underflows clamps to max or min.
+ */
+export function modulate(spec: NumberParamSpec, base: number, offset: number): number {
+  if (!Number.isFinite(offset)) return base;
+  if (offset === 0) return base;
+  if (!isLogParam(spec)) {
+    const sum = base + offset;
+    return Number.isFinite(sum) ? (resolveParam(spec, sum) as number) : base;
+  }
+  const scaled = base * 2 ** offset;
+  return resolveParam(spec, scaled === Infinity ? spec.max : scaled) as number;
+}
+
+/** How far a cable's depth reaches on a param: over the whole range at ±this. The range's width on a
+ *  linear param, its width in octaves (log2(max / min)) on a log one. For the editor's depth control. */
+export function depthRange(spec: NumberParamSpec): number {
+  return isLogParam(spec) ? Math.log2(spec.max / spec.min) : spec.max - spec.min;
+}
+
+/** The unit a cable's depth into this param is in: "oct" on a log param (ADR 0032), else the param's own. */
+export const depthUnit = (spec: NumberParamSpec): string | undefined => (isLogParam(spec) ? 'oct' : spec.unit);
 
 /** Cables into a param are allowed on number params unless they opt out. */
 export const isModulatable = (spec: ParamSpec | undefined): spec is NumberParamSpec =>

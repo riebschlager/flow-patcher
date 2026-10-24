@@ -18,6 +18,7 @@ import { createNodeContext, type BoundContext, type NodeWiring } from './context
 import {
   isModulatable,
   portsOf,
+  paramSpecError,
   resolveParams,
   type AudioInstance,
   type HostServices,
@@ -59,7 +60,7 @@ export interface NodeLinks {
   values: Link[];
   /** Field: every cable's object, in patch order. */
   fields: Link[];
-  /** Signal cables into a number param: base + depth × cable. */
+  /** Signal cables into a number param: base + depth × cable, or base × 2^(depth × cable) on a log param (ADR 0032). */
   params: (Link & { depth: number })[];
 }
 
@@ -114,6 +115,10 @@ export function compilePatch(patch: Patch, definitions: DefinitionLookup): Compi
       const first = [...nodes.values()].find((n) => n.definition.type === definition.type);
       if (first) errors.push(`node "${node.id}": only one ${definition.label} per patch ("${first.id}" is one already)`);
     }
+    for (const spec of definition.params) {
+      const error = paramSpecError(spec);
+      if (error) errors.push(`node "${node.id}": param "${spec.name}" of ${definition.label}: ${error}`);
+    }
     nodes.set(node.id, { id: node.id, definition, params: resolveParams(definition, node.params) });
   }
 
@@ -141,7 +146,7 @@ export function compilePatch(patch: Patch, definitions: DefinitionLookup): Compi
     const links = incoming.get(target.id)!;
     const link: Link = { from: cable.from, toPort: cable.to.port };
     if (!into) {
-      // A cable into a parameter: a Signal added to the knob, scaled by depth.
+      // A cable into a parameter: a Signal added to the knob, scaled by depth (octaves on a log param, ADR 0032).
       if (param!.kind !== 'number') errors.push(`${where}: parameter "${param!.name}" is not a number`);
       else if (!isModulatable(param)) errors.push(`${where}: parameter "${param!.name}" cannot be modulated`);
       else if (out.type !== 'signal') errors.push(`${where}: only signal cables can feed a parameter, not ${out.type}`);
@@ -677,7 +682,7 @@ export class Runtime {
     return this.stage.states.get(nodeId);
   }
 
-  /** A number param at time t in the latest plan, as the node reads it: base + Σ depth × cable, clamped.
+  /** A number param at time t in the latest plan, as the node reads it: the base with its cables applied (`modulate`), clamped.
    *  For the editor's modulation ring; undefined for an unknown node or a param that isn't a number. */
   paramAt(nodeId: string, name: string, t: number, channel = 0): number | undefined {
     const v = this.stage.contexts.get(nodeId)?.param(name, t, channel);
