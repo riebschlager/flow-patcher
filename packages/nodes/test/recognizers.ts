@@ -53,8 +53,13 @@ const on = (list: readonly EngineEvent[] | undefined, channel: number) => (list 
  * The four checks every recognizer gets (docs/nodes/gesture-recognizers.md): for each claimed
  * channel, Pass carries exactly one cancel, at `time`, as that channel's last event (nothing after
  * it), and Pass Cancel mirrors it; and channels in `free` pass every In event untouched.
+ *
+ * Before the cancel, Pass must carry exactly the channel's In events strictly before `time`, so a
+ * claim that forwards its triggering event and then the cancel fails. Channels in `sameTime` (a
+ * pinch's partner finger, whose own event at the claim's time came before the trigger) may also
+ * have passed In events at `time`, as a prefix of their In events.
  */
-export function expectClaim(out: Record<string, EngineEvent[]>, input: readonly EngineEvent[], { claimed, time, free = [] }: { claimed: number[]; time: number; free?: number[] }): void {
+export function expectClaim(out: Record<string, EngineEvent[]>, input: readonly EngineEvent[], { claimed, time, free = [], sameTime = [] }: { claimed: number[]; time: number; free?: number[]; sameTime?: number[] }): void {
   for (const channel of claimed) {
     const pass = on(out.pass, channel);
     const cancels = pass.filter((e) => e.phase === 'cancel');
@@ -64,10 +69,12 @@ export function expectClaim(out: Record<string, EngineEvent[]>, input: readonly 
     expect(pass.filter((e) => e.time > time), `Pass after the claim on channel ${channel}`).toEqual([]);
     expect(on(out.passCancel, channel).length).toBe(1);
     for (const port of ['passDown', 'passMove', 'passUp']) expect(on(out[port], channel).filter((e) => e.time > time), `${port} after the claim`).toEqual([]);
-    // Everything before the claim went through as it came.
     const before = pass.slice(0, -1);
-    expect(before).toEqual(on(input, channel).slice(0, before.length));
-    expect(before.every((e) => e.time <= time)).toBe(true);
+    const mine = on(input, channel);
+    if (sameTime.includes(channel)) {
+      expect(before).toEqual(mine.slice(0, before.length));
+      expect(before.every((e) => e.time <= time)).toBe(true);
+    } else expect(before, `Pass before the claim on channel ${channel}`).toEqual(mine.filter((e) => e.time < time));
   }
   for (const channel of free) expect(on(out.pass, channel), `channel ${channel} passes untouched`).toEqual(on(input, channel));
 }

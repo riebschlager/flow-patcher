@@ -1,5 +1,5 @@
 import type { NodeDefinition } from '@flow-patcher/engine';
-import { CLAIM_PARAM, IN_PORT, liveSpeed, motionAt, moveMotion, num, PASS_PORTS, payloadOf, runRecognizer, slot, type Motion } from './recognizer';
+import { claimParam, IN_PORT, liveSpeed, motionAt, moveMotion, num, PASS_PORTS, payloadOf, runRecognizer, slot, type Motion } from './recognizer';
 
 interface Contact {
   motion: Motion;
@@ -26,13 +26,17 @@ interface Contact {
  * per unit of path, radians per canvas unit; 0 for a straight line), `speed` (average: path
  * over duration), `duration`, and `kind`, "rush" when the average speed is at or over Speed
  * split and "silk" otherwise. A cancel ends the stroke without End.
+ *
+ * Claim is off by default (Stroke usually rides along with painting, and claiming would end
+ * every such contact early); the claims above happen only with it on (ADR 0028, amended
+ * 2026-10-24).
  */
 export const stroke: NodeDefinition = {
   type: 'stroke',
   version: 1,
   label: 'Stroke',
   category: 'gesture-recognizers',
-  description: 'Strokes: claims a contact once it travels, sorting its moves into Silk and Rush by speed, with End summing up length, curvature and speed.',
+  description: 'Strokes: sorts a moving contact\'s moves into Silk and Rush by speed, with End summing up length, curvature and speed; with Claim on, it takes the contact once it travels.',
   ports: [
     IN_PORT,
     ...PASS_PORTS,
@@ -43,7 +47,7 @@ export const stroke: NodeDefinition = {
   params: [
     { name: 'minLength', kind: 'number', min: 0, max: 1, default: 0.012, label: 'Minimum length' },
     { name: 'split', kind: 'number', min: 0.01, max: 4, default: 0.87, unit: '/s', label: 'Speed split' },
-    CLAIM_PARAM,
+    claimParam(false),
   ],
   query(ctx) {
     const contacts = slot<Record<number, Contact>>(ctx.state, 'strokes', () => ({}));

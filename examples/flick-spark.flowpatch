@@ -17,7 +17,9 @@
       "id": "flick",
       "type": "flick",
       "typeVersion": 1,
-      "params": {},
+      "params": {
+        "claim": true
+      },
       "position": {
         "x": 240,
         "y": 100

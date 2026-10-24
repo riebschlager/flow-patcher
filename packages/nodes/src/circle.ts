@@ -1,5 +1,5 @@
 import type { EngineEvent, NodeDefinition } from '@flow-patcher/engine';
-import { channelStepAt, CLAIM_PARAM, IN_PORT, motionAt, moveMotion, num, PASS_PORTS, payloadOf, pruneTracks, record, runRecognizer, slot, type Motion, type MotionStep, type Steps } from './recognizer';
+import { channelStepAt, claimParam, IN_PORT, motionAt, moveMotion, num, PASS_PORTS, payloadOf, pruneTracks, record, runRecognizer, slot, type Motion, type MotionStep, type Steps } from './recognizer';
 
 /** Seconds of steps an orbit is judged over (Flow: 2.2 s). */
 export const WINDOW = 2.2;
@@ -77,7 +77,7 @@ export const circle: NodeDefinition = {
   params: [
     { name: 'minRadius', kind: 'number', min: 0, max: 0.5, default: 0.03, label: 'Minimum radius' },
     { name: 'closure', kind: 'number', min: 0.05, max: 1, default: 0.75, label: 'Closure tolerance' },
-    CLAIM_PARAM,
+    claimParam(true),
   ],
   query(ctx) {
     const s = slot<CircleState>(ctx.state, 'circle', () => ({ contacts: {}, tracks: {} }));

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EngineEvent } from '@flow-patcher/engine';
 import { drag } from '../src';
-import { RESERVE } from '../src/recognizer';
+import { RESERVE } from '../src/pointer';
 import { ev, expectClaim, expectPassThrough, expectWindowIndependent, merge, run, stroke } from './recognizers';
 
 /** Channel 1 drags right 0.01 per 20 ms: 0.025 from its down at the third move (0.03). */

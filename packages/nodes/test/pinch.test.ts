@@ -34,10 +34,10 @@ describe('pinch', () => {
     ]);
   });
 
-  it('claims both fingers once they pinch in, at the move that crosses the threshold (Flow: pinch suppresses stroke notes)', () => {
+  it('claims both fingers once they pinch in, at the move that crosses the threshold, with what came before already passed (no Flow-style hold-back)', () => {
     const out = expectWindowIndependent(pinch, gather);
     // Finger 1's move at 1.1 s still passes: finger 2 hadn't moved yet. Finger 2's move claims.
-    expectClaim(out, gather, { claimed: [1, 2], time: 1.1 });
+    expectClaim(out, gather, { claimed: [1, 2], time: 1.1, sameTime: [1] });
     const pass = out.pass!;
     expect(pass.map((e) => `${e.time} ${e.channel} ${e.phase}`)).toEqual(['1 1 down', '1 2 down', '1.1 1 move', '1.1 2 cancel', '1.1 1 cancel']);
     // The cancel replaces the triggering event, payload and all.
@@ -46,16 +46,17 @@ describe('pinch', () => {
     expect(out.pinchIn).toEqual([{ time: 1.1, channel: 1, x: 0.5, y: 0.5, scale: expect.closeTo(0.4 / 0.6, 12), rotation: 0, distance: expect.closeTo(0.4, 12) }]);
   });
 
-  it('charges as the fingers close (Flow: Gather midpoint and charge), spreads once and ends once both lift', () => {
+  it('charges as the fingers close (Flow: Gather midpoint and charge), and spread and lift only Bloom once (Flow)', () => {
     const state = {};
     const out = run(pinch, gather, { state });
     expect(signal(state, 'x', 1.1)).toBeCloseTo(0.5, 12);
     expect(signal(state, 'y', 1.1)).toBeCloseTo(0.5, 12);
     expect(signal(state, 'scale', 1.2)).toBeLessThan(signal(state, 'scale', 1.1));
-    // Finger 1 spreads back to 200 px: 0.2 from the closest, past max(0.055, 0.14 × 0.6).
+    // Finger 1 spreads back to 200 px: 0.2 from the closest, past Flow's bloom threshold max(0.06, 0.16 × 0.6).
     expect(out.spread?.map((e) => e.time)).toEqual([1.3]);
     expect(out.spread![0]!.scale).toBeCloseTo(0.4 / 0.6, 12);
-    expect(out.end?.map((e) => e.time)).toEqual([1.4]);
+    // The Spread ended the pinch: lifting both fingers fires nothing more.
+    expect(out.end).toBeUndefined();
     expect(out.pinchIn).toHaveLength(1);
     expect(signal(state, 'scale', 3)).toBeCloseTo(0.4 / 0.6, 12);
   });
@@ -65,6 +66,14 @@ describe('pinch', () => {
     run(pinch, gather, { state });
     expect(['scale', 'rotation', 'x', 'y'].map((p) => signal(state, p, 1.05))).toEqual([1, 0, 0, 0]);
     expect(signal(state, 'scale', 1.25, 7)).toBe(signal(state, 'scale', 1.25, 1));
+  });
+
+  it('spreads only past Flow\'s bloom threshold, a little wider than the claim\'s', () => {
+    // Closest 0.4 apart at the claim: opening to 0.445 is under max(0.06, 0.16 × 0.6) = 0.096, to 0.5 is past it.
+    const under = merge(gather.slice(0, 4), [touch(1.2, 1, 'move', 255, 300)]);
+    expect(run(pinch, under).spread).toBeUndefined();
+    const past = merge(gather.slice(0, 4), [touch(1.2, 1, 'move', 200, 300)]);
+    expect(run(pinch, past).spread?.map((e) => e.time)).toEqual([1.2]);
   });
 
   it('ends only when both fingers lift (Flow: both fingers lift to Bloom)', () => {
@@ -80,7 +89,7 @@ describe('pinch', () => {
       const out = run(pinch, events);
       expect(out.end, `cancel ${which}`).toBeUndefined();
       expect(out.spread).toBeUndefined();
-      expectClaim(out, events, { claimed: [1, 2], time: 1.1 });
+      expectClaim(out, events, { claimed: [1, 2], time: 1.1, sameTime: [1] });
     }
   });
 
@@ -99,7 +108,7 @@ describe('pinch', () => {
     expectPassThrough(run(pinch, parallel), parallel);
     const pen = gather.map((e) => (e.channel === 2 ? { ...e, pointerType: 'pen' } : e));
     expectPassThrough(run(pinch, pen), pen);
-    expectClaim(run(pinch, pen, { params: { pointers: 'any' } }), pen, { claimed: [1, 2], time: 1.1 });
+    expectClaim(run(pinch, pen, { params: { pointers: 'any' } }), pen, { claimed: [1, 2], time: 1.1, sameTime: [1] });
   });
 
   it('does not take a two-finger drag: the midpoint may not travel as far as the fingers close', () => {
@@ -113,16 +122,16 @@ describe('pinch', () => {
     const events = merge(gather, third);
     expectPassThrough(run(pinch, events), events);
     const out = expectWindowIndependent(pinch, events, { params: { pair: 'first two' } });
-    expectClaim(out, events, { claimed: [1, 2], time: 1.1, free: [3] });
+    expectClaim(out, events, { claimed: [1, 2], time: 1.1, free: [3], sameTime: [1] });
   });
 
   it('keeps a pinch going when a third finger lands, and passes that finger through', () => {
     const third = stroke(3, 1.15, [0.5, 0.9], [0.6, 0.9], 4, 0.05);
     const events = merge(gather, third);
     const out = run(pinch, events);
-    expectClaim(out, events, { claimed: [1, 2], time: 1.1, free: [3] });
+    expectClaim(out, events, { claimed: [1, 2], time: 1.1, free: [3], sameTime: [1] });
     expect(out.spread?.map((e) => e.time)).toEqual([1.3]);
-    expect(out.end?.map((e) => e.time)).toEqual([1.4]);
+    expect(out.end).toBeUndefined();
   });
 
   it('re-forms the pair from where the fingers are after a third one lifts', () => {
@@ -137,7 +146,7 @@ describe('pinch', () => {
     expect(run(pinch, more).pinchIn?.map((e) => e.time)).toEqual([0.4]);
   });
 
-  it('with Starts "either", claims a spread too, then pinches in when the fingers close again', () => {
+  it('with Starts "either", claims a spread too, as a Spread that ends the pinch', () => {
     const events = [
       touch(0, 1, 'down', 400, 300), touch(0, 2, 'down', 600, 300),
       touch(0.1, 1, 'move', 300, 300), touch(0.1, 2, 'move', 700, 300),
@@ -148,10 +157,11 @@ describe('pinch', () => {
     expect(run(pinch, events).pinchIn?.map((e) => e.time)).toEqual([0.2]);
     expect(run(pinch, events).spread).toBeUndefined();
     const out = run(pinch, events, { params: { starts: 'either' } });
-    expectClaim(out, events, { claimed: [1, 2], time: 0.1 });
+    expectClaim(out, events, { claimed: [1, 2], time: 0.1, sameTime: [1] });
     expect(out.spread?.map((e) => e.time)).toEqual([0.1]);
-    expect(out.pinchIn?.map((e) => e.time)).toEqual([0.2]);
-    expect(out.end?.map((e) => e.time)).toEqual([0.3]);
+    // The fingers stay claimed until they lift, but the pinch is over: no Pinch in, no End.
+    expect(out.pinchIn).toBeUndefined();
+    expect(out.end).toBeUndefined();
   });
 
   it('follows rotation unwrapped, clockwise on screen positive', () => {
@@ -173,7 +183,7 @@ describe('pinch', () => {
     expectPassThrough(out, gather);
     expect(out.pinchIn).toHaveLength(1);
     expect(out.spread).toHaveLength(1);
-    expect(out.end).toHaveLength(1);
+    expect(out.end).toBeUndefined();
   });
 
   it('gives defined results for weird input', () => {
@@ -200,14 +210,15 @@ describe('pinch', () => {
   });
 });
 
-/** Pointer → Pinch, with Pass painting notes through Make Note (the paint path of examples/pinch-paint.flowpatch). */
+/** Pointer → Pinch, painting from Pass Down and Pass Move through Make Note, wired as examples/pinch-paint.flowpatch wires its paint path. */
 const node = (id: string, type: string, params = {}) => ({ id, type, typeVersion: nodeRegistry.get(type)!.version, params, position: { x: 0, y: 0 } });
 const ownershipPatch: Patch = {
   format: 'flowpatch', version: 1, seed: 1,
   nodes: [node('pointer', 'pointer'), node('pinch', 'pinch'), node('paint', 'make-note', { pitch: 60 })],
   cables: [
     { from: { node: 'pointer', port: 'all' }, to: { node: 'pinch', port: 'in' } },
-    { from: { node: 'pinch', port: 'pass' }, to: { node: 'paint', port: 'trigger' } },
+    { from: { node: 'pinch', port: 'passDown' }, to: { node: 'paint', port: 'trigger' } },
+    { from: { node: 'pinch', port: 'passMove' }, to: { node: 'paint', port: 'trigger' } },
   ],
 };
 
@@ -235,23 +246,28 @@ describe('ownership (M2 gate)', () => {
       replayInput(runtime, { events: ownershipStream() });
       const log: LoggedEvent[] = [];
       for (let i = 0; i * window < 2; i++) log.push(...runtime.query(i * window, (i + 1) * window));
-      const of = (id: string, port: string) => log.filter((e) => e.node === id && e.port === port);
+      const of = (id: string, port: string): EngineEvent[] => log.filter((e) => e.node === id && e.port === port).map(({ node: _n, port: _p, ...e }) => e);
       const claim = of('pinch', 'pinchIn');
       expect(claim, `${window} s windows`).toHaveLength(1);
       const at = claim[0]!.time;
+      // The pair forms 0.52 apart at 0.5 s; each step closes it by 0.012 per finger. The change first passes
+      // max(0.055, 0.14 × 0.52) = 0.0728 at finger 21's (slot 1's) fourth move, 0.084 at 0.62 s.
+      expect(at).toBeCloseTo(0.62, 9);
       // Finger 21 painted on its own before the second finger landed.
       expect(of('paint', 'note').filter((e) => e.time < 0.5).length).toBeGreaterThan(5);
       // Pointer slots: 21 → 1, 22 → 2.
       for (const channel of [1, 2]) {
         const pass = of('pinch', 'pass').filter((e) => e.channel === channel);
-        expect(pass.filter((e) => e.phase === 'cancel').map((e) => e.time), `channel ${channel}`).toEqual([at]);
-        expect(pass.at(-1)!.phase).toBe('cancel');
-        expect(pass.filter((e) => e.time > at)).toEqual([]);
-        // Downstream: the paint path's last event from the channel is its cancel, and nothing comes after.
+        // Before the claim, Pass is exactly Pointer's All: the triggering move isn't forwarded ahead of its cancel.
+        expect(pass.slice(0, -1), `channel ${channel}`).toEqual(of('pointer', 'all').filter((e) => e.channel === channel && e.time < at));
+        expect(pass.at(-1)).toMatchObject({ time: at, phase: 'cancel' });
+        // Exactly one Cancel downstream of Pass, on Pass and on Pass Cancel.
+        expect(pass.filter((e) => e.phase === 'cancel')).toHaveLength(1);
+        expect(of('pinch', 'passCancel').filter((e) => e.channel === channel).map((e) => e.time)).toEqual([at]);
+        // The paint path: nothing from the channel at or after the claim, and no cancel turned into a note.
         const notes = of('paint', 'note').filter((e) => e.channel === channel);
-        expect(notes.filter((e) => e.time > at)).toEqual([]);
-        expect(notes.filter((e) => e.phase === 'cancel')).toHaveLength(1);
-        expect(notes.at(-1)!.phase).toBe('cancel');
+        expect(notes.filter((e) => e.time >= at)).toEqual([]);
+        expect(notes.filter((e) => e.phase === 'cancel')).toEqual([]);
       }
       expect(of('pinch', 'end').map((e) => e.time)).toEqual([0.9]);
     }

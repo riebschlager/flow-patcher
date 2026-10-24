@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { EngineEvent } from '@flow-patcher/engine';
+import type { EngineEvent, NodeDefinition } from '@flow-patcher/engine';
 import { flick } from '../src';
-import { ev, expectClaim, expectPassThrough, expectWindowIndependent, merge, run, stroke } from './recognizers';
+import { ev, expectClaim, expectPassThrough, expectWindowIndependent as windowed, merge, run as runRaw, type RunOptions, stroke } from './recognizers';
+
+// Claim is off by default on Flick; these tests turn it on unless they say otherwise.
+const claiming = (o: RunOptions = {}): RunOptions => ({ ...o, params: { claim: true, ...o.params } });
+const run = (d: NodeDefinition, e: readonly EngineEvent[], o?: RunOptions) => runRaw(d, e, claiming(o));
+const expectWindowIndependent = (d: NodeDefinition, e: readonly EngineEvent[], o?: RunOptions) => windowed(d, e, claiming(o));
 
 /** Flow's flick: from 0.1 across by 0.08 every 16 ms, eight times, lifted 1 ms after the last. */
 function flung(channel = 1, t0 = 0, y = 0.5, dir = 1): EngineEvent[] {
@@ -58,9 +63,9 @@ describe('flick', () => {
     expect(out.flick?.map((e) => e.channel)).toEqual([1]);
   });
 
-  it('with Claim off, flicks and passes everything', () => {
+  it('claims nothing by default (Claim off): flicks and passes everything', () => {
     const events = flung();
-    const out = run(flick, events, { params: { claim: false } });
+    const out = runRaw(flick, events);
     expectPassThrough(out, events);
     expect(out.flick).toHaveLength(1);
   });

@@ -1,8 +1,14 @@
 import type { EngineEvent, NodeDefinition } from '@flow-patcher/engine';
-import { CLAIM_PARAM, IN_PORT, num, PASS_PORTS, payloadOf, runRecognizer, slot } from './recognizer';
+import { claimParam, IN_PORT, num, PASS_PORTS, payloadOf, runRecognizer, slot } from './recognizer';
 
-/** A second tap counts as a double tap within this distance of the first (canvas units): fingers rarely land twice on one spot. */
+/** A second tap counts as a double tap within this distance of the first (canvas units): fingers rarely land twice on one spot. *
+ * Claim is off by default (Tap usually rides along with painting, and claiming would end
+ * every such contact early); the claims above happen only with it on (ADR 0028, amended
+ * 2026-10-24).
+ */
 export const DOUBLE_RADIUS = 0.05;
+/** The longest Double gap, seconds: the knob's top. */
+export const MAX_GAP = 2;
 
 /** One contact. Plain data. */
 interface Contact {
@@ -59,7 +65,7 @@ export const tap: NodeDefinition = {
   version: 1,
   label: 'Tap',
   category: 'gesture-recognizers',
-  description: 'Taps, double taps and long presses: a contact that barely moves, claimed when it is recognized.',
+  description: 'Taps, double taps and long presses from a contact that barely moves; with Claim on, it takes the contact when it is recognized.',
   ports: [
     IN_PORT,
     ...PASS_PORTS,
@@ -71,11 +77,13 @@ export const tap: NodeDefinition = {
     { name: 'maxMovement', kind: 'number', min: 0, max: 0.5, default: 0.025, label: 'Max movement' },
     { name: 'maxDuration', kind: 'number', min: 0.02, max: 2, default: 0.3, unit: 's', label: 'Max duration' },
     { name: 'longPress', kind: 'number', min: 0.1, max: 5, default: 0.5, unit: 's', label: 'Long press' },
-    { name: 'gap', kind: 'number', min: 0.05, max: 2, default: 0.3, unit: 's', label: 'Double gap' },
-    CLAIM_PARAM,
+    { name: 'gap', kind: 'number', min: 0.05, max: MAX_GAP, default: 0.3, unit: 's', label: 'Double gap' },
+    claimParam(false),
   ],
   query(ctx) {
     const s = slot<TapState>(ctx.state, 'tap', () => ({ contacts: {}, taps: {} }));
+    // A tap older than the longest Double gap can't start a double tap any more.
+    for (const [channel, last] of Object.entries(s.taps)) if (last.time < ctx.t0 - MAX_GAP) delete s.taps[Number(channel)];
     const due = (): [number, Contact] | null => {
       let best: [number, Contact] | null = null;
       for (const [channel, c] of Object.entries(s.contacts)) if (c.longAt !== null && (!best || c.longAt < best[1].longAt!)) best = [Number(channel), c];

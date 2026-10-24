@@ -1,5 +1,5 @@
 import type { EngineEvent, NodeDefinition } from '@flow-patcher/engine';
-import { channelStepAt, CLAIM_PARAM, IN_PORT, num, PASS_PORTS, payloadOf, pruneTracks, record, runRecognizer, slot, type Steps } from './recognizer';
+import { channelStepAt, claimParam, IN_PORT, num, PASS_PORTS, payloadOf, pruneTracks, record, runRecognizer, slot, type Steps } from './recognizer';
 
 /** One contact. Plain data. */
 interface Contact {
@@ -36,8 +36,9 @@ const chargeOf = (from: number, span: number, t: number) => Math.min(1, Math.max
  * Per channel, while a contact stays within Stillness radius of its down (canvas units,
  * straight line), its Charge signal rises from 0, Delay seconds after the down, to 1 over
  * Charge time (Flow: 250 ms, then 1.1 s). Once a move takes it outside the radius, the
- * charge drops to 0 for the rest of that contact (Flow measured stillness over the whole path,
- * so wandering out and back didn't charge again either).
+ * charge drops to 0 for the rest of that contact. (Changed from Flow, which also required the
+ * whole path to stay under 0.07 long: here only the distance from the down counts, but leaving
+ * the radius once ends the charge for good, so wandering out and back doesn't charge again either.)
  *
  * When the charge reaches Min charge (Flow's 0.4, its bloom threshold), Hold claims the
  * channel (ADR 0028) from its own timer, a pure function of the down's time: with no In
@@ -67,7 +68,7 @@ export const hold: NodeDefinition = {
     { name: 'delay', kind: 'number', min: 0, max: 2, default: 0.25, unit: 's', label: 'Delay' },
     { name: 'chargeTime', kind: 'number', min: 0, max: 10, default: 1.1, unit: 's', label: 'Charge time' },
     { name: 'minCharge', kind: 'number', min: 0, max: 1, default: 0.4, label: 'Min charge' },
-    CLAIM_PARAM,
+    claimParam(true),
   ],
   query(ctx) {
     const s = slot<HoldState>(ctx.state, 'hold', () => ({ contacts: {}, tracks: {} }));

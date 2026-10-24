@@ -2,31 +2,35 @@
 // the In and Pass ports, the claim, the timers, the event budget and the signal history.
 // Not a node: each recognizer's own file holds its definition and its gesture logic.
 import { limitWindowOf, NODE_EVENT_LIMIT, type EngineEvent, type NodeState, type PortSpec, type QueryContext, type QueryResult, type ToggleParamSpec } from '@flow-patcher/engine';
-import { PHASES, type Phase } from './pointer';
+import { PHASES, RESERVE, type Phase } from './pointer';
 
-export const IN_PORT: PortSpec = { name: 'in', type: 'event', direction: 'in', label: 'In' };
+export const IN_PORT: Readonly<PortSpec> = Object.freeze({ name: 'in', type: 'event', direction: 'in', label: 'In' });
 
 /** Pass, then its per-phase split (ADR 0028). */
-export const PASS_PORTS: PortSpec[] = [
+export const PASS_PORTS: readonly Readonly<PortSpec>[] = Object.freeze([
   { name: 'pass', type: 'event', direction: 'out', label: 'Pass' },
   { name: 'passDown', type: 'event', direction: 'out', label: 'Pass Down' },
   { name: 'passMove', type: 'event', direction: 'out', label: 'Pass Move' },
   { name: 'passUp', type: 'event', direction: 'out', label: 'Pass Up' },
   { name: 'passCancel', type: 'event', direction: 'out', label: 'Pass Cancel' },
-];
+].map((port) => Object.freeze(port as PortSpec)));
 
 const PASS_PHASE: Record<Phase, string> = { down: 'passDown', move: 'passMove', up: 'passUp', cancel: 'passCancel' };
 
-/** Every recognizer's Claim toggle: off, it recognizes without taking the channel from Pass. */
-export const CLAIM_PARAM: ToggleParamSpec = { name: 'claim', kind: 'toggle', default: true, label: 'Claim' };
-
 /**
- * Events per limit window (ADR 0022) kept for Pass's downs, ups and cancels and the gesture
- * events that aren't moves: forwarded moves (two events each, Pass and Pass Move) and
- * move-like gesture events stop once a window's count would pass NODE_EVENT_LIMIT − RESERVE,
- * so the runtime's per-node cap never takes an end or a claim's cancel. As in Pointer.
+ * Every recognizer's Claim toggle (ADR 0028, amended 2026-10-24): off, it recognizes but never
+ * claims, and Pass carries everything. On by default where a claim is the point of the
+ * gesture (Pinch, Drag, Hold, Circle), off where the gesture usually rides along with
+ * painting (Tap, Flick, Stroke).
  */
-export const RESERVE = 64;
+export const claimParam = (on: boolean): ToggleParamSpec => ({ name: 'claim', kind: 'toggle', default: on, label: 'Claim' });
+
+/*
+ * Event budget: Pointer's RESERVE (pointer.ts). Forwarded moves (two events each, Pass and
+ * Pass Move) and move-like gesture events stop once a limit window's count (ADR 0022) would
+ * pass NODE_EVENT_LIMIT − RESERVE, so the runtime's per-node cap never takes Pass's downs,
+ * ups and cancels or the gesture events that aren't moves.
+ */
 
 /**
  * Seconds of signal history kept behind each window start, as Sample & Hold keeps it:
@@ -75,7 +79,8 @@ export interface Recognizer {
   timer?(time: number, out: Emitter): void;
 }
 
-const phaseOf = (event: EngineEvent): Phase | null => ((PHASES as readonly unknown[]).includes(event.phase) ? (event.phase as Phase) : null);
+/** An event's contact phase (ADR 0028), or null when it has none or an unknown one. */
+export const phaseOf = (event: EngineEvent): Phase | null => ((PHASES as readonly unknown[]).includes(event.phase) ? (event.phase as Phase) : null);
 
 /** A payload field as a finite number, or `fallback`. */
 export const num = (value: unknown, fallback: number): number => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
@@ -239,7 +244,10 @@ export function payloadOf(event: EngineEvent): EngineEvent {
 
 /**
  * A contact's motion as Flow's stroke tracker measured it (gestures.js `GestureTracker`), in
- * seconds and canvas units: Flick, Circle and Stroke share it. Plain data.
+ * seconds and canvas units: Flick, Circle and Stroke share it. Plain data. Changed from Flow:
+ * no aspect correction (Flow scaled x by the canvas's width over height; events carry no canvas
+ * size, so x and y are each 0–1 canvas units) and no clamp of x and y to 0–1 (the source
+ * already clamps; positions are taken as they come).
  */
 export interface Motion {
   /** The last sample that counted (moved more than MIN_STEP). */

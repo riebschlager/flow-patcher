@@ -1,7 +1,11 @@
 import type { NodeDefinition } from '@flow-patcher/engine';
-import { CLAIM_PARAM, IN_PORT, liveSpeed, motionAt, moveMotion, num, PASS_PORTS, payloadOf, runRecognizer, slot, type Motion } from './recognizer';
+import { claimParam, IN_PORT, liveSpeed, motionAt, moveMotion, num, PASS_PORTS, payloadOf, runRecognizer, slot, type Motion } from './recognizer';
 
-/** The up must come within this many seconds of the last move that counted (Flow: 140 ms), so a stroke that stopped before lifting isn't a flick. */
+/** The up must come within this many seconds of the last move that counted (Flow: 140 ms), so a stroke that stopped before lifting isn't a flick. *
+ * Claim is off by default (Flick usually rides along with painting, and claiming would end
+ * every such contact early); the claims above happen only with it on (ADR 0028, amended
+ * 2026-10-24).
+ */
 export const MAX_PAUSE = 0.14;
 
 /**
@@ -26,7 +30,7 @@ export const flick: NodeDefinition = {
   version: 1,
   label: 'Flick',
   category: 'gesture-recognizers',
-  description: 'A contact released while moving fast: claims its release, with Flick carrying the direction and speed.',
+  description: 'A contact released while moving fast: Flick carries the direction and speed, and with Claim on it takes the release.',
   ports: [
     IN_PORT,
     ...PASS_PORTS,
@@ -34,7 +38,7 @@ export const flick: NodeDefinition = {
   ],
   params: [
     { name: 'threshold', kind: 'number', min: 0.05, max: 4, default: 0.9, unit: '/s', label: 'Speed threshold' },
-    CLAIM_PARAM,
+    claimParam(false),
   ],
   query(ctx) {
     const motions = slot<Record<number, Motion>>(ctx.state, 'flicks', () => ({}));

@@ -1,11 +1,14 @@
 import type { EngineEvent, NodeDefinition, QueryContext } from '@flow-patcher/engine';
 import type { Phase } from './pointer';
-import { CLAIM_PARAM, IN_PORT, num, PASS_PORTS, prune, record, runRecognizer, slot, stepAt, type Emitter, type Steps } from './recognizer';
+import { claimParam, IN_PORT, num, PASS_PORTS, prune, record, runRecognizer, slot, stepAt, type Emitter, type Steps } from './recognizer';
 
 /** Each finger must move this far (canvas units) from where the pair formed before the pair can pinch: Flow's `moved`. */
 export const MIN_FINGER_TRAVEL = 0.012;
 /** The midpoint may travel at most this fraction of the distance change, so a two-finger drag isn't a pinch: Flow's `travel < contraction * .7`. */
 export const MAX_MIDPOINT_TRAVEL = 0.7;
+/** Spread fires once the fingers open by max(SPREAD_MIN, SPREAD_RELATIVE × starting distance) from their closest: Flow's bloom, max(.06, distance × .16). */
+export const SPREAD_MIN = 0.06;
+export const SPREAD_RELATIVE = 0.16;
 
 interface Finger {
   channel: number;
@@ -28,11 +31,8 @@ interface Pair {
   d0: number;
   /** Claimed: the pinch is on. */
   active: boolean;
-  /** The last direction event: 'in' after Pinch in, 'spread' after Spread. */
-  mode: 'in' | 'spread' | null;
-  /** Closest and widest distance since the last direction event. */
+  /** Closest distance since the claim. */
   min: number;
-  max: number;
   /** Unwrapped rotation since the pair formed, and the angle it was last measured at. */
   rotation: number;
   angle: number;
@@ -83,13 +83,23 @@ function measure(fa: Finger, fb: Finger) {
  * × that change, the pinch claims both fingers (ADR 0028) and emits Pinch in. With Starts
  * "either", a spread by the same amount claims too and emits Spread.
  *
- * While pinching: once the fingers spread back more than the threshold from their closest,
- * Spread fires (Flow's Bloom); once they close in more than the threshold from their widest,
- * Pinch in fires again. End fires when the second finger of the pinch lifts with an up (Flow:
- * "both fingers lift to Bloom"); a cancel on either finger ends the pinch without End.
- * Contacts landing during a pinch don't touch it and flow through Pass. (Changed from Flow,
- * where a third finger ended the Gather silently: the pinch keeps its claim either way, so
- * ending it early only lost the gesture.)
+ * Before the claim the fingers' events flow through Pass. (Changed from Flow, which held a
+ * finger's stroke notes back while a pinch looked likely, its `pending`: ADR 0028 has no
+ * hold-back, so what flowed before the claim is stopped by the claim's cancels instead.)
+ *
+ * A pinch ends one of three ways, each once (Flow's Bloom fired once per Gather):
+ * - Spread: the fingers open by more than max(SPREAD_MIN, SPREAD_RELATIVE × starting
+ *   distance) from their closest since the claim (Flow's bloom threshold, max(.06, d × .16),
+ *   a little wider than the claim's max(Threshold, Relative × d), which defaults to Flow's
+ *   max(.055, d × .14), so a finger's wobble at the claim doesn't spread at once). With Starts
+ *   "either", the spread that claims is the Spread, and the pinch ends there.
+ * - End: the second finger of the pinch lifts with an up and no Spread came first (Flow:
+ *   "both fingers lift to Bloom").
+ * - A cancel on either finger: nothing fires.
+ * Either way both fingers stay claimed until they end (ADR 0028), so after a Spread lifting
+ * them fires nothing. Contacts landing during a pinch don't touch it and flow through Pass.
+ * (Changed from Flow, where a third finger ended the Gather silently: the claim stays either
+ * way, so ending it early only lost the gesture.)
  *
  * Gesture events carry the pair's midpoint `x`, `y`, `scale` (distance over the starting
  * distance), `rotation` (radians, unwrapped, positive clockwise on screen) and `distance`, on
@@ -122,7 +132,7 @@ export const pinch: NodeDefinition = {
     { name: 'starts', kind: 'enum', options: ['pinch in', 'either'], default: 'pinch in', label: 'Starts' },
     { name: 'threshold', kind: 'number', min: 0.005, max: 0.5, default: 0.055, label: 'Threshold' },
     { name: 'relative', kind: 'number', min: 0, max: 1, default: 0.14, label: 'Relative' },
-    CLAIM_PARAM,
+    claimParam(true),
   ],
   query(ctx) {
     const steps = slot<Steps<Step>>(ctx.state, 'steps', () => []);
@@ -151,7 +161,7 @@ function choose(ctx: Pick<QueryContext, 'params'>, fingers: Finger[], out: Emitt
 
 function form(fa: Finger, fb: Finger): Pair {
   const m = measure(fa, fb);
-  return { a: fa.channel, b: fb.channel, ax: fa.x, ay: fa.y, bx: fb.x, by: fb.y, d0: m.d, active: false, mode: null, min: m.d, max: m.d, rotation: 0, angle: m.angle, lifted: [], x: m.x, y: m.y, d: m.d };
+  return { a: fa.channel, b: fb.channel, ax: fa.x, ay: fa.y, bx: fb.x, by: fb.y, d0: m.d, active: false, min: m.d, rotation: 0, angle: m.angle, lifted: [], x: m.x, y: m.y, d: m.d };
 }
 
 function step(ctx: Pick<QueryContext, 'params' | 'param'>, s: PinchState, steps: Steps<Step>, event: EngineEvent, phase: Phase, out: Emitter): void {
@@ -187,19 +197,12 @@ function step(ctx: Pick<QueryContext, 'params' | 'param'>, s: PinchState, steps:
     if (pair.lifted.length) return;
     const fa = s.fingers.find((f) => f.channel === pair!.a)!, fb = s.fingers.find((f) => f.channel === pair!.b)!;
     const m = update(pair, fa, fb);
-    const threshold = thresholdOf(ctx, pair, time, channel);
     pair.min = Math.min(pair.min, m.d);
-    pair.max = Math.max(pair.max, m.d);
-    if (pair.mode === 'in' && m.d - pair.min > threshold) {
-      pair.mode = 'spread';
-      pair.max = m.d;
-      out.emit('spread', gesture(pair, time));
-    } else if (pair.mode === 'spread' && pair.max - m.d > threshold) {
-      pair.mode = 'in';
-      pair.min = m.d;
-      out.emit('pinchIn', gesture(pair, time));
-    }
     record(steps, signalStep(pair, time));
+    if (m.d - pair.min > Math.max(SPREAD_MIN, SPREAD_RELATIVE * pair.d0)) {
+      out.emit('spread', gesture(pair, time));
+      s.pair = null;
+    }
     return;
   }
 
@@ -223,12 +226,12 @@ function step(ctx: Pick<QueryContext, 'params' | 'param'>, s: PinchState, steps:
   const spreads = ctx.params.starts === 'either' && -change > threshold;
   if (!(moved && (change > threshold || spreads) && travel < Math.abs(change) * MAX_MIDPOINT_TRAVEL)) return;
   pair.active = true;
-  pair.mode = spreads ? 'spread' : 'in';
-  pair.min = pair.max = m.d;
+  pair.min = m.d;
   out.claim(pair.a);
   out.claim(pair.b);
   out.emit(spreads ? 'spread' : 'pinchIn', gesture(pair, time));
   record(steps, signalStep(pair, time));
+  if (spreads) s.pair = null;
 }
 
 /** max(Threshold, Relative × starting distance): Flow's max(.055, distance × .14). */

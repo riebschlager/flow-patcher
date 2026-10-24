@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { EngineEvent } from '@flow-patcher/engine';
+import type { EngineEvent, NodeDefinition } from '@flow-patcher/engine';
 import { stroke } from '../src';
-import { ev, expectClaim, expectPassThrough, expectWindowIndependent, merge, run, stroke as line } from './recognizers';
+import { ev, expectClaim, expectPassThrough, expectWindowIndependent as windowed, merge, run as runRaw, type RunOptions, stroke as line } from './recognizers';
+
+// Claim is off by default on Stroke; these tests turn it on unless they say otherwise.
+const claiming = (o: RunOptions = {}): RunOptions => ({ ...o, params: { claim: true, ...o.params } });
+const run = (d: NodeDefinition, e: readonly EngineEvent[], o?: RunOptions) => runRaw(d, e, claiming(o));
+const expectWindowIndependent = (d: NodeDefinition, e: readonly EngineEvent[], o?: RunOptions) => windowed(d, e, claiming(o));
 
 /** Slow: 0.004 per 20 ms (0.2 units/s); fast: 0.03 per 16 ms (1.9 units/s). */
 const slow = line(1, 0.1, [0.2, 0.5], [0.28, 0.5], 20, 0.02);
@@ -59,8 +64,8 @@ describe('stroke', () => {
     expectPassThrough(run(stroke, slow, { params: { minLength: 0.5 } }), slow);
   });
 
-  it('with Claim off, classifies and passes everything', () => {
-    const out = run(stroke, slow, { params: { claim: false } });
+  it('claims nothing by default (Claim off): classifies and passes everything', () => {
+    const out = runRaw(stroke, slow);
     expectPassThrough(out, slow);
     expect(out.silk).toHaveLength(18);
     expect(out.end).toHaveLength(1);

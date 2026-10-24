@@ -1,5 +1,5 @@
 import type { EngineEvent, NodeDefinition } from '@flow-patcher/engine';
-import { CLAIM_PARAM, IN_PORT, num, PASS_PORTS, payloadOf, runRecognizer, slot } from './recognizer';
+import { claimParam, IN_PORT, num, PASS_PORTS, payloadOf, runRecognizer, slot } from './recognizer';
 
 /** One contact. Plain data. */
 interface Contact {
@@ -38,7 +38,7 @@ export const drag: NodeDefinition = {
   ],
   params: [
     { name: 'minDistance', kind: 'number', min: 0, max: 1, default: 0.025, label: 'Minimum distance' },
-    CLAIM_PARAM,
+    claimParam(true),
   ],
   query(ctx) {
     const contacts = slot<Record<number, Contact>>(ctx.state, 'drags', () => ({}));

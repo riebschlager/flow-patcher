@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { EngineEvent } from '@flow-patcher/engine';
+import type { EngineEvent, NodeDefinition } from '@flow-patcher/engine';
 import { tap } from '../src';
-import { ev, expectClaim, expectPassThrough, expectWindowIndependent, merge, run, stroke } from './recognizers';
+import { ev, expectClaim, expectPassThrough, expectWindowIndependent as windowed, merge, run as runRaw, type RunOptions, stroke } from './recognizers';
+
+// Claim is off by default on Tap; these tests turn it on unless they say otherwise.
+const claiming = (o: RunOptions = {}): RunOptions => ({ ...o, params: { claim: true, ...o.params } });
+const run = (d: NodeDefinition, e: readonly EngineEvent[], o?: RunOptions) => runRaw(d, e, claiming(o));
+const expectWindowIndependent = (d: NodeDefinition, e: readonly EngineEvent[], o?: RunOptions) => windowed(d, e, claiming(o));
 
 const round = (t: number) => Math.round(t * 1e9) / 1e9;
 /** A down, a small move and an up `length` seconds later. */
@@ -74,9 +79,9 @@ describe('tap', () => {
     expect(out.tap?.map((e) => e.channel)).toEqual([2]);
   });
 
-  it('with Claim off, recognizes and passes everything', () => {
+  it('claims nothing by default (Claim off): recognizes and passes everything', () => {
     const events = merge(quick(1, 0.2), [ev(0.5, 2, 'down', 0.5, 0.5), ev(1.5, 2, 'up', 0.5, 0.5)]);
-    const out = run(tap, events, { params: { claim: false } });
+    const out = runRaw(tap, events);
     expectPassThrough(out, events);
     expect(out.tap).toHaveLength(1);
     expect(out.longPress).toHaveLength(1);
