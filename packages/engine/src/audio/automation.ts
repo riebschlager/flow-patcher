@@ -51,8 +51,8 @@ export interface ParamAutomation {
  * keeps that ramp whole: it cancels only after the ramp's end point, and the new
  * values start at the grid point after it. Cancelling at t0 would give the ramp
  * being played a new end, and the param would step by the change times the share
- * of the ramp already played (#103). So a re-run takes effect up to one grid step
- * later, each new ramp spans 1/60 to 2/60 s (slopes stay bounded), and a render
+ * of the ramp already played (#103). So the first new ramp spans one grid step
+ * (slopes stay bounded), the change shows 1/60 to 2/60 s after t0, and a render
  * already past t0 but not past the kept point sees no change. With an unchanged
  * value the kept point is the one the re-run would schedule, so a re-run leaves
  * the param's course as it was, and the course after forward runs depends only

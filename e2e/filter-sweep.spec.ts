@@ -10,7 +10,7 @@ interface SweepProbe {
   out: [number, Float32Array][];
   /** Every cancelScheduledValues on the cutoff while recording: its time, currentTime when called, and how far
    *  the automation already reached (the last ramp's end), so a re-run's cancel can be told from a fresh chunk's.
-   *  A re-run that starts inside a ramp cancels from that ramp's end, after adding a point at its start. */
+   *  A re-run that starts inside a ramp keeps that ramp whole and cancels from the grid point after its end; it adds no point. */
   cancels: { t0: number; now: number; reached: number }[];
   sampleRate: number;
   filters: number;
@@ -129,10 +129,15 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
   // Knob turns on the cabled cutoff: each is an in-place edit that re-runs the windows from its swap.
   const cutoff = field(page, 'filter', 'cutoff');
   const TURNS = 16;
+  // The largest base change of a turn: a bound on any one swap's change, since a turn's swaps go one way.
+  const base = async () => Number(await cutoff.getAttribute('data-value'));
+  let largestTurn = 0;
   for (let i = 0; i < TURNS; i++) {
     const before = (await stats(page)).swaps;
+    const from = await base();
     await dragBy(page, cutoff, i % 2 ? -8 : 8);
     await expect.poll(async () => (await stats(page)).swaps).toBeGreaterThan(before);
+    largestTurn = Math.max(largestTurn, Math.abs((await base()) - from));
     await page.waitForTimeout(150);
   }
   await page.waitForTimeout(1500);
@@ -166,7 +171,11 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     // 2400 Hz per 4 s, 0.0125 Hz a sample at 48 kHz, steeper at the wrap); a held quantum is flat.
     // A freeze is a held quantum that starts at the previous sample's value and comes back onto the line
     // it left (the change from before it to after it is what 129 samples of the slope on either side
-    // would give, with a grid point anywhere between). Anything else flat is a real hold.
+    // would give, with a grid point anywhere between), with no re-run cancel called from four quanta
+    // before it to its end. Chromium makes those with no edits at all (a control without knob turns,
+    // #103). Near a re-run the same shape can be the engine's: a render already past the point the
+    // re-run kept holds it until the new ramps arrive, and with a small or no base change the param
+    // comes back to within the tolerance of its line. Anything else flat is a real hold.
     const holds: number[] = [], freezes: number[] = [];
     const returns = new Set<number>();
     for (let q = Math.ceil(mirror.from / 128) * 128 - mirror.from; q + 128 < v.length; q += 128) {
@@ -178,7 +187,9 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
       const back = v[q + 128]! - v[q - 1]!;
       const froze = Math.abs(v[q]! - v[q - 1]!) < 0.002;
       const onLine = back >= 129 * Math.min(slopeBefore, slopeAfter) - 0.1 && back <= 129 * Math.max(slopeBefore, slopeAfter) + 0.1;
-      if (froze && onLine) {
+      const start = (mirror.from + q) / rate, quantum = 128 / rate;
+      const rerun = reruns.some((c) => c.now >= start - 4 * quantum && c.now <= start + quantum);
+      if (froze && onLine && !rerun) {
         freezes.push((mirror.from + q) / rate);
         returns.add(q + 128);
       } else holds.push((mirror.from + q) / rate);
@@ -189,28 +200,29 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     // made one. A bend changes the slope from one sample on and lands between its neighbours (or equal to
     // one); a re-run's ramp to the new base starts on the grid, so bends off it are only counted, with the
     // steepest new slope.
+    // Steepest: the largest change between samples, outside freezes' returns and gaps. Re-runs keep
+    // the ramp being played and change the base over the next grid step, so it is bounded (ADR 0031).
     // The mirror is a proxy param: it gets each call just after the real one, in the same task.
     // A quantum missing from the recording comes with an audio-thread glitch (seen once in a few runs,
     // with a small step a quantum before it), so steps within three quanta of one are left out and counted.
     const steps: { time: number; size: number }[] = [];
     let besideGaps = 0, bends = 0, steepest = 0;
+    const besideGap = (i: number) => v.subarray(Math.max(0, i - 384), i + 384).some(Number.isNaN);
     for (let i = 2; i + 1 < v.length; i++) {
       const before = v[i - 1]! - v[i - 2]!, d = v[i]! - v[i - 1]!, after = v[i + 1]! - v[i]!;
-      if (!(Math.abs(d) > 0.5) || Math.abs(d - before) < 0.5) continue;
       // A freeze's return to its line is counted with the freeze.
       if (returns.has(i)) continue;
+      if (Math.abs(d) > steepest && !besideGap(i)) steepest = Math.abs(d);
+      if (!(Math.abs(d) > 0.5) || Math.abs(d - before) < 0.5) continue;
       const frame = mirror.from + i, time = frame / rate, k = Math.round((frame * 60) / rate);
       if (Math.abs(frame - (k * rate) / 60) <= 2) continue;
-      if (v.subarray(Math.max(0, i - 384), i + 384).some(Number.isNaN)) {
+      if (besideGap(i)) {
         besideGaps++;
         continue;
       }
       const outside = Math.max(d - Math.max(before, after), Math.min(before, after) - d);
       if (outside > 0.5) steps.push({ time, size: outside });
-      else {
-        bends++;
-        steepest = Math.max(steepest, Math.abs(after));
-      }
+      else bends++;
     }
     // The note's brightness against the cutoff, per 50 ms block while the note sounds.
     const block = Math.round(rate * 0.05), pairs: [number, number][] = [];
@@ -241,7 +253,7 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     `filter sweep: ${result.seconds.toFixed(2)} s recorded at ${result.rate} Hz, cutoff ${result.smallest.toFixed(0)}–${result.largest.toFixed(0)} Hz; ` +
       `${final.swaps - first.swaps} swaps; ${result.cancels} cancels, ${result.reruns} re-run cancels, ${result.exposed} within two grid steps of the clock (leads ms: ${result.leads.join(', ')}); ` +
       `${result.holds.length} held quanta ${JSON.stringify(result.holds)}; ${result.freezes.length} frozen quanta back on their line ${JSON.stringify(result.freezes)}; ${result.steps.length} steps off the grid ${JSON.stringify(result.steps)}; ` +
-      `${result.bends} bends off the grid (steepest ${result.steepest.toFixed(2)} Hz a sample); ${result.gaps} samples missing from the recording, ${result.besideGaps} steps beside them; brightness vs cutoff r = ${result.r.toFixed(3)} over ${result.blocks} blocks; ` +
+      `${result.bends} bends off the grid; steepest ${result.steepest.toFixed(2)} Hz a sample (largest turn ${largestTurn.toFixed(0)} Hz); ${result.gaps} samples missing from the recording, ${result.besideGaps} steps beside them; brightness vs cutoff r = ${result.r.toFixed(3)} over ${result.blocks} blocks; ` +
       `late ${final.lateScheduled} (${first.lateScheduled} before the turns), skipped ${final.skipped}`,
   );
 
@@ -259,6 +271,14 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
   expect(result.r).toBeGreaterThan(0.8);
   // No quantum held at the previous value (ADR 0031, Consequences), other than Chromium's freezes that go on along their line.
   expect(result.holds).toEqual([]);
+  // And few of those. Seen without knob turns: at most 1 a run (5 of 20 runs). With them: at most 2 a run, about
+  // 0.15 a run on average, and 2 in 3 runs under a parallel full suite (#103). At that loaded rate, more than 3
+  // in a run has a Poisson chance of about 0.5 %; a steady stream of them would be something new.
+  expect(result.freezes.length).toBeLessThanOrEqual(3);
+  // Slopes stay bounded (ADR 0031, Decision): no faster than the sweep's wrap (its depth, 2400 Hz, in one 1/60 s grid
+  // step) plus the largest knob turn over a grid step, with 10 % to spare. Adding a point at a re-run's t0 instead
+  // made ramps of a few samples, up to 80 Hz a sample.
+  expect(result.steepest).toBeLessThanOrEqual((1.1 * (2400 + largestTurn) * 60) / result.rate);
   // No jump: re-runs keep the ramp in progress up to their start (#103).
   expect(result.steps).toEqual([]);
   expect(final.lateScheduled - first.lateScheduled).toBe(0);
