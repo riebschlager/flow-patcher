@@ -92,4 +92,14 @@ describe('gain', () => {
     expect(reports.map((r) => r.updated)).toEqual([['n'], ['n']]);
     expect(built).toBe(1);
   });
+
+  it('takes a knob edit on a cabled gain in place: the re-run\'s automate adds the cable to the new base', async () => {
+    // Base 0.2 plus a constant cable of 0.5 is 0.7; the edit at 0.21 s moves the base to 1.2, so 1.7.
+    const { reports, built, audio } = await swapRun(gain, [{ gain: 0.2 }, { gain: 1.2 }], { toneInto: 'in', cable: { param: 'gain', depth: 0.5, value: 1 } });
+    expect(reports.map((r) => r.updated)).toEqual([['n']]);
+    expect(built).toBe(1);
+    const before = busRms(audio, 0.1, 0.1), after = busRms(audio, 0.3, 0.1);
+    expect(before).toBeGreaterThan(0.005);
+    expect(after / before).toBeCloseTo(1.7 / 0.7, 2);
+  });
 });

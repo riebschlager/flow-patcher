@@ -19,7 +19,7 @@ import {
   VoicePool,
 } from '@flow-patcher/engine';
 import { nodeRegistry } from '../src';
-import { renderOffline } from '../../../tools/lib/audio';
+import { renderOffline, type RenderedAudio } from '../../../tools/lib/audio';
 
 export interface ContextOptions {
   params?: Record<string, unknown>;
@@ -139,40 +139,85 @@ export function busRms(audio: { sampleRate: number; channels: Float32Array[] }, 
   return Math.sqrt(sum / Math.max(1, count));
 }
 
+/** A Signal source that answers its `value` knob everywhere, for `swapRun`'s param cable. */
+const testSignal: NodeDefinition = {
+  type: 'test-signal', version: 1, label: 'Test signal', category: 'control-logic', description: '',
+  ports: [{ name: 'out', type: 'signal', direction: 'out' }],
+  params: [{ name: 'value', kind: 'number', min: -10, max: 10, default: 1 }],
+  query: () => ({}),
+  signal: ({ params }) => params.value as number,
+};
+/** A 440 Hz sine with RMS 0.05 / √2, quiet enough to pass Output at unity, for `swapRun`'s audio input. */
+const testTone: NodeDefinition = {
+  type: 'test-tone', version: 1, label: 'Test tone', category: 'instruments', description: '',
+  ports: [{ name: 'out', type: 'audio', direction: 'out' }],
+  params: [],
+  audio: ({ audio }) => ({ outputs: { out: sine(audio, 440, 0.05) } }),
+};
+
+export interface SwapRunOptions {
+  /** A test tone into this Audio input of `n`, and `n`'s `out` into the Output. */
+  toneInto?: string;
+  /** A constant Signal cable into this param of `n`, as `depth` × `value`. */
+  cable?: { param: string; depth: number; value: number };
+}
+
 /**
  * Runs a patch of one `definition` node (id `n`) and an Output through the runtime on an offline
- * context, swapping to each later entry of `params` in turn (one swap per 0.1 s, from 0.2 s).
- * Returns each swap's report and how many instances of the node were built: an in-place edit
- * (ADR 0031) lists `n` in `updated` and builds none.
+ * context, swapping to each later entry of `params` in turn (one swap per 0.1 s, from 0.2 s),
+ * with the scheduler's windows (25 ms, 0.1 s ahead) queried as the render goes. Returns each
+ * swap's report, how many instances of the node were built (an in-place edit, ADR 0031, lists
+ * `n` in `updated` and builds none) and the rendered audio.
  */
-export async function swapRun(definition: NodeDefinition, params: Record<string, ParamValue>[]): Promise<{ reports: SwapReport[]; built: number }> {
+export async function swapRun(definition: NodeDefinition, params: Record<string, ParamValue>[], { toneInto, cable }: SwapRunOptions = {}): Promise<{ reports: SwapReport[]; built: number; audio: RenderedAudio }> {
   let built = 0;
   const counted: NodeDefinition = { ...definition, audio: (ctx) => (built++, definition.audio!(ctx)) };
-  const definitions = new Map([...nodeRegistry, [definition.type, counted]]);
+  const definitions = new Map([...nodeRegistry, [definition.type, counted], [testSignal.type, testSignal], [testTone.type, testTone]]);
+  const at = { x: 0, y: 0 };
   const patch = (values: Record<string, ParamValue>): Patch => ({
     format: 'flowpatch', version: 1, seed: 1,
     nodes: [
-      { id: 'n', type: definition.type, typeVersion: definition.version, params: values, position: { x: 0, y: 0 } },
-      { id: 'out', type: 'output', typeVersion: nodeRegistry.get('output')!.version, params: {}, position: { x: 0, y: 0 } },
+      { id: 'n', type: definition.type, typeVersion: definition.version, params: values, position: at },
+      { id: 'out', type: 'output', typeVersion: nodeRegistry.get('output')!.version, params: {}, position: at },
+      ...(toneInto ? [{ id: 'tone', type: testTone.type, typeVersion: 1, params: {}, position: at }] : []),
+      ...(cable ? [{ id: 'mod', type: testSignal.type, typeVersion: 1, params: { value: cable.value }, position: at }] : []),
     ],
-    cables: [],
+    cables: [
+      ...(toneInto ? [{ from: { node: 'tone', port: 'out' }, to: { node: 'n', port: toneInto } }, { from: { node: 'n', port: 'out' }, to: { node: 'out', port: 'audio' } }] : []),
+      ...(cable ? [{ from: { node: 'mod', port: 'out' }, to: { node: 'n', port: cable.param }, depth: cable.depth }] : []),
+    ],
   });
   const compile = (p: Patch) => {
     const compiled = compilePatch(p, definitions);
     if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
     return compiled.plan;
   };
+  const WINDOW = 0.025, AHEAD = 0.1, seconds = 0.3 + 0.1 * params.length;
   const reports: SwapReport[] = [];
-  let swap: (values: Record<string, ParamValue>) => void = () => {};
-  await renderOffline(0.2 + 0.1 * params.length, (audio) => {
+  let runtime!: Runtime, end = 0, context!: AudioContextLike;
+  // Queries whole windows up to `now` + AHEAD, as the scheduler does.
+  const ahead = () => {
+    for (; end < Math.min(seconds, context.currentTime + AHEAD) - 1e-9; end += WINDOW) runtime.query(end, end + WINDOW, { now: context.currentTime });
+  };
+  const ticks = Array.from({ length: Math.floor((seconds - AHEAD) / WINDOW) }, (_, i) => ({ time: (i + 1) * WINDOW, apply: ahead }));
+  const swaps = params.slice(1).map((values, i) => ({
+    time: 0.21 + 0.1 * i,
+    apply: () => {
+      reports.push(runtime.swap(compile(patch(values)), { now: context.currentTime }));
+      ahead();
+    },
+  }));
+  const audio = await renderOffline(seconds, (audio) => {
     built = 0;
+    end = 0;
     reports.length = 0;
-    const runtime = new Runtime(compile(patch(params[0]!)));
+    context = audio;
+    runtime = new Runtime(compile(patch(params[0]!)));
+    runtime.keepHistory();
     runtime.attachAudio(audio);
-    runtime.query(0, 0.5);
-    swap = (values) => reports.push(runtime.swap(compile(patch(values)), { now: audio.currentTime }));
-  }, { edits: params.slice(1).map((values, i) => ({ time: 0.2 + 0.1 * i, apply: () => swap(values) })) });
-  return { reports, built };
+    ahead();
+  }, { edits: [...ticks, ...swaps].sort((a, b) => a.time - b.time), attempts: 3 });
+  return { reports, built, audio };
 }
 
 /** A sine at `hz` with RMS `level / √2`, started at 0, panned hard left (−1) or right (1) when `side` is given. */
@@ -183,8 +228,7 @@ export function sine(context: AudioContextLike, hz: number, level = 0.5, side?: 
   osc.connect(amp);
   osc.start(0);
   if (side === undefined) return amp;
-  // The test context is node-web-audio-api's, which has StereoPannerNode; the engine's AudioContextLike doesn't list it.
-  const panner = (context as AudioContextLike & { createStereoPanner(): AudioNodeLike & { pan: { value: number } } }).createStereoPanner();
+  const panner = context.createStereoPanner();
   panner.pan.value = side;
   amp.connect(panner);
   return panner;

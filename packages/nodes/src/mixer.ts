@@ -29,7 +29,7 @@ export const mixer: NodeDefinition = {
     for (const strip of strips) strip.connect(master);
     // One param per level, its knob edits, and whether a cable feeds it (fixed for the instance's life).
     const levels = LEVELS.map((name, i) => {
-      const target: AudioParamLike = (strips[i] ?? master).gain;
+      const target: AudioParamLike = (i < MIXER_INPUTS ? strips[i]! : master).gain;
       target.value = params[name] as number;
       return { name, target, edit: editRamp(target, params[name] as number), cabled: connected(name) };
     });

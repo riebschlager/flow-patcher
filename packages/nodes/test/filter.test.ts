@@ -2,27 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { automationTimes, type AudioContextLike, type AudioInstance } from '@flow-patcher/engine';
 import { biquadQ, filter } from '../src/filter';
 import { maxDifference, peak, renderOffline, RENDER_TOLERANCE } from '../../../tools/lib/audio';
-import { audioSetup, busRms, swapRun, type ContextOptions } from './helpers';
+import { audioSetup, busRms, sine, swapRun, type ContextOptions } from './helpers';
 
 /** A Filter fed a sine at `hz` (left) and, if given, another at `rightHz` (right), into the destination. */
 function build(context: AudioContextLike, hz: number, options: ContextOptions = {}, rightHz?: number): AudioInstance {
   const instance = filter.audio!(audioSetup(filter, context, options));
-  const merged = context.createGain();
-  for (const [freq, pan] of rightHz === undefined ? [[hz, 0]] : [[hz, -1], [rightHz, 1]]) {
-    const osc = context.createOscillator(), amp = context.createGain();
-    osc.frequency.value = freq!;
-    amp.gain.value = 0.5;
-    osc.connect(amp);
-    if (rightHz === undefined) amp.connect(merged);
-    else {
-      const panner = (context as AudioContextLike & { createStereoPanner(): { pan: { value: number } } & AudioContextLike['destination'] }).createStereoPanner();
-      panner.pan.value = pan!;
-      amp.connect(panner);
-      panner.connect(merged);
-    }
-    osc.start(0);
+  if (rightHz === undefined) sine(context, hz).connect(instance.inputs!.in!);
+  else {
+    sine(context, hz, 0.5, -1).connect(instance.inputs!.in!);
+    sine(context, rightHz, 0.5, 1).connect(instance.inputs!.in!);
   }
-  merged.connect(instance.inputs!.in!);
   instance.outputs!.out!.connect(context.destination);
   return instance;
 }
@@ -144,6 +133,21 @@ describe('filter', () => {
     expect(busRms(audio, 0.49, 0.01)).toBeLessThan(SINE * 0.03);
     expect(busRms(audio, 0.5, 0.004)).toBeLessThan(open * 0.5);
     expect(busRms(audio, 0.53, 0.01)).toBeGreaterThan(open * 0.9);
+  });
+
+  it('ramps a Q edit in place: a low-pass at Q 0.71 edited to 4 ends about +12 dB at the cutoff', async () => {
+    let edit: () => void = () => {};
+    const audio = await renderOffline(1, (context) => {
+      const instance = build(context, 1000, { params: { cutoff: 1000, q: 0.71 } });
+      edit = () => instance.update!({ mode: 'lowpass', cutoff: 1000, q: 4 }, 0.5);
+    }, { edits: [{ time: 0.4, apply: () => edit() }] });
+    const flat = busRms(audio, 0.4, 0.1) / SINE, peaked = busRms(audio, 0.7, 0.1) / SINE;
+    expect(flat).toBeCloseTo(Math.SQRT1_2, 1);
+    // Q 4 is +12 dB at the cutoff: about 4× the input.
+    expect(20 * Math.log10(peaked)).toBeGreaterThan(11);
+    expect(20 * Math.log10(peaked)).toBeLessThan(13);
+    // Not a jump: in the first 5 ms after the edit time the resonance is still building.
+    expect(busRms(audio, 0.5, 0.005) / SINE).toBeLessThan(peaked * 0.75);
   });
 
   it('keeps its instance for a cutoff or Q edit through the runtime, and rebuilds for a mode change', async () => {
