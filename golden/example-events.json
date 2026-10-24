@@ -6094,6 +6094,38 @@
    "pitch": 84,
    "velocity": 0.5,
    "duration": 0.8
+  },
+  {
+   "node": "pointer",
+   "port": "all",
+   "time": 3.7,
+   "channel": 1,
+   "x": 0.905,
+   "y": 0.2,
+   "pointerType": "mouse",
+   "pressure": 0,
+   "dx": 0,
+   "dy": 0,
+   "speed": 0,
+   "angle": 0,
+   "age": 0,
+   "phase": "leave"
+  },
+  {
+   "node": "dwell",
+   "port": "pass",
+   "time": 3.7,
+   "channel": 1,
+   "x": 0.905,
+   "y": 0.2,
+   "pointerType": "mouse",
+   "pressure": 0,
+   "dx": 0,
+   "dy": 0,
+   "speed": 0,
+   "angle": 0,
+   "age": 0,
+   "phase": "leave"
   }
  ],
  "euclidean-pulse.flowpatch": [

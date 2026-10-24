@@ -67,7 +67,7 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
 });
 
 // Pointer complete (#74): hover moves, pointerenter and pointerleave reach Pointer, All carries
-// every down, move, up and cancel with its phase, and channels are slots, freed on leave.
+// every down, move, up and cancel with its phase, and a hover's leave (#101), and channels are slots, freed on leave.
 test('hover, enter and leave reach Pointer, and All tags every event with its phase on a slot', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -96,7 +96,8 @@ test('hover, enter and leave reach Pointer, and All tags every event with its ph
     time: e.time, phase: e.phase, channel: e.channel, buttons: e.buttons, shift: e.shift, speed: e.speed, age: e.age, dx: e.dx,
   }))) as Promise<Seen[]>;
   // The probe may also show the tap that started audio, depending on when it began watching:
-  // only what's stamped after the leave counts.
+  // only what's stamped after the leave counts. (That leave marks nothing on All: the tap's up
+  // already freed the mouse's slot, and no hover move took it again.)
   const started = await page.evaluate(() => window.flowPatcher!.clock.currentTime);
   const after = async () => (await seen()).filter((e) => e.time > started);
   const hoverMoves = async () => (await after()).filter((e) => e.phase === 'move' && e.buttons === 0);
@@ -122,15 +123,19 @@ test('hover, enter and leave reach Pointer, and All tags every event with its ph
   await page.mouse.move(box.x - 30, box.y + 10);
   await expect.poll(slots).toEqual([[1, null]]);
 
-  // Everything has sounded once a hover move after the up shows (it can sit in the lookahead a while).
+  // Everything has sounded once the leave after the up's hover shows (it can sit in the lookahead a while).
   await expect.poll(async () => {
     const events = await after();
     const u = events.findIndex((e) => e.phase === 'up');
-    return u >= 0 && events.slice(u + 1).some((e) => e.phase === 'move' && e.buttons === 0);
+    return u >= 0 && events.slice(u + 1).some((e) => e.phase === 'leave');
   }).toBe(true);
   const all = await after();
-  // Only the four phases, all on slot 1: enter and leave have none.
-  expect(new Set(all.map((e) => e.phase))).toEqual(new Set(['move', 'down', 'up']));
+  // The contact's phases and the hover-end marker, all on slot 1; enter has none (ADR 0028, #101).
+  expect(new Set(all.map((e) => e.phase))).toEqual(new Set(['move', 'down', 'up', 'leave']));
+  // The mouse left while hovering: one leave, its last event.
+  expect(all.filter((e) => e.phase === 'leave')).toHaveLength(1);
+  expect(all.at(-1)!.phase).toBe('leave');
+  expect(all.at(-1)!.buttons).toBe(0);
   expect(new Set(all.map((e) => e.channel))).toEqual(new Set([1]));
   const down = all.findIndex((e) => e.phase === 'down');
   const up = all.findIndex((e) => e.phase === 'up');
@@ -141,9 +146,9 @@ test('hover, enter and leave reach Pointer, and All tags every event with its ph
   expect(all.slice(down + 1, up).every((e) => e.phase === 'move' && e.buttons === 1)).toBe(true);
   expect(all[up]!.age).toBeGreaterThan(0);
   expect(all[up]!.buttons).toBe(0);
-  // After the up, hover again.
-  expect(all.slice(up + 1).every((e) => e.phase === 'move' && e.buttons === 0)).toBe(true);
-  expect(all.length - up - 1).toBeGreaterThanOrEqual(1);
+  // After the up, hover again, then the leave.
+  expect(all.slice(up + 1, -1).every((e) => e.phase === 'move' && e.buttons === 0)).toBe(true);
+  expect(all.length - up - 2).toBeGreaterThanOrEqual(1);
 
   await page.evaluate(() => (window as unknown as { unwatchAll: () => void }).unwatchAll());
   expect(errors).toEqual([]);

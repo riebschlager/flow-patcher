@@ -1,6 +1,6 @@
 # 0028 · Recognizers chain on one phase-tagged stream; a claim is a Cancel on Pass
 
-Status: Accepted · 2026-10-23 · Amended 2026-10-24 (timer claims, the Claim toggle, log order; see the end)
+Status: Accepted · 2026-10-23 · Amended 2026-10-24 (timer claims, the Claim toggle, log order; the hover-end marker, #101; see the end)
 
 ## Context
 design.md ("Who owns a pointer") gives every recognizer a **Pass** output carrying the raw events it didn't claim. When it claims a channel, a Cancel goes to everything downstream of Pass. Chaining recognizers through Pass sets priority. That leaves two questions open for M2:
@@ -72,3 +72,16 @@ Building the recognizers (#78) settled three points the decision left open.
   - On by default for Pinch, Drag, Hold and Circle, where taking the contact is the point of the gesture.
   - Off by default for Tap, Flick and Stroke, which usually ride along with painting.
 - **Log order.** The cancel keeps the triggering event's place in the recognizer's own output. The runtime's log orders same-time events by channel, so in the log a same-time cancel can sit before or after the other channels' events.
+
+## Amendment · 2026-10-24 · The hover-end marker (#101)
+All had no way to say a hover ended, so Dwell fired at the canvas edge after a still mouse left, and a later pointer reusing the slot inherited its stay.
+
+- **`phase: 'leave'` on All.** Pointer and Pointer (high rate) emit an All event with `phase: 'leave'` when a pointer that isn't down leaves the canvas and gives its slot up (docs/nodes/canvas-sources.md, "Pointer slots"). A leave while down still emits nothing: the slot waits for its up or cancel, which ends the contact.
+  - It carries the slot's channel and the slot's last position (x, y, pressure), no motion (dx, dy and speed 0, `angle` held) and `age` 0, with the leave's other payload fields. The leave's own coordinates are left out: they're the edge, past the last sample.
+  - A hovering pointer pushed out of its slot past 16 slots gets a leave too, as one that's down gets a cancel.
+  - It isn't a contact phase. It opens and ends no contact, and it has no per-phase port on the source.
+  - Like down, up and cancel it's never thinned by the event budget; it costs one event (All only). Pen gets the same marker when it lands.
+- **Recognizers** forward it on **Pass** only, never on Pass Down, Move, Up or Cancel. Contact recognizers (Drag, Tap, Hold, Flick, Circle, Pinch, Stroke) ignore it: it reaches no gesture logic and changes no claim.
+- **Switch, Modifier Router and Zone** route it as an event outside a contact, as they route a hover move: at its own time, by its own fields or position.
+- **Dwell** drops the channel's pending stay on it, without firing.
+- Nodes downstream must not treat `leave` as an end of contact: a contact ends only with `up` or `cancel`.

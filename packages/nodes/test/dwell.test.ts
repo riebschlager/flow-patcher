@@ -97,6 +97,23 @@ describe('dwell', () => {
     expect(fires(tiled(3, events))).toEqual([[1.0, 1, 0.505, 0.5, 'mouse']]);
   });
 
+  it('drops a stay at a hover\'s leave without firing, so a pointer reusing the slot starts afresh', () => {
+    // Still from 0.1 (due at 0.7), but it leaves at 0.4. Its slot's next pointer hovers nearby from 0.9.
+    const left = [ev(0.1, 1, 'move', 0.5, 0.5), ev(0.4, 1, 'leave', 0.5, 0.5), ev(0.9, 1, 'move', 0.505, 0.5, 'pen')];
+    expect(fires(tiled(3, left))).toEqual([[1.5, 1, 0.505, 0.5, 'pen']]);
+    for (const step of [0.025, 0.1, 0.37]) expect(fires(tiled(step, left)), `${step}`).toEqual([[1.5, 1, 0.505, 0.5, 'pen']]);
+    // Only its own channel's stay goes.
+    expect(fires(tiled(3, [ev(0.1, 1, 'move', 0.5, 0.5), ev(0.1, 2, 'move', 0.2, 0.2), ev(0.4, 2, 'leave', 0.2, 0.2)]))).toEqual([[0.7, 1, 0.5, 0.5, 'mouse']]);
+    // A fire due at the leave's own time goes first; a leave after a fire, or with no position, changes nothing else.
+    expect(fires(tiled(3, [ev(0.1, 1, 'move', 0.5, 0.5), ev(0.7, 1, 'leave', 0.5, 0.5)]))).toEqual([[0.7, 1, 0.5, 0.5, 'mouse']]);
+    expect(fires(tiled(3, [ev(0.1, 1, 'move', 0.5, 0.5), ev(0.4, 1, 'leave', NaN, 'x', 7)]))).toEqual([]);
+    // The leave goes out on Pass alone: it's no contact phase.
+    const out = tiled(3, left);
+    expect(out.pass).toEqual(left);
+    splitsMatchPass(out);
+    expect(out.passMove).toHaveLength(2);
+  });
+
   it('keeps every output inside its window, a fire landing exactly on a window edge', () => {
     // Anchored at 0.15, fires at 0.75: the edge of 0.25 s windows (and of 0.05 s ones).
     const events = [ev(0.15, 1, 'move', 0.5, 0.5), ev(0.75, 2, 'move', 0.2, 0.2, 'pen')];
@@ -128,6 +145,12 @@ describe('dwell', () => {
     splitsMatchPass(out);
     expect(out.dwell).toHaveLength(10);
     expect(out.passMove!.length).toBeLessThan(12 * 60);
+    // A leave in the full window still goes out, and drops its stay.
+    const leave = ev(0.05, 100, 'leave', 0, 0.5);
+    const left = query(dwell, 0, 1, { state: {}, inputs: { in: [...events, leave].sort((a, b) => a.time - b.time) } }) as Record<string, EngineEvent[]>;
+    expectUnderCap(left);
+    expect(left.pass!.filter((e) => e.phase === 'leave')).toEqual([leave]);
+    expect(left.dwell!.map((e) => e.channel)).toEqual(Array.from({ length: 9 }, (_, i) => 101 + i));
   });
 
   it('passes every event unchanged, never claiming', () => {
@@ -179,6 +202,57 @@ describe('dwell', () => {
   const m = (time: number, x: number): InputEvent => ({ time, type: 'pointermove', channel: 1, x, y: 0.5, pointerType: 'mouse', buttons: 0, button: -1 });
   const mouseStream: InputEvent[] = [m(0.1, 0.2), m(0.2, 0.21), m(0.5, 0.5), m(1.0, 0.8), m(1.05, 0.81)];
   const dwellOf = (log: LoggedEvent[]) => log.filter((e) => e.node === 'd' && e.port === 'dwell').map((e) => [+e.time.toFixed(9), e.channel, e.x]);
+
+  /** Replays `events` ahead of the horizon, or pushes each live after the runtime queried `late` s past it; the log either way. */
+  function play(events: readonly InputEvent[], late: number | null, end = 2.5) {
+    const rt = new Runtime(plan(), { history: late !== null });
+    if (late === null) {
+      replayInput(rt, { events });
+      const log: LoggedEvent[] = [];
+      for (let i = 0; i * 0.025 < end - 1e-9; i++) log.push(...rt.query(i * 0.025, (i + 1) * 0.025));
+      return { log: rt.sortLog(log), seen: log };
+    }
+    const router = inputRouter(rt.plan);
+    let log: LoggedEvent[] = [];
+    let next = 0;
+    const seen: LoggedEvent[] = [];
+    const queryTo = (t: number) => {
+      for (; next * 0.025 < t - 1e-9; next++) {
+        const added = rt.query(next * 0.025, (next + 1) * 0.025);
+        log.push(...added);
+        seen.push(...added);
+      }
+    };
+    for (const event of events) {
+      queryTo(event.time + late);
+      const report = rt.pushAll(router.route(event).map(({ node: id, port, fields }) => ({ node: id, port, event: { time: event.time, ...fields } as EngineEvent })));
+      if (!report) continue;
+      log = [...log.filter((e) => !(report.affected.has(e.node) && e.time >= report.time)), ...report.added];
+      seen.push(...report.added);
+    }
+    queryTo(end);
+    return { log: rt.sortLog(log), seen };
+  }
+
+  it('withdraws a pending fire when the mouse leaves the canvas still, on replay and live', () => {
+    // Hovers still from 0.1 (due at 0.7) and leaves at 0.4; then a pen enters, takes the freed slot 1
+    // and hovers nearby from 1.0: its stay is its own (due at 1.6), nothing inherited from the mouse.
+    const leave: InputEvent = { time: 0.4, type: 'pointerleave', channel: 1, x: 0.21, y: 0.5, pointerType: 'mouse', buttons: 0, button: -1 };
+    const pen: InputEvent = { time: 1.0, type: 'pointermove', channel: 2, x: 0.205, y: 0.5, pointerType: 'pen', buttons: 0, button: -1 };
+    const events = [m(0.1, 0.2), m(0.2, 0.21), leave, pen];
+    const ahead = play(events, null);
+    expect(dwellOf(ahead.log)).toEqual([[1.6, 1, 0.205]]);
+    // Pointer marked the leave on slot 1 at the mouse's last position, and Dwell passed it on Pass alone.
+    const leaves = ahead.log.filter((e) => e.phase === 'leave').map((e) => [e.node, e.port, e.time, e.channel, e.x]);
+    expect(leaves).toEqual([['p', 'all', 0.4, 1, 0.21], ['d', 'pass', 0.4, 1, 0.21]]);
+    // Without the leave, the mouse's stay fires at its exit point.
+    expect(dwellOf(play([m(0.1, 0.2), m(0.2, 0.21)], null).log)).toEqual([[0.7, 1, 0.21]]);
+    // Live, the leave arrives after the fire at 0.7 went out, and its rewind withdraws it.
+    const live = play(events, 0.7);
+    expect(dwellOf(live.seen)).toContainEqual([0.7, 1, 0.21]);
+    expect(dwellOf(live.log)).toEqual(dwellOf(ahead.log));
+    expect(JSON.stringify(live.log)).toBe(JSON.stringify(ahead.log));
+  });
 
   it('fires from Pointer All on replay, and withdraws a fire a live move cancels by rewinding', () => {
     const ahead = new Runtime(plan());
