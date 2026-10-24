@@ -1,0 +1,172 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261024,
+  "nodes": [
+    {
+      "id": "wheel",
+      "type": "wheel",
+      "typeVersion": 1,
+      "params": {
+        "decay": 1.5
+      },
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "scroll",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.15,
+        "pitch": 67,
+        "velocity": 0.5
+      },
+      "position": {
+        "x": 240,
+        "y": 0
+      }
+    },
+    {
+      "id": "pinch",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.6,
+        "pitch": 48,
+        "velocity": 0.7
+      },
+      "position": {
+        "x": 240,
+        "y": 160
+      }
+    },
+    {
+      "id": "synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.005,
+        "level": 0.3,
+        "release": 0.25,
+        "wave": "sawtooth"
+      },
+      "position": {
+        "x": 480,
+        "y": 60
+      }
+    },
+    {
+      "id": "filter",
+      "type": "filter",
+      "typeVersion": 1,
+      "params": {
+        "cutoff": 900,
+        "mode": "lowpass",
+        "q": 4
+      },
+      "position": {
+        "x": 720,
+        "y": 60
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 960,
+        "y": 60
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "wheel",
+        "port": "deltaY"
+      },
+      "to": {
+        "node": "scroll",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "wheel",
+        "port": "zoom"
+      },
+      "to": {
+        "node": "pinch",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "scroll",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "pinch",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "filter",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "wheel",
+        "port": "scrollY"
+      },
+      "to": {
+        "node": "filter",
+        "port": "cutoff"
+      },
+      "depth": 600
+    },
+    {
+      "from": {
+        "node": "wheel",
+        "port": "zoomLevel"
+      },
+      "to": {
+        "node": "filter",
+        "port": "q"
+      },
+      "depth": 8
+    },
+    {
+      "from": {
+        "node": "filter",
+        "port": "out"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    }
+  ]
+}

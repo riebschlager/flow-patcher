@@ -55,16 +55,17 @@ const POINTER_TYPES: Readonly<Record<PointerPort, InputEventType>> = {
  * no source has seen (Pointer marks no leave for a pointer with no Down, Move, Up or Cancel since it took
  * its slot). Held, pairs would pile up unbounded while hovering in and out.
  * MIDI: it never starts audio, so a suspended or interrupted context (an iOS call) would otherwise collect
- * every CC sent meanwhile.
+ * every CC sent meanwhile. Wheel: it doesn't start audio either (a wheel isn't a user activation), and a
+ * trackpad sends dozens a second. Gesturechange likewise: Safari sends one per frame through a pinch.
  * The canvas's lifecycle (resize, focus, blur, visibilitychange): dragging the pane or tabbing about before
  * the first tap would pile them up. The host keeps the canvas's state instead and sends what changed when
  * audio starts (`CanvasLifecycle.start`).
  */
 export const droppedWhileCold = (type: InputEventType): boolean =>
-  type === 'pointermove' || type === 'pointerenter' || type === 'pointerleave' || type === 'midi' || CANVAS_TYPES.has(type);
+  type === 'pointermove' || type === 'pointerenter' || type === 'pointerleave' || type === 'midi' || CANVAS_TYPES.has(type) || type === 'wheel' || type === 'gesturechange';
 
 /** The payload of one pointer event (docs/nodes/canvas-sources.md, Event payload): the raw pointerId as `channel`. */
-export interface PointerFields {
+export interface PointerFields extends Partial<PenFields> {
   channel: number;
   x: number;
   y: number;
@@ -83,6 +84,79 @@ export interface PointerFields {
   /** Seconds since this pointer's previous sample, from the events' timeStamps (#74). Left out on its first. */
   interval?: number;
 }
+
+/**
+ * What a pen's pointer events add (Pen, docs/nodes/canvas-sources.md), as the browser reports them
+ * and named as Pen's outputs (ADR 0029). Only on `pointerType: 'pen'`. The barrel button is `buttons`
+ * bit 2, so it has no field of its own.
+ */
+export interface PenFields {
+  /** Degrees, −90 to 90: toward +x (right) and +y (the user). */
+  tiltX: number;
+  tiltY: number;
+  /** Degrees clockwise about the pen's axis, 0 to 359. */
+  twist: number;
+  /** The airbrush wheel, −1 to 1. */
+  tangentialPressure: number;
+  /** Radians: 0 lying flat to π/2 upright, and 0 to 2π from +x. Left out where the browser has none; Pen derives them from tilt. */
+  altitudeAngle?: number;
+  azimuthAngle?: number;
+}
+
+/** The click events the canvas forwards (Click, docs/nodes/canvas-sources.md): auxclick is Middle's, contextmenu Right's. */
+export type ClickType = 'click' | 'dblclick' | 'auxclick' | 'contextmenu';
+
+/** The payload of one click event (Event payload): position and the base fields that apply. No channel: a click isn't a contact. */
+export interface ClickFields {
+  x: number;
+  y: number;
+  pointerType: string;
+  button: number;
+  buttons: number;
+  shift: boolean;
+  alt: boolean;
+  ctrl: boolean;
+  meta: boolean;
+}
+
+/** The payload of one wheel event (Wheel, docs/nodes/canvas-sources.md): the pointer's position and the
+ *  deltas and deltaMode as the browser reports them; Wheel converts them to pixels. No channel. */
+export interface WheelFields {
+  x: number;
+  y: number;
+  deltaX: number;
+  deltaY: number;
+  /** 0 pixels, 1 lines, 2 pages (`WheelEvent.deltaMode`). */
+  deltaMode: number;
+  shift: boolean;
+  alt: boolean;
+  /** Set on a trackpad pinch (Chrome, Edge and Firefox send it as wheel + ctrlKey) and on Ctrl + wheel: Wheel's Zoom. */
+  ctrl: boolean;
+  meta: boolean;
+}
+
+/**
+ * The payload of one Safari `gesturechange` (Touch extras, docs/nodes/canvas-sources.md), as Safari reports
+ * it: the gesture's centre where it has one, `scale` since gesturestart (1 at the start) and `rotation`
+ * since gesturestart in degrees, positive clockwise; Touch extras turns it into radians. No channel.
+ */
+export interface GestureFields {
+  x?: number;
+  y?: number;
+  scale: number;
+  rotation: number;
+  shift?: boolean;
+  alt?: boolean;
+  ctrl?: boolean;
+  meta?: boolean;
+}
+
+/**
+ * The canvas event types a source reads when the canvas is played, with a pointer or the keyboard: a
+ * patch with a source reading one doesn't show the preview's "No canvas input" hint. Sources that read
+ * other events the player makes on the canvas add their type here.
+ */
+const PLAYED_TYPES: readonly InputEventType[] = ['pointerdown', 'keydown', 'click', 'dblclick', 'auxclick', 'contextmenu', 'wheel'];
 
 /** One pointerdown, for the Immediate path gate check (docs/milestones.md, M1). */
 export interface Tap {
@@ -181,6 +255,7 @@ interface ProbeTrack {
 
 export interface LiveStatus {
   audio: AudioContextState;
+  /** Source nodes the canvas is played through (`PLAYED_TYPES`): Pointer, Click, Key and the like. */
   pointers: number;
 }
 
@@ -444,6 +519,21 @@ export class LivePatch {
     this.input({ type: POINTER_TYPES[port], ...fields }, timeStamp);
   }
 
+  /** Sends one click event (click, dblclick, auxclick or contextmenu) to every source node that reads it, stamped once. x and y are 0–1, y = 0 at the top. */
+  click(type: ClickType, fields: ClickFields, timeStamp?: number): void {
+    this.input({ type, ...fields }, timeStamp);
+  }
+
+  /** Sends one wheel event to every source node that reads it, stamped once. Dropped while audio isn't running (`droppedWhileCold`). */
+  wheel(fields: WheelFields, timeStamp?: number): void {
+    this.input({ type: 'wheel', ...fields }, timeStamp);
+  }
+
+  /** Sends one Safari gesturechange to every source node that reads it, stamped once. Dropped while audio isn't running (`droppedWhileCold`). */
+  gesture(fields: GestureFields, timeStamp?: number): void {
+    this.input({ type: 'gesturechange', ...fields }, timeStamp);
+  }
+
   /** Whether a source node in the running plan reads this canvas event type, such as `contextmenu` (Platform rules). */
   reads(type: InputEventType): boolean {
     return this.router.reads(type);
@@ -600,7 +690,7 @@ export class LivePatch {
     this.router = inputRouter(plan);
     // A source that reads the size and is new to the plan is sent it once the swap has landed.
     this.lifecycle.adopt(plan.order.filter((node) => node.definition.input?.reads.resize !== undefined).map((node) => node.id), swapTime);
-    this.pointers = plan.order.filter((node) => node.definition.input?.reads.pointerdown !== undefined).length;
+    this.pointers = plan.order.filter((node) => PLAYED_TYPES.some((type) => node.definition.input?.reads[type] !== undefined)).length;
     this.renderer = plan.order.find((node) => node.definition.type === 'renderer')?.id ?? null;
     this.hasFluid = plan.order.some((node) => node.definition.type === 'fluid');
     this.needed = neededPermissions(plan.order);

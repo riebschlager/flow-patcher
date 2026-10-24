@@ -1,0 +1,180 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261026,
+  "nodes": [
+    {
+      "id": "pointer",
+      "type": "pointer",
+      "typeVersion": 2,
+      "params": {},
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "touch",
+      "type": "touch-extras",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 0,
+        "y": 200
+      }
+    },
+    {
+      "id": "tap",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.3,
+        "pitch": 60,
+        "velocity": 0.6
+      },
+      "position": {
+        "x": 240,
+        "y": 0
+      }
+    },
+    {
+      "id": "twist",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.08,
+        "pitch": 72,
+        "velocity": 0.3
+      },
+      "position": {
+        "x": 240,
+        "y": 160
+      }
+    },
+    {
+      "id": "synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.005,
+        "level": 0.3,
+        "release": 0.3,
+        "wave": "sawtooth"
+      },
+      "position": {
+        "x": 480,
+        "y": 60
+      }
+    },
+    {
+      "id": "filter",
+      "type": "filter",
+      "typeVersion": 1,
+      "params": {
+        "cutoff": 400,
+        "mode": "lowpass",
+        "q": 2
+      },
+      "position": {
+        "x": 720,
+        "y": 60
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 960,
+        "y": 60
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "pointer",
+        "port": "down"
+      },
+      "to": {
+        "node": "tap",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "touch",
+        "port": "gesture"
+      },
+      "to": {
+        "node": "twist",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "tap",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "twist",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "filter",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "touch",
+        "port": "width"
+      },
+      "to": {
+        "node": "filter",
+        "port": "cutoff"
+      },
+      "depth": 40
+    },
+    {
+      "from": {
+        "node": "touch",
+        "port": "scale"
+      },
+      "to": {
+        "node": "filter",
+        "port": "q"
+      },
+      "depth": 3
+    },
+    {
+      "from": {
+        "node": "filter",
+        "port": "out"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    }
+  ]
+}

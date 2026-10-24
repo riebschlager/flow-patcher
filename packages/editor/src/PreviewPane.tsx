@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { keepsDefault, keyFields } from './keys';
-import type { LivePatch, PointerPort } from './live';
+import type { ClickType, LivePatch, PenFields, PointerPort } from './live';
 
 const MIN = { width: 200, height: 120 };
 const DEFAULT = { width: 248, height: 156 };
@@ -37,6 +37,73 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
     return () => observer.disconnect();
   }, []);
 
+  // Wheel (canvas-sources.md): each wheel event pushed once, with the browser's deltas and deltaMode (Wheel
+  // converts them to pixels). A trackpad pinch arrives as wheel + ctrlKey. While a source reads wheel the
+  // canvas keeps it: no page scroll, and no browser zoom on a pinch or Ctrl + wheel. That needs a
+  // non-passive listener, and React's onWheel is passive, so it's added here.
+  useEffect(() => {
+    const element = canvas.current;
+    if (!element || !live) return;
+    const wheel = (event: WheelEvent) => {
+      if (!live.reads('wheel')) return;
+      event.preventDefault();
+      const box = element.getBoundingClientRect();
+      live.wheel({
+        x: clamp01((event.clientX - box.left) / box.width),
+        y: clamp01((event.clientY - box.top) / box.height),
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        deltaMode: event.deltaMode,
+        shift: event.shiftKey,
+        alt: event.altKey,
+        ctrl: event.ctrlKey,
+        meta: event.metaKey,
+      }, event.timeStamp);
+    };
+    element.addEventListener('wheel', wheel, { passive: false });
+    return () => element.removeEventListener('wheel', wheel);
+  }, [live]);
+
+  // Touch extras (canvas-sources.md): Safari sends a pinch or twist (two fingers on iOS, the trackpad on
+  // macOS) as gesturestart, gesturechange and gestureend. Each gesturechange is pushed once with its scale
+  // and rotation (degrees) as Safari reports them, and its centre and modifiers where it has them. Only
+  // gesturechange is a stream type (ADR 0029); start and end are listened to so that, while a source reads
+  // gesturechange, the canvas keeps the whole gesture and Safari doesn't zoom the page. Other browsers never
+  // send these, so nothing here runs there.
+  useEffect(() => {
+    const element = canvas.current;
+    if (!element || !live) return;
+    type Gesture = Event & { scale?: unknown; rotation?: unknown; clientX?: unknown; clientY?: unknown; shiftKey?: unknown; altKey?: unknown; ctrlKey?: unknown; metaKey?: unknown };
+    const flag = (value: unknown) => (typeof value === 'boolean' ? value : undefined);
+    const keep = (event: Event) => {
+      if (live.reads('gesturechange')) event.preventDefault();
+    };
+    const change = (event: Gesture) => {
+      if (!live.reads('gesturechange')) return;
+      event.preventDefault();
+      const box = element.getBoundingClientRect();
+      const { clientX, clientY } = event;
+      const at = typeof clientX === 'number' && typeof clientY === 'number'
+        ? { x: clamp01((clientX - box.left) / box.width), y: clamp01((clientY - box.top) / box.height) }
+        : {};
+      const modifiers = { shift: flag(event.shiftKey), alt: flag(event.altKey), ctrl: flag(event.ctrlKey), meta: flag(event.metaKey) };
+      live.gesture({
+        ...at,
+        scale: typeof event.scale === 'number' ? event.scale : 1,
+        rotation: typeof event.rotation === 'number' ? event.rotation : 0,
+        ...Object.fromEntries(Object.entries(modifiers).filter(([, value]) => value !== undefined)),
+      }, event.timeStamp);
+    };
+    element.addEventListener('gesturestart', keep, { passive: false });
+    element.addEventListener('gesturechange', change, { passive: false });
+    element.addEventListener('gestureend', keep, { passive: false });
+    return () => {
+      element.removeEventListener('gesturestart', keep);
+      element.removeEventListener('gesturechange', change);
+      element.removeEventListener('gestureend', keep);
+    };
+  }, [live]);
+
   // The canvas's size in CSS pixels, for the Canvas node's Width, Height and Aspect.
   useEffect(() => {
     const element = canvas.current;
@@ -52,6 +119,8 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
   // Each pointer's latest sample time (event.timeStamp, ms), for `interval`: motion is measured on the
   // browser's clock, since the stamps carry render quanta and handler delays (canvas-sources.md).
   const [lastSample] = useState(() => new Map<number, number>());
+  // The pointerType of the last pointerdown on the canvas, for click events that carry none (Safari).
+  const [lastDown] = useState(() => ({ pointerType: 'mouse' }));
   /** Seconds since this pointer's previous sample, or nothing for its first; and `timeStamp` becomes the latest. */
   const intervalOf = (pointerId: number, timeStamp: number): { interval?: number } => {
     const last = lastSample.get(pointerId);
@@ -59,7 +128,26 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
     return last === undefined ? {} : { interval: Math.max(0, (timeStamp - last) / 1000) };
   };
 
+  // Pen (canvas-sources.md): a pen's events carry its tilt, twist and tangential pressure as the browser
+  // reports them, and altitudeAngle and azimuthAngle where it has them (Pen derives them from tilt where it
+  // doesn't). Named as Pen's outputs (ADR 0029). Other pointers leave them out. The barrel button is in
+  // `buttons` (bit 2), so it isn't sent separately.
+  const penFields = (e: PointerEvent | ReactPointerEvent<HTMLCanvasElement>): PenFields | Record<string, never> => {
+    if (e.pointerType !== 'pen') return {};
+    // React's synthetic event doesn't copy the angles (only tilt, twist and tangential pressure), so they come from the native one.
+    const { altitudeAngle, azimuthAngle } = ('nativeEvent' in e ? e.nativeEvent : e) as { altitudeAngle?: number; azimuthAngle?: number };
+    return {
+      tiltX: e.tiltX,
+      tiltY: e.tiltY,
+      twist: e.twist,
+      tangentialPressure: e.tangentialPressure,
+      ...(typeof altitudeAngle === 'number' ? { altitudeAngle } : {}),
+      ...(typeof azimuthAngle === 'number' ? { azimuthAngle } : {}),
+    };
+  };
+
   const send = (port: PointerPort) => (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (port === 'down') lastDown.pointerType = event.pointerType;
     if (!live) return;
     const box = event.currentTarget.getBoundingClientRect();
     if (port === 'down') {
@@ -83,6 +171,7 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
       alt: e.altKey,
       ctrl: e.ctrlKey,
       meta: e.metaKey,
+      ...penFields(e),
     });
     if (port === 'enter' || port === 'leave') {
       // Hover state only: no sample. A pointer that leaves starts afresh when it comes back.
@@ -134,9 +223,39 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
     if (event.key !== 'Escape') live?.key('up', keyFields(event.nativeEvent), event.timeStamp);
   };
 
+  // Click (canvas-sources.md): click, dblclick, auxclick and contextmenu, each pushed once, at one stamp
+  // shared by every source that reads it (ADR 0029). Clicks aren't contacts, so they carry no channel.
+  // Chromium sends them as PointerEvents, with a pointerType; a keyboard contextmenu (menu key, Shift+F10)
+  // has an empty one, sent as 'mouse'. Safari sends plain MouseEvents with no pointerType at all, so a
+  // tap's click or a long press's contextmenu takes the last pointerdown's on the canvas, from any pointer
+  // ('mouse' before the first).
+  const sendClick = (type: ClickType) => (event: ReactMouseEvent<HTMLCanvasElement>) => {
+    if (!live?.reads(type)) return;
+    const box = event.currentTarget.getBoundingClientRect();
+    const native = event.nativeEvent as MouseEvent & { pointerType?: string };
+    live.click(type, {
+      x: clamp01((event.clientX - box.left) / box.width),
+      y: clamp01((event.clientY - box.top) / box.height),
+      pointerType: typeof native.pointerType === 'string' ? native.pointerType || 'mouse' : lastDown.pointerType,
+      button: event.button,
+      buttons: event.buttons,
+      shift: event.shiftKey,
+      alt: event.altKey,
+      ctrl: event.ctrlKey,
+      meta: event.metaKey,
+    }, event.timeStamp);
+  };
+  // A middle press would start autoscroll (or paste, on Linux) and swallow its auxclick, so it's
+  // suppressed while a source reads middle clicks, as the context menu is for right-clicks.
+  const middleDown = (event: ReactMouseEvent<HTMLCanvasElement>) => {
+    if (event.button === 1 && live?.reads('auxclick')) event.preventDefault();
+  };
+  const clicked = sendClick('click'), doubled = sendClick('dblclick'), auxClicked = sendClick('auxclick'), rightClicked = sendClick('contextmenu');
+
   // The context menu stays unless a source in the patch reads right-clicks (Platform rules).
   const contextMenu = (event: ReactMouseEvent<HTMLCanvasElement>) => {
     if (live?.reads('contextmenu')) event.preventDefault();
+    rightClicked(event);
   };
 
   const resize = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -182,6 +301,10 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
             live?.canvasFocus(false);
           }}
           onContextMenu={contextMenu}
+          onClick={clicked}
+          onDoubleClick={doubled}
+          onAuxClick={auxClicked}
+          onMouseDown={middleDown}
           onPointerDown={send('down')}
           onPointerMove={send('move')}
           onPointerUp={send('up')}
@@ -189,7 +312,7 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
           onPointerEnter={send('enter')}
           onPointerLeave={send('leave')}
         />
-        {live && !pointers && <span className="preview__hint">No Pointer in this patch</span>}
+        {live && !pointers && <span className="preview__hint">No canvas input in this patch</span>}
       </div>
       <div className="preview__grip" onPointerDown={resize} aria-label="Resize preview" role="separator" />
     </section>
