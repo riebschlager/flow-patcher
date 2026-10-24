@@ -1,0 +1,12 @@
+{ "format": "flowinput", "version": 1,
+  "events": [
+    {"time":0.3,"type":"pointerdown","channel":1,"x":0.3,"y":0.5,"pressure":0.6,"pointerType":"touch"},
+    {"time":0.38,"type":"pointerup","channel":1,"x":0.3,"y":0.5,"pressure":0,"pointerType":"touch"},
+    {"time":0.9,"type":"pointerdown","channel":2,"x":0.6,"y":0.4,"pressure":0.6,"pointerType":"touch"},
+    {"time":0.98,"type":"pointerup","channel":2,"x":0.6,"y":0.4,"pressure":0,"pointerType":"touch"},
+    {"time":1.1,"type":"pointerdown","channel":3,"x":0.61,"y":0.41,"pressure":0.6,"pointerType":"touch"},
+    {"time":1.18,"type":"pointerup","channel":3,"x":0.61,"y":0.41,"pressure":0,"pointerType":"touch"},
+    {"time":1.8,"type":"pointerdown","channel":4,"x":0.5,"y":0.7,"pressure":0.6,"pointerType":"touch"},
+    {"time":2,"type":"pointermove","channel":4,"x":0.505,"y":0.7,"pressure":0.6,"pointerType":"touch"},
+    {"time":2.6,"type":"pointerup","channel":4,"x":0.505,"y":0.7,"pressure":0,"pointerType":"touch"}
+  ] }

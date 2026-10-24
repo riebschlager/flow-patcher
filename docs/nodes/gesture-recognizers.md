@@ -25,6 +25,8 @@ Flow's recognizers live inside a mode-based controller. Borrowing them means spl
 - Every recognizer has two kinds of output: its gesture events, and **Pass**, which carries the raw events it didn't claim in the same tagged shape. **Pass Down**, **Pass Move**, **Pass Up** and **Pass Cancel** split it for nodes that want one phase.
 - A recognizer **claims** a channel once it's confident, for example when a pinch passes its threshold. The claim is decided in `query()` from event times, so it rewinds and replays like any query.
 - At the claim it emits exactly one `cancel` event for that channel on Pass, and that channel's events stop flowing out of Pass until it ends. Nodes downstream treat the cancel like a pointercancel.
+- A claim decided by time alone (Tap's Long press, Hold reaching its Min charge) has no In event to replace. Its cancel goes out on Pass at that moment, repeating the contact's latest event.
+- Every recognizer has a **Claim** toggle: on by default for Pinch, Drag, Hold and Circle, off for Tap, Flick and Stroke. Off, it still recognizes, but Pass carries everything ([ADR 0028](../decisions/0028-recognizers-pass-claim-cancel.md), amended 2026-10-24).
 - Chaining recognizers through Pass sets priority. With Pinch → Circle → Paint, pinch wins, circle comes next, and painting gets what's left.
 - Switch and Modifier Router keep each contact on the output it started on until it ends.
 - Test every recognizer for: claim timing (the cancel lands at the triggering event's time), no Pass events from a claimed channel after the claim, exactly one Cancel per claimed channel, and independent state for channels it hasn't paired.
