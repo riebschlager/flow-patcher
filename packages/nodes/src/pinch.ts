@@ -17,6 +17,8 @@ interface Finger {
   pointerType: string | null;
   /** Down order, for "first two". */
   order: number;
+  /** Was in a pinch that claimed (or would have, with Claim off): never paired again until it ends. */
+  spent: boolean;
 }
 
 /** The pair being watched, or pinching once claimed. Plain data. */
@@ -73,8 +75,8 @@ function measure(fa: Finger, fb: Finger) {
  *   contact landing before the claim breaks the pair; it re-forms when two are left. (Flow.)
  * - "first two": the two eligible contacts that went down first, however many are open.
  * - Eligible (`pointers`): touch contacts only (`pointerType` "touch"), or any. Flow's pinch
- *   is touch only, so a pen or mouse beside a finger never pinches. A contact this node
- *   has claimed is never paired again: its claim lasts until it ends.
+ *   is touch only, so a pen or mouse beside a finger never pinches. A finger that has been
+ *   in a pinch is never paired again until it ends, with Claim on or off: a pinch ends once.
  * - Before the claim, the pair re-forms (new starting distance) whenever its fingers change.
  *
  * The claim: on a move of either finger, once both fingers have moved MIN_FINGER_TRAVEL from
@@ -149,7 +151,7 @@ export const pinch: NodeDefinition = {
 };
 
 function eligible(ctx: Pick<QueryContext, 'params'>, finger: Finger, out: Emitter): boolean {
-  return (ctx.params.pointers === 'any' || finger.pointerType === 'touch') && !out.claimed(finger.channel);
+  return (ctx.params.pointers === 'any' || finger.pointerType === 'touch') && !finger.spent && !out.claimed(finger.channel);
 }
 
 /** The pair the open contacts make now, or null. */
@@ -169,7 +171,7 @@ function step(ctx: Pick<QueryContext, 'params' | 'param'>, s: PinchState, steps:
   let finger = s.fingers.find((f) => f.channel === channel);
   if (phase === 'down') {
     if (finger) s.fingers.splice(s.fingers.indexOf(finger), 1);
-    finger = { channel, x: num(event.x, 0), y: num(event.y, 0), pointerType: typeof event.pointerType === 'string' ? event.pointerType : null, order: s.order++ };
+    finger = { channel, x: num(event.x, 0), y: num(event.y, 0), pointerType: typeof event.pointerType === 'string' ? event.pointerType : null, order: s.order++, spent: false };
     s.fingers.push(finger);
   } else if (finger) {
     finger.x = num(event.x, finger.x);
@@ -227,6 +229,8 @@ function step(ctx: Pick<QueryContext, 'params' | 'param'>, s: PinchState, steps:
   if (!(moved && (change > threshold || spreads) && travel < Math.abs(change) * MAX_MIDPOINT_TRAVEL)) return;
   pair.active = true;
   pair.min = m.d;
+  // Spent whether or not Claim is on: a pinch ends once, so these fingers never pair again.
+  fa.spent = fb.spent = true;
   out.claim(pair.a);
   out.claim(pair.b);
   out.emit(spreads ? 'spread' : 'pinchIn', gesture(pair, time));

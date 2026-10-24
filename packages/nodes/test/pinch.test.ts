@@ -186,6 +186,24 @@ describe('pinch', () => {
     expect(out.end).toBeUndefined();
   });
 
+  it('with Claim off, still ends the pinch at the Spread: the fingers don\'t pair again until they lift', () => {
+    const events = [
+      ev(0, 1, 'down', 0.2, 0.5), ev(0, 2, 'down', 0.8, 0.5),
+      ev(0.1, 1, 'move', 0.3, 0.5), ev(0.1, 2, 'move', 0.7, 0.5),
+      ev(0.2, 1, 'move', 0.1, 0.5), ev(0.2, 2, 'move', 0.9, 0.5),
+      ev(0.3, 1, 'move', 0.3, 0.5), ev(0.3, 2, 'move', 0.7, 0.5),
+      ev(0.4, 1, 'move', 0.4, 0.5), ev(0.4, 2, 'move', 0.6, 0.5),
+      ev(0.5, 1, 'up', 0.4, 0.5), ev(0.5, 2, 'up', 0.6, 0.5),
+    ];
+    for (const claim of [true, false]) {
+      const out = run(pinch, events, { params: { claim } });
+      expect(out.pinchIn?.map((e) => e.time), `claim ${claim}`).toEqual([0.1]);
+      expect(out.spread?.map((e) => e.time)).toEqual([0.2]);
+      expect(out.end).toBeUndefined();
+    }
+    expectPassThrough(run(pinch, events, { params: { claim: false } }), events);
+  });
+
   it('gives defined results for weird input', () => {
     const weird: EngineEvent[] = [
       { time: 0.1, channel: 5, x: 0.5, y: 0.5 }, // no phase: passes, on Pass only
