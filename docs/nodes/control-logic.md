@@ -5,7 +5,7 @@ Routing, conversion and signal shaping: the glue between other families. All new
 | Node | What it does | Milestone |
 | --- | --- | --- |
 | Gate | Passes events while a Signal or toggle is high | As needed |
-| Switch / Select | Routes events to one of N outputs by index | M2 (tool-mode examples) |
+| Switch / Select | Routes events to one of 4 outputs, chosen by the Index knob/cable or latched by the Select input (`value` picks the output, no value steps to the next), whichever changed last; a contact stays on the output its down picked | M2 (tool-mode examples) |
 | Merge / Split Channels | Combines or separates per-pointer channels | As needed |
 | Counter | Counts events; wraps at N; outputs count as a Signal | As needed |
 | Random | Seeded random value per event, or a smooth random Signal | As needed |
