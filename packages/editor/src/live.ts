@@ -52,10 +52,10 @@ const POINTER_TYPES: Readonly<Record<PointerPort, InputEventType>> = {
  * Enter and leave: they only update hover state, and pairs would pile up unbounded while hovering in and out.
  * MIDI: it never starts audio, so a suspended or interrupted context (an iOS call) would otherwise collect
  * every CC sent meanwhile. Wheel: it doesn't start audio either (a wheel isn't a user activation), and a
- * trackpad sends dozens a second.
+ * trackpad sends dozens a second. Gesturechange likewise: Safari sends one per frame through a pinch.
  */
 export const droppedWhileCold = (type: InputEventType): boolean =>
-  type === 'pointermove' || type === 'pointerenter' || type === 'pointerleave' || type === 'midi' || type === 'wheel';
+  type === 'pointermove' || type === 'pointerenter' || type === 'pointerleave' || type === 'midi' || type === 'wheel' || type === 'gesturechange';
 
 /** The payload of one pointer event (docs/nodes/canvas-sources.md, Event payload): the raw pointerId as `channel`. */
 export interface PointerFields extends Partial<PenFields> {
@@ -126,6 +126,22 @@ export interface WheelFields {
   /** Set on a trackpad pinch (Chrome, Edge and Firefox send it as wheel + ctrlKey) and on Ctrl + wheel: Wheel's Zoom. */
   ctrl: boolean;
   meta: boolean;
+}
+
+/**
+ * The payload of one Safari `gesturechange` (Touch extras, docs/nodes/canvas-sources.md), as Safari reports
+ * it: the gesture's centre where it has one, `scale` since gesturestart (1 at the start) and `rotation`
+ * since gesturestart in degrees, positive clockwise; Touch extras turns it into radians. No channel.
+ */
+export interface GestureFields {
+  x?: number;
+  y?: number;
+  scale: number;
+  rotation: number;
+  shift?: boolean;
+  alt?: boolean;
+  ctrl?: boolean;
+  meta?: boolean;
 }
 
 /**
@@ -485,6 +501,11 @@ export class LivePatch {
   /** Sends one wheel event to every source node that reads it, stamped once. Dropped while audio isn't running (`droppedWhileCold`). */
   wheel(fields: WheelFields, timeStamp?: number): void {
     this.input({ type: 'wheel', ...fields }, timeStamp);
+  }
+
+  /** Sends one Safari gesturechange to every source node that reads it, stamped once. Dropped while audio isn't running (`droppedWhileCold`). */
+  gesture(fields: GestureFields, timeStamp?: number): void {
+    this.input({ type: 'gesturechange', ...fields }, timeStamp);
   }
 
   /** Whether a source node in the running plan reads this canvas event type, such as `contextmenu` (Platform rules). */

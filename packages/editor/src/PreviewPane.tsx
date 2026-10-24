@@ -63,6 +63,46 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
     return () => element.removeEventListener('wheel', wheel);
   }, [live]);
 
+  // Touch extras (canvas-sources.md): Safari sends a pinch or twist (two fingers on iOS, the trackpad on
+  // macOS) as gesturestart, gesturechange and gestureend. Each gesturechange is pushed once with its scale
+  // and rotation (degrees) as Safari reports them, and its centre and modifiers where it has them. Only
+  // gesturechange is a stream type (ADR 0029); start and end are listened to so that, while a source reads
+  // gesturechange, the canvas keeps the whole gesture and Safari doesn't zoom the page. Other browsers never
+  // send these, so nothing here runs there.
+  useEffect(() => {
+    const element = canvas.current;
+    if (!element || !live) return;
+    type Gesture = Event & { scale?: unknown; rotation?: unknown; clientX?: unknown; clientY?: unknown; shiftKey?: unknown; altKey?: unknown; ctrlKey?: unknown; metaKey?: unknown };
+    const flag = (value: unknown) => (typeof value === 'boolean' ? value : undefined);
+    const keep = (event: Event) => {
+      if (live.reads('gesturechange')) event.preventDefault();
+    };
+    const change = (event: Gesture) => {
+      if (!live.reads('gesturechange')) return;
+      event.preventDefault();
+      const box = element.getBoundingClientRect();
+      const { clientX, clientY } = event;
+      const at = typeof clientX === 'number' && typeof clientY === 'number'
+        ? { x: clamp01((clientX - box.left) / box.width), y: clamp01((clientY - box.top) / box.height) }
+        : {};
+      const modifiers = { shift: flag(event.shiftKey), alt: flag(event.altKey), ctrl: flag(event.ctrlKey), meta: flag(event.metaKey) };
+      live.gesture({
+        ...at,
+        scale: typeof event.scale === 'number' ? event.scale : 1,
+        rotation: typeof event.rotation === 'number' ? event.rotation : 0,
+        ...Object.fromEntries(Object.entries(modifiers).filter(([, value]) => value !== undefined)),
+      }, event.timeStamp);
+    };
+    element.addEventListener('gesturestart', keep, { passive: false });
+    element.addEventListener('gesturechange', change, { passive: false });
+    element.addEventListener('gestureend', keep, { passive: false });
+    return () => {
+      element.removeEventListener('gesturestart', keep);
+      element.removeEventListener('gesturechange', change);
+      element.removeEventListener('gestureend', keep);
+    };
+  }, [live]);
+
   // Each pointer's latest sample time (event.timeStamp, ms), for `interval`: motion is measured on the
   // browser's clock, since the stamps carry render quanta and handler delays (canvas-sources.md).
   const [lastSample] = useState(() => new Map<number, number>());

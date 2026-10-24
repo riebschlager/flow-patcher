@@ -1,0 +1,17 @@
+{ "format": "flowinput", "version": 1,
+  "events": [
+    {"time":0.2,"type":"pointerdown","channel":11,"x":0.3,"y":0.5,"pressure":0.5,"pointerType":"touch","width":18,"height":20,"button":0,"buttons":1,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":0.3,"type":"pointermove","channel":11,"x":0.31,"y":0.5,"pressure":0.5,"pointerType":"touch","width":26,"height":28,"button":-1,"buttons":1,"shift":false,"alt":false,"ctrl":false,"meta":false,"interval":0.1},
+    {"time":0.4,"type":"pointermove","channel":11,"x":0.32,"y":0.5,"pressure":0.5,"pointerType":"touch","width":34,"height":36,"button":-1,"buttons":1,"shift":false,"alt":false,"ctrl":false,"meta":false,"interval":0.1},
+    {"time":0.6,"type":"pointerup","channel":11,"x":0.32,"y":0.5,"pressure":0,"pointerType":"touch","width":34,"height":36,"button":0,"buttons":0,"shift":false,"alt":false,"ctrl":false,"meta":false,"interval":0.2},
+    {"time":0.9,"type":"pointerdown","channel":12,"x":0.4,"y":0.4,"pressure":0.5,"pointerType":"touch","width":22,"height":24,"button":0,"buttons":1,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":0.95,"type":"pointerdown","channel":13,"x":0.6,"y":0.6,"pressure":0.5,"pointerType":"touch","width":24,"height":24,"button":0,"buttons":1,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":1,"type":"gesturechange","x":0.5,"y":0.5,"scale":1.1,"rotation":4,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":1.1,"type":"gesturechange","x":0.5,"y":0.5,"scale":1.3,"rotation":10,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":1.2,"type":"gesturechange","x":0.5,"y":0.5,"scale":1.6,"rotation":18,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":1.3,"type":"gesturechange","x":0.5,"y":0.5,"scale":2,"rotation":25,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":1.5,"type":"pointerup","channel":12,"x":0.38,"y":0.38,"pressure":0,"pointerType":"touch","width":22,"height":24,"button":0,"buttons":0,"shift":false,"alt":false,"ctrl":false,"meta":false,"interval":0.6},
+    {"time":1.5,"type":"pointerup","channel":13,"x":0.65,"y":0.65,"pressure":0,"pointerType":"touch","width":24,"height":24,"button":0,"buttons":0,"shift":false,"alt":false,"ctrl":false,"meta":false,"interval":0.55},
+    {"time":2,"type":"pointerdown","channel":14,"x":0.7,"y":0.3,"pressure":0.5,"pointerType":"touch","width":40,"height":44,"button":0,"buttons":1,"shift":false,"alt":false,"ctrl":false,"meta":false},
+    {"time":2.3,"type":"pointerup","channel":14,"x":0.7,"y":0.3,"pressure":0,"pointerType":"touch","width":40,"height":44,"button":0,"buttons":0,"shift":false,"alt":false,"ctrl":false,"meta":false,"interval":0.3}
+  ] }
