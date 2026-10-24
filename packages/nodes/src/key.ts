@@ -192,14 +192,6 @@ function order(held: readonly Contact[], items: readonly Change[]): Change[] {
   return out;
 }
 
-/** Held keys as a set, per resolved params object: signal() reads it often. */
-const chosenCache = new WeakMap<object, ReadonlySet<string>>();
-function chosenOf(params: Readonly<Record<string, unknown>>): ReadonlySet<string> {
-  let chosen = chosenCache.get(params);
-  if (!chosen) chosenCache.set(params, (chosen = new Set(heldCodes(params.keys))));
-  return chosen;
-}
-
 /**
  * Canvas source: the keyboard while the performance canvas has focus (docs/nodes/canvas-sources.md).
  * A contact source (ADR 0028): each key is a contact, from its keydown to its keyup.
@@ -310,7 +302,8 @@ export const key: NodeDefinition = {
   },
   signal(ctx, port, t, channel) {
     if (port !== 'held') return 0;
-    const chosen = chosenOf(ctx.params);
+    // Parsed per read: a short list, and no cache outside ctx.state.
+    const chosen = new Set(heldCodes(ctx.params.keys));
     const counts = (c: Contact) => chosen.size === 0 || chosen.has(c.code);
     const held = heldAt(ctx.state, t);
     const any = !Number.isInteger(channel) || channel === 0;
