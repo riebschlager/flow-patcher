@@ -57,6 +57,9 @@ interface Contact {
   angle: number;
   /** Time of the latest down, move, up or cancel. */
   last: number;
+  /** Whether the holder has emitted a Down or Move since it took the slot. Until it has, the record's
+   *  position and payload are the previous holder's, so it gets no leave (ADR 0028, #101). */
+  seen: boolean;
   /** The rest of the latest event's payload (pointerType, size, buttons, modifiers), for a Cancel when it's evicted. */
   payload: Record<string, EventField>;
 }
@@ -98,7 +101,8 @@ interface Stepped {
   speed: number;
   angle: number;
   age: number;
-  /** The contact whose slot was taken (MAX_SLOTS): a Cancel first if it was down, else a leave. */
+  /** The contact whose slot was taken (MAX_SLOTS): a Cancel first if it was down, a leave if it
+   *  hovered and emitted since it took the slot, else nothing. */
   evicted: Contact | null;
 }
 
@@ -108,7 +112,7 @@ function unit(value: unknown): number | null {
 }
 
 function fresh(slot: number): Contact {
-  return { slot, id: null, x: 0, y: 0, pressure: 0, down: false, downAt: 0, refAt: null, refX: 0, refY: 0, gap: 0, dx: 0, dy: 0, speed: 0, angle: 0, last: -Infinity, payload: {} };
+  return { slot, id: null, x: 0, y: 0, pressure: 0, down: false, downAt: 0, refAt: null, refX: 0, refY: 0, gap: 0, dx: 0, dy: 0, speed: 0, angle: 0, last: -Infinity, payload: {}, seen: false };
 }
 
 /**
@@ -132,7 +136,7 @@ function bind(contacts: Contacts, id: number): { contact: Contact; evicted: Cont
     contact = contacts.find((c) => !c.down) ?? contacts[0]!;
     evicted = { ...contact, payload: { ...contact.payload } };
   }
-  Object.assign(contact, { id, down: false, refAt: null, gap: 0, dx: 0, dy: 0, speed: 0, angle: 0 });
+  Object.assign(contact, { id, down: false, refAt: null, gap: 0, dx: 0, dy: 0, speed: 0, angle: 0, seen: false });
   return { contact, evicted };
 }
 
@@ -142,9 +146,11 @@ function step(contacts: Contacts, change: Change): Stepped | null {
   let contact = contacts.find((c) => c.id === change.id);
   if (kind === 'leave') {
     // A pointer that's down keeps its slot until its Up or Cancel. A hovering one gives it up, and
-    // All marks the end of its hover, at the slot's last position.
+    // All marks the end of its hover, at the slot's last position, if it emitted anything since it
+    // took the slot: before that, the position and payload are the previous holder's.
     if (!contact || contact.down) return null;
     contact.id = null;
+    if (!contact.seen) return null;
     return { slot: contact.slot, phase: LEAVE, dx: 0, dy: 0, speed: 0, angle: contact.angle, age: 0, evicted: null };
   }
   // An Up or Cancel ends a contact; with none open for this pointer (pressed outside the canvas,
@@ -189,6 +195,7 @@ function step(contacts: Contacts, change: Change): Stepped | null {
   }
   contact.last = time;
   contact.payload = change.payload;
+  contact.seen = true;
   // Most recent last.
   contacts.splice(contacts.indexOf(contact), 1);
   contacts.push(contact);
@@ -212,7 +219,7 @@ interface Cell {
 function admit(cell: Cell, time: number, stepped: Stepped): boolean {
   const k = limitWindowOf(time);
   if (k !== cell.k) Object.assign(cell, { k, n: 0 });
-  if (stepped.evicted) cell.n += stepped.evicted.down ? 2 : 1;
+  if (stepped.evicted) cell.n += stepped.evicted.down ? 2 : stepped.evicted.seen ? 1 : 0;
   if (!stepped.phase) return false;
   const cost = stepped.phase === LEAVE ? 1 : 2;
   if (stepped.phase === 'move' && cell.n + cost > NODE_EVENT_LIMIT - RESERVE) return false;
@@ -321,7 +328,7 @@ export function pointerQuery({ state, pushed }: Pick<QueryContext, 'state' | 'pu
       const cancel: EngineEvent = { ...evicted.payload, time: change.time, channel: evicted.slot, x: evicted.x, y: evicted.y, pressure: 0, dx: 0, dy: 0, speed: 0, angle: evicted.angle, age: change.time - evicted.downAt };
       out.cancel.push(cancel);
       out.all.push({ ...cancel, phase: 'cancel' });
-    } else if (evicted) {
+    } else if (evicted?.seen) {
       out.all.push({ ...evicted.payload, time: change.time, channel: evicted.slot, x: evicted.x, y: evicted.y, pressure: evicted.pressure, dx: 0, dy: 0, speed: 0, angle: evicted.angle, age: 0, phase: LEAVE });
     }
     if (!emit || !stepped.phase) continue;
@@ -395,7 +402,9 @@ export function pointerSignal(state: NodeState, port: string, t: number, channel
  * Enter updates the slots only and emits nothing. A leave while not down frees the slot and
  * puts a hover-end marker on All (ADR 0028, amended for #101): `phase: 'leave'` on the slot's
  * channel, at the leave's time, with the slot's last x, y and pressure, no motion, age 0, and
- * the leave's other payload fields. It has no per-phase port and costs one event (All only), and
+ * the leave's other payload fields (an eviction's leave: the evicted pointer's last payload). A
+ * pointer that emitted nothing since it took the slot (an enter, then a leave) gets no leave:
+ * the slot's record still holds the previous holder's position. It has no per-phase port and costs one event (All only), and
  * like Down, Up and Cancel it's never thinned. A leave while down emits nothing: the slot waits
  * for its Up or Cancel, which ends the contact. Events whose channel isn't an integer have no
  * pointer and are dropped.

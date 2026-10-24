@@ -77,8 +77,9 @@ Building the recognizers (#78) settled three points the decision left open.
 All had no way to say a hover ended, so Dwell fired at the canvas edge after a still mouse left, and a later pointer reusing the slot inherited its stay.
 
 - **`phase: 'leave'` on All.** Pointer and Pointer (high rate) emit an All event with `phase: 'leave'` when a pointer that isn't down leaves the canvas and gives its slot up (docs/nodes/canvas-sources.md, "Pointer slots"). A leave while down still emits nothing: the slot waits for its up or cancel, which ends the contact.
-  - It carries the slot's channel and the slot's last position (x, y, pressure), no motion (dx, dy and speed 0, `angle` held) and `age` 0, with the leave's other payload fields. The leave's own coordinates are left out: they're the edge, past the last sample.
-  - A hovering pointer pushed out of its slot past 16 slots gets a leave too, as one that's down gets a cancel.
+  - It carries the slot's channel and the slot's last position (x, y, pressure), no motion (dx, dy and speed 0, `angle` held) and `age` 0, with the pointerleave's other payload fields. The leave's own coordinates are left out: they're the edge, past the last sample.
+  - A hovering pointer pushed out of its slot past 16 slots gets a leave too, as one that's down gets a cancel. Like that cancel, an eviction's leave carries the evicted pointer's last payload.
+  - A pointer that emitted nothing since it took the slot (an enter, then a leave or an eviction) gets no leave. Nothing downstream saw it, and the slot's record still holds the previous holder's position and fields.
   - It isn't a contact phase. It opens and ends no contact, and it has no per-phase port on the source.
   - Like down, up and cancel it's never thinned by the event budget; it costs one event (All only). Pen gets the same marker when it lands.
 - **Recognizers** forward it on **Pass** only, never on Pass Down, Move, Up or Cancel. Contact recognizers (Drag, Tap, Hold, Flick, Circle, Pinch, Stroke) ignore it: it reaches no gesture logic and changes no claim.
