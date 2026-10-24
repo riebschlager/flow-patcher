@@ -29,13 +29,39 @@
     {
       "id": "mode",
       "type": "switch",
-      "typeVersion": 1,
+      "typeVersion": 2,
       "params": {
         "index": 1
       },
       "position": {
         "x": 240,
         "y": 100
+      }
+    },
+    {
+      "id": "lowPress",
+      "type": "dwell",
+      "typeVersion": 1,
+      "params": {
+        "radius": 0.02,
+        "time": 0.6
+      },
+      "position": {
+        "x": 480,
+        "y": 40
+      }
+    },
+    {
+      "id": "highPress",
+      "type": "dwell",
+      "typeVersion": 1,
+      "params": {
+        "radius": 0.02,
+        "time": 0.6
+      },
+      "position": {
+        "x": 480,
+        "y": 220
       }
     },
     {
@@ -48,7 +74,7 @@
         "velocity": 0.6
       },
       "position": {
-        "x": 480,
+        "x": 720,
         "y": 40
       }
     },
@@ -62,7 +88,7 @@
         "velocity": 0.6
       },
       "position": {
-        "x": 480,
+        "x": 720,
         "y": 220
       }
     },
@@ -77,7 +103,7 @@
         "wave": "triangle"
       },
       "position": {
-        "x": 720,
+        "x": 960,
         "y": 100
       }
     },
@@ -89,7 +115,7 @@
         "level": 0.7
       },
       "position": {
-        "x": 960,
+        "x": 1200,
         "y": 100
       }
     }
@@ -122,14 +148,34 @@
         "port": "out1"
       },
       "to": {
-        "node": "low",
-        "port": "trigger"
+        "node": "lowPress",
+        "port": "in"
       }
     },
     {
       "from": {
         "node": "mode",
         "port": "out2"
+      },
+      "to": {
+        "node": "highPress",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "lowPress",
+        "port": "passDown"
+      },
+      "to": {
+        "node": "low",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "highPress",
+        "port": "passDown"
       },
       "to": {
         "node": "high",

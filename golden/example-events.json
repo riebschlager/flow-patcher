@@ -10367,6 +10367,37 @@
    "phase": "down"
   },
   {
+   "node": "lowPress",
+   "port": "pass",
+   "time": 0.9,
+   "channel": 1,
+   "x": 0.2,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch",
+   "dx": 0,
+   "dy": 0,
+   "speed": 0,
+   "angle": 0,
+   "age": 0,
+   "phase": "down"
+  },
+  {
+   "node": "lowPress",
+   "port": "passDown",
+   "time": 0.9,
+   "channel": 1,
+   "x": 0.2,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch",
+   "dx": 0,
+   "dy": 0,
+   "speed": 0,
+   "angle": 0,
+   "age": 0
+  },
+  {
    "node": "low",
    "port": "note",
    "time": 0.9,
@@ -10380,7 +10411,6 @@
    "speed": 0,
    "angle": 0,
    "age": 0,
-   "phase": "down",
    "pitch": 57,
    "velocity": 0.6,
    "duration": 0.15
@@ -10433,8 +10463,8 @@
    "phase": "move"
   },
   {
-   "node": "low",
-   "port": "note",
+   "node": "lowPress",
+   "port": "pass",
    "time": 1.1,
    "channel": 1,
    "x": 0.3,
@@ -10446,10 +10476,22 @@
    "speed": 0.4999999999999997,
    "angle": 0,
    "age": 0.20000000000000007,
-   "phase": "move",
-   "pitch": 57,
-   "velocity": 0.6,
-   "duration": 0.15
+   "phase": "move"
+  },
+  {
+   "node": "lowPress",
+   "port": "passMove",
+   "time": 1.1,
+   "channel": 1,
+   "x": 0.3,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch",
+   "dx": 0.4999999999999997,
+   "dy": 0,
+   "speed": 0.4999999999999997,
+   "angle": 0,
+   "age": 0.20000000000000007
   },
   {
    "node": "pointer",
@@ -10499,8 +10541,8 @@
    "phase": "move"
   },
   {
-   "node": "low",
-   "port": "note",
+   "node": "lowPress",
+   "port": "pass",
    "time": 1.3,
    "channel": 1,
    "x": 0.4,
@@ -10512,10 +10554,22 @@
    "speed": 0.5000000000000003,
    "angle": 0,
    "age": 0.4,
-   "phase": "move",
-   "pitch": 57,
-   "velocity": 0.6,
-   "duration": 0.15
+   "phase": "move"
+  },
+  {
+   "node": "lowPress",
+   "port": "passMove",
+   "time": 1.3,
+   "channel": 1,
+   "x": 0.4,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch",
+   "dx": 0.5000000000000003,
+   "dy": 0,
+   "speed": 0.5000000000000003,
+   "angle": 0,
+   "age": 0.4
   },
   {
    "node": "pointer",
@@ -10565,8 +10619,8 @@
    "phase": "move"
   },
   {
-   "node": "low",
-   "port": "note",
+   "node": "lowPress",
+   "port": "pass",
    "time": 1.5,
    "channel": 1,
    "x": 0.5,
@@ -10578,10 +10632,22 @@
    "speed": 0.5,
    "angle": 0,
    "age": 0.6,
-   "phase": "move",
-   "pitch": 57,
-   "velocity": 0.6,
-   "duration": 0.15
+   "phase": "move"
+  },
+  {
+   "node": "lowPress",
+   "port": "passMove",
+   "time": 1.5,
+   "channel": 1,
+   "x": 0.5,
+   "y": 0.5,
+   "pressure": 0.6,
+   "pointerType": "touch",
+   "dx": 0.5,
+   "dy": 0,
+   "speed": 0.5,
+   "angle": 0,
+   "age": 0.6
   },
   {
    "node": "pointer",
@@ -10631,8 +10697,8 @@
    "phase": "up"
   },
   {
-   "node": "low",
-   "port": "note",
+   "node": "lowPress",
+   "port": "pass",
    "time": 1.6,
    "channel": 1,
    "x": 0.5,
@@ -10644,10 +10710,22 @@
    "speed": 0,
    "angle": 0,
    "age": 0.7000000000000001,
-   "phase": "up",
-   "pitch": 57,
-   "velocity": 0.6,
-   "duration": 0.15
+   "phase": "up"
+  },
+  {
+   "node": "lowPress",
+   "port": "passUp",
+   "time": 1.6,
+   "channel": 1,
+   "x": 0.5,
+   "y": 0.5,
+   "pressure": 0,
+   "pointerType": "touch",
+   "dx": 0,
+   "dy": 0,
+   "speed": 0,
+   "angle": 0,
+   "age": 0.7000000000000001
   },
   {
    "node": "pointer",
@@ -10697,6 +10775,37 @@
    "phase": "down"
   },
   {
+   "node": "highPress",
+   "port": "pass",
+   "time": 2.1,
+   "channel": 1,
+   "x": 0.6,
+   "y": 0.3,
+   "pressure": 0.6,
+   "pointerType": "touch",
+   "dx": 0,
+   "dy": 0,
+   "speed": 0,
+   "angle": 0,
+   "age": 0,
+   "phase": "down"
+  },
+  {
+   "node": "highPress",
+   "port": "passDown",
+   "time": 2.1,
+   "channel": 1,
+   "x": 0.6,
+   "y": 0.3,
+   "pressure": 0.6,
+   "pointerType": "touch",
+   "dx": 0,
+   "dy": 0,
+   "speed": 0,
+   "angle": 0,
+   "age": 0
+  },
+  {
    "node": "high",
    "port": "note",
    "time": 2.1,
@@ -10710,7 +10819,6 @@
    "speed": 0,
    "angle": 0,
    "age": 0,
-   "phase": "down",
    "pitch": 76,
    "velocity": 0.6,
    "duration": 0.15
@@ -10763,8 +10871,8 @@
    "phase": "move"
   },
   {
-   "node": "high",
-   "port": "note",
+   "node": "highPress",
+   "port": "pass",
    "time": 2.3,
    "channel": 1,
    "x": 0.7,
@@ -10776,10 +10884,22 @@
    "speed": 0.5000000000000006,
    "angle": 0,
    "age": 0.19999999999999973,
-   "phase": "move",
-   "pitch": 76,
-   "velocity": 0.6,
-   "duration": 0.15
+   "phase": "move"
+  },
+  {
+   "node": "highPress",
+   "port": "passMove",
+   "time": 2.3,
+   "channel": 1,
+   "x": 0.7,
+   "y": 0.3,
+   "pressure": 0.6,
+   "pointerType": "touch",
+   "dx": 0.5000000000000006,
+   "dy": 0,
+   "speed": 0.5000000000000006,
+   "angle": 0,
+   "age": 0.19999999999999973
   },
   {
    "node": "bar",
@@ -10836,8 +10956,8 @@
    "phase": "move"
   },
   {
-   "node": "high",
-   "port": "note",
+   "node": "highPress",
+   "port": "pass",
    "time": 2.5,
    "channel": 1,
    "x": 0.8,
@@ -10849,10 +10969,22 @@
    "speed": 0.5,
    "angle": 0,
    "age": 0.3999999999999999,
-   "phase": "move",
-   "pitch": 76,
-   "velocity": 0.6,
-   "duration": 0.15
+   "phase": "move"
+  },
+  {
+   "node": "highPress",
+   "port": "passMove",
+   "time": 2.5,
+   "channel": 1,
+   "x": 0.8,
+   "y": 0.3,
+   "pressure": 0.6,
+   "pointerType": "touch",
+   "dx": 0.5,
+   "dy": 0,
+   "speed": 0.5,
+   "angle": 0,
+   "age": 0.3999999999999999
   },
   {
    "node": "pointer",
@@ -10902,8 +11034,8 @@
    "phase": "up"
   },
   {
-   "node": "high",
-   "port": "note",
+   "node": "highPress",
+   "port": "pass",
    "time": 2.6,
    "channel": 1,
    "x": 0.8,
@@ -10915,10 +11047,22 @@
    "speed": 0,
    "angle": 0,
    "age": 0.5,
-   "phase": "up",
-   "pitch": 76,
-   "velocity": 0.6,
-   "duration": 0.15
+   "phase": "up"
+  },
+  {
+   "node": "highPress",
+   "port": "passUp",
+   "time": 2.6,
+   "channel": 1,
+   "x": 0.8,
+   "y": 0.3,
+   "pressure": 0,
+   "pointerType": "touch",
+   "dx": 0,
+   "dy": 0,
+   "speed": 0,
+   "angle": 0,
+   "age": 0.5
   },
   {
    "node": "pointer",
@@ -10968,6 +11112,37 @@
    "phase": "down"
   },
   {
+   "node": "lowPress",
+   "port": "pass",
+   "time": 2.8,
+   "channel": 1,
+   "x": 0.4,
+   "y": 0.7,
+   "pressure": 0.6,
+   "pointerType": "touch",
+   "dx": 0,
+   "dy": 0,
+   "speed": 0,
+   "angle": 0,
+   "age": 0,
+   "phase": "down"
+  },
+  {
+   "node": "lowPress",
+   "port": "passDown",
+   "time": 2.8,
+   "channel": 1,
+   "x": 0.4,
+   "y": 0.7,
+   "pressure": 0.6,
+   "pointerType": "touch",
+   "dx": 0,
+   "dy": 0,
+   "speed": 0,
+   "angle": 0,
+   "age": 0
+  },
+  {
    "node": "low",
    "port": "note",
    "time": 2.8,
@@ -10981,7 +11156,6 @@
    "speed": 0,
    "angle": 0,
    "age": 0,
-   "phase": "down",
    "pitch": 57,
    "velocity": 0.6,
    "duration": 0.15
@@ -11034,8 +11208,8 @@
    "phase": "up"
   },
   {
-   "node": "low",
-   "port": "note",
+   "node": "lowPress",
+   "port": "pass",
    "time": 2.9,
    "channel": 1,
    "x": 0.4,
@@ -11047,10 +11221,22 @@
    "speed": 0,
    "angle": 0,
    "age": 0.10000000000000009,
-   "phase": "up",
-   "pitch": 57,
-   "velocity": 0.6,
-   "duration": 0.15
+   "phase": "up"
+  },
+  {
+   "node": "lowPress",
+   "port": "passUp",
+   "time": 2.9,
+   "channel": 1,
+   "x": 0.4,
+   "y": 0.7,
+   "pressure": 0,
+   "pointerType": "touch",
+   "dx": 0,
+   "dy": 0,
+   "speed": 0,
+   "angle": 0,
+   "age": 0.10000000000000009
   }
  ],
  "tap-splash.flowpatch": [

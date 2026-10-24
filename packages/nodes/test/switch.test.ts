@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clonePlain, compilePatch, replayInput, Runtime, type EngineEvent, type InputEvent, type LoggedEvent, type Patch, type SignalSource } from '@flow-patcher/engine';
+import { clonePlain, compilePatch, inputRouter, replayInput, Runtime, type EngineEvent, type EventField, type InputEvent, type LoggedEvent, type NodeDefinition, type Patch, type SignalSource } from '@flow-patcher/engine';
 import { nodeRegistry, switchNode } from '../src';
 import { outputOf, SWITCH_OUTPUTS } from '../src/switch';
 import { routeContacts } from '../src/recognizer';
@@ -41,9 +41,9 @@ function tiled(step: number, events = stream, signal = stepping) {
 }
 
 describe('switch', () => {
-  it('has In, four outputs and an integer Index knob', () => {
+  it('has In, Select, four outputs and an integer Index knob', () => {
     expect(switchNode.category).toBe('control-logic');
-    expect(switchNode.ports.map((p) => [p.name, p.direction, p.type])).toEqual([['in', 'in', 'event'], ...OUTS.map((o) => [o, 'out', 'event'])]);
+    expect(switchNode.ports.map((p) => [p.name, p.direction, p.type])).toEqual([['in', 'in', 'event'], ['select', 'in', 'event'], ...OUTS.map((o) => [o, 'out', 'event'])]);
     expect(switchNode.params).toEqual([{ name: 'index', kind: 'number', min: 1, max: 4, step: 1, default: 1, label: 'Index' }]);
   });
 
@@ -158,5 +158,101 @@ describe('switch', () => {
     for (let i = 0; i < 20; i++) log.push(...rt.query(i * 0.025, (i + 1) * 0.025));
     const out = log.filter((e) => e.node === 's');
     expect(out.map((e) => [e.port, e.time, e.channel, e.phase])).toEqual([['out2', 0.1, 1, 'down'], ['out2', 0.2, 1, 'move'], ['out2', 0.3, 1, 'up']]);
+  });
+
+  describe('Select', () => {
+    /** Runs In and Select through windows of `step` with one state; [time, channel, port] per routed event. */
+    function selected(step: number, inEvents: EngineEvent[], selects: EngineEvent[], params: Record<string, unknown> = {}, mods = {}) {
+      const state = {};
+      const out: Record<string, EngineEvent[]> = {};
+      for (let i = 0; i * step < 3 - 1e-9; i++) {
+        const t0 = i * step, t1 = Math.min(3, (i + 1) * step);
+        const within = (e: EngineEvent) => e.time >= t0 && e.time < t1;
+        const result = query(switchNode, t0, t1, { state, params, mods, inputs: { in: inEvents.filter(within), select: selects.filter(within) } });
+        for (const port of OUTS) (out[port] ??= []).push(...(result[port] ?? []));
+      }
+      return routed(out);
+    }
+    const sel = (time: number, value?: EventField): EngineEvent => ({ time, channel: 0, ...(value === undefined ? {} : { value }) });
+    const taps = (times: number[]) => times.flatMap((t, i) => [ev(t, i + 1, 'down'), ev(t + 0.05, i + 1, 'up')]);
+    const ports = (rows: [number, number, string][]) => rows.filter((_, i) => i % 2 === 0).map((r) => r[2]);
+
+    it("latches the output an event's value names, until the next Select event", () => {
+      const selects = [sel(0.5, 3), sel(1.5, 2.6), sel(2.5, 99)];
+      expect(ports(selected(3, taps([0.2, 0.7, 1.2, 1.7, 2.7]), selects))).toEqual(['out1', 'out3', 'out3', 'out3', 'out4']);
+    });
+
+    it('steps to the next output on an event with no finite value, wrapping 4 to 1', () => {
+      const selects = [sel(0.5), sel(1.0, 'two'), sel(1.5, NaN), sel(2.0)];
+      expect(ports(selected(3, taps([0.2, 0.7, 1.2, 1.7, 2.2]), selects, { index: 2 }))).toEqual(['out2', 'out3', 'out4', 'out1', 'out2']);
+    });
+
+    it('gives way to Index when Index changes, and takes over again at the next Select: the latest wins', () => {
+      // Index (knob 1 + cable) steps to 2 at 1.0 s and back to 1 at 2.0 s.
+      const index: SignalSource = (t) => (t >= 1 && t < 2 ? 1 : 0);
+      const selects = [sel(0.5, 4), sel(1.5, 3)];
+      const out = selected(3, taps([0.2, 0.7, 1.2, 1.7, 2.2]), selects, {}, { index: [{ depth: 1, signal: index }] });
+      expect(ports(out)).toEqual(['out1', 'out4', 'out2', 'out3', 'out1']);
+      // A knob that doesn't move leaves the latch alone.
+      expect(ports(selected(3, taps([0.2, 0.7, 2.2]), [sel(0.5, 4)], { index: 2 }))).toEqual(['out2', 'out4', 'out4']);
+    });
+
+    it('applies before a down at the same time, and never moves an open contact', () => {
+      const drag = [ev(0.5, 1, 'down'), ev(0.8, 1, 'move'), ev(1.2, 1, 'move'), ev(1.4, 1, 'up'), ev(1.0, 2, 'down'), ev(1.1, 2, 'up')].sort((a, b) => a.time - b.time);
+      expect(selected(3, drag, [sel(0.5, 2), sel(1.0, 3)])).toEqual([
+        [0.5, 1, 'out2'], [0.8, 1, 'out2'], [1.0, 2, 'out3'], [1.1, 2, 'out3'], [1.2, 1, 'out2'], [1.4, 1, 'out2'],
+      ]);
+    });
+
+    it('gives the same events in any windows', () => {
+      const index: SignalSource = (t) => (t >= 1 && t < 2 ? 1 : 0);
+      const run = (step: number) => selected(step, [...taps([0.2, 0.7, 1.2, 1.7, 2.2]), ...stream], [sel(0.5, 4), sel(1.5), sel(1.9, 3)], {}, { index: [{ depth: 1, signal: index }] });
+      const whole = run(3);
+      for (const step of [0.025, 0.1, 0.37]) expect(run(step)).toEqual(whole);
+    });
+
+    it('replays Select pushed live, rewinds included, as when the events are known in advance', () => {
+      const key: NodeDefinition = { type: 'test-key', version: 1, label: 'Key', category: 'canvas-sources', description: '', ports: [{ name: 'down', type: 'event', direction: 'out' }], params: [] };
+      const registry = new Map([...nodeRegistry, [key.type, key]]);
+      const node = (id: string, type: string, params = {}) => ({ id, type, typeVersion: registry.get(type)!.version, params, position: { x: 0, y: 0 } });
+      const patch: Patch = {
+        format: 'flowpatch', version: 1, seed: 1,
+        nodes: [node('p', 'pointer'), node('k', 'test-key'), node('s', 'switch')],
+        cables: [{ from: { node: 'p', port: 'all' }, to: { node: 's', port: 'in' } }, { from: { node: 'k', port: 'down' }, to: { node: 's', port: 'select' } }],
+      };
+      const compiled = compilePatch(patch, registry);
+      if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+      const touch = (time: number, type: string, channel: number): InputEvent => ({ time, type, channel, x: 0.5, y: 0.5, pressure: type === 'pointerup' ? 0 : 0.5, pointerType: 'touch' } as InputEvent);
+      // Select-cycles at 0.3 and 0.9 (no value), and touches around them.
+      const script: ({ key: number } | { input: InputEvent })[] = [
+        { input: touch(0.1, 'pointerdown', 9) }, { key: 0.3 }, { input: touch(0.35, 'pointerup', 9) },
+        { input: touch(0.5, 'pointerdown', 10) }, { input: touch(0.6, 'pointerup', 10) }, { key: 0.9 }, { input: touch(1.0, 'pointerdown', 11) }, { input: touch(1.1, 'pointerup', 11) },
+      ];
+      const run = (lag: number) => {
+        const rt = new Runtime(compiled.plan, { history: true });
+        const router = inputRouter(rt.plan);
+        let log: LoggedEvent[] = [];
+        let next = 0;
+        const queryTo = (t: number) => {
+          for (; next * 0.025 < t - 1e-9; next++) log.push(...rt.query(next * 0.025, (next + 1) * 0.025));
+        };
+        for (const step of script) {
+          const time = 'key' in step ? step.key : step.input.time;
+          queryTo(time + lag);
+          const pushes = 'key' in step
+            ? [{ node: 'k', port: 'down', event: { time, channel: 0 } }]
+            : router.route(step.input).map(({ node: id, port, fields }) => ({ node: id, port, event: { time, ...fields } as EngineEvent }));
+          const report = rt.pushAll(pushes);
+          if (report) log = [...log.filter((e) => !(report.affected.has(e.node) && e.time >= report.time)), ...report.added];
+        }
+        queryTo(1.5);
+        return rt.sortLog(log).filter((e) => e.node === 's').map((e) => [e.port, e.time, e.channel, e.phase]);
+      };
+      const ahead = run(0);
+      expect(ahead).toEqual([
+        ['out1', 0.1, 1, 'down'], ['out1', 0.35, 1, 'up'], ['out2', 0.5, 1, 'down'], ['out2', 0.6, 1, 'up'], ['out3', 1.0, 1, 'down'], ['out3', 1.1, 1, 'up'],
+      ]);
+      expect(run(0.3)).toEqual(ahead);
+    });
   });
 });
