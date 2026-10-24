@@ -1,0 +1,183 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261024,
+  "nodes": [
+    {
+      "id": "pointer",
+      "type": "pointer",
+      "typeVersion": 2,
+      "params": {},
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "router",
+      "type": "modifier-router",
+      "typeVersion": 1,
+      "params": {
+        "route1": "right, shift",
+        "route2": "alt",
+        "route3": "",
+        "route4": ""
+      },
+      "position": {
+        "x": 240,
+        "y": 100
+      }
+    },
+    {
+      "id": "conduct",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.12,
+        "pitch": 48,
+        "velocity": 0.6
+      },
+      "position": {
+        "x": 480,
+        "y": 0
+      }
+    },
+    {
+      "id": "space",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.4,
+        "pitch": 79,
+        "velocity": 0.4
+      },
+      "position": {
+        "x": 480,
+        "y": 180
+      }
+    },
+    {
+      "id": "paint",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.3,
+        "pitch": 64,
+        "velocity": 0.7
+      },
+      "position": {
+        "x": 480,
+        "y": 360
+      }
+    },
+    {
+      "id": "synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.005,
+        "level": 0.3,
+        "release": 0.3,
+        "wave": "triangle"
+      },
+      "position": {
+        "x": 720,
+        "y": 100
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 960,
+        "y": 100
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "pointer",
+        "port": "all"
+      },
+      "to": {
+        "node": "router",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "router",
+        "port": "out1"
+      },
+      "to": {
+        "node": "conduct",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "router",
+        "port": "out2"
+      },
+      "to": {
+        "node": "space",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "router",
+        "port": "passDown"
+      },
+      "to": {
+        "node": "paint",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "conduct",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "space",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "paint",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    }
+  ]
+}
