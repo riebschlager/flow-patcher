@@ -225,8 +225,10 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
 
   // Click (canvas-sources.md): click, dblclick, auxclick and contextmenu, each pushed once, at one stamp
   // shared by every source that reads it (ADR 0029). Clicks aren't contacts, so they carry no channel.
-  // Chromium sends them as PointerEvents, with a pointerType. Safari sends plain MouseEvents, so a tap's
-  // click or a long press's contextmenu takes the pointerType of the last pointerdown on the canvas.
+  // Chromium sends them as PointerEvents, with a pointerType; a keyboard contextmenu (menu key, Shift+F10)
+  // has an empty one, sent as 'mouse'. Safari sends plain MouseEvents with no pointerType at all, so a
+  // tap's click or a long press's contextmenu takes the last pointerdown's on the canvas, from any pointer
+  // ('mouse' before the first).
   const sendClick = (type: ClickType) => (event: ReactMouseEvent<HTMLCanvasElement>) => {
     if (!live?.reads(type)) return;
     const box = event.currentTarget.getBoundingClientRect();
@@ -234,7 +236,7 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
     live.click(type, {
       x: clamp01((event.clientX - box.left) / box.width),
       y: clamp01((event.clientY - box.top) / box.height),
-      pointerType: native.pointerType || lastDown.pointerType,
+      pointerType: typeof native.pointerType === 'string' ? native.pointerType || 'mouse' : lastDown.pointerType,
       button: event.button,
       buttons: event.buttons,
       shift: event.shiftKey,

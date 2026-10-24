@@ -110,9 +110,9 @@ function penSignal(state: NodeState, port: string, t: number, channel: number): 
   if (!(PEN_FIELDS as readonly string[]).includes(port)) return pointerSignal(state, port, t, channel);
   const field = port as PenField;
   const contact = pointerContactAt(state, t, channel);
-  // Before any pen, or on a slot whose holder has only entered (no down or move of its own, so its
-  // payload is still the previous holder's): a pen held upright.
-  if (!contact || contact.refAt === null) return PEN_DEFAULTS[field];
+  // Before any pen, or on a slot whose holder has had no Down, Move, Up or Cancel since it took the slot
+  // (`seen`, #101: an enter only, so its payload is still the previous holder's): a pen held upright.
+  if (!contact || !contact.seen) return PEN_DEFAULTS[field];
   // A free slot has no pen on it: nothing presses the barrel or the airbrush wheel.
   if ((field === 'barrel' || field === 'tangentialPressure') && contact.id === null) return 0;
   const value = contact.payload[field];

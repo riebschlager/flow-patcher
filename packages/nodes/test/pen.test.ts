@@ -108,10 +108,16 @@ describe('pen', () => {
     expect(events(session, 'down').map((e) => [e.time, e.channel])).toEqual([[0.1, 1], [0.2, 2]]);
     expect(events(session, 'up').map((e) => [e.time, e.channel])).toEqual([[0.3, 1]]);
     expect(events(session, 'cancel').map((e) => [e.time, e.channel])).toEqual([[0.4, 2]]);
-    // All: the hover moves (slot 1, no contact) and every phase, in time order.
+    // All: the hover moves (slot 1, no contact), every phase, and 7's leave while hovering (#101), in time order.
     expect(events(session, 'all').map((e) => [e.time, e.channel, e.phase])).toEqual([
-      [0.06, 1, 'move'], [0.08, 1, 'move'], [0.1, 1, 'down'], [0.15, 1, 'move'], [0.2, 2, 'down'], [0.25, 2, 'move'], [0.3, 1, 'up'], [0.32, 1, 'move'], [0.4, 2, 'cancel'],
+      [0.06, 1, 'move'], [0.08, 1, 'move'], [0.1, 1, 'down'], [0.15, 1, 'move'], [0.2, 2, 'down'], [0.25, 2, 'move'], [0.3, 1, 'up'], [0.32, 1, 'move'], [0.35, 1, 'leave'], [0.4, 2, 'cancel'],
     ]);
+    // The leave is at the slot's last position, with the pen fields of the pointerleave itself (penFieldsOf):
+    // this one carries no tilt, so it reads a pen held upright, not the last move's 20°/20°. A browser's
+    // pointerleave from a pen carries its tilt.
+    const leave = events(session, 'all').find((e) => e.phase === 'leave')!;
+    expect(leave).toMatchObject({ x: 0.31, y: 0.5, dx: 0, speed: 0, age: 0 });
+    close(leave, { tiltX: 0, tiltY: 0, altitudeAngle: H, azimuthAngle: 0, twist: 0, tangentialPressure: 0, barrel: 0 });
     for (const e of events(session, 'all')) for (const field of PEN_FIELDS) expect(Number.isFinite(e[field]), `${e.time} ${field}`).toBe(true);
     const [hover, tilted] = events(session, 'move');
     // Tilt 45° along +x, no altitude or azimuth from the host: altitude π/4, azimuth 0.

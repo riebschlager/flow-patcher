@@ -121,6 +121,8 @@ test('clicks on the preview canvas reach Click, Double, Middle and Right with th
   // Safari: click and contextmenu are plain MouseEvents with no pointerType, so they take the last
   // pointerdown's. A touch press (pointerId 1, Chromium's mouse, so capture finds it), then its click
   // and a long press's contextmenu, both report touch.
+  // The probes keep only 2 s, so this part counts from its own start.
+  const safari = await page.evaluate(() => window.flowPatcher!.clock.currentTime);
   await page.evaluate(() => {
     const element = document.querySelector('[data-testid="performance-canvas"]')!;
     const r = element.getBoundingClientRect();
@@ -130,13 +132,26 @@ test('clicks on the preview canvas reach Click, Double, Middle and Right with th
     element.dispatchEvent(new MouseEvent('click', { ...at, button: 0 }));
     element.dispatchEvent(new MouseEvent('contextmenu', { ...at, button: 0 }));
   });
-  await expect.poll(async () => (await seen(page, 'click', since)).length).toBe(5);
-  await expect.poll(async () => (await seen(page, 'right', since)).length).toBe(3);
+  await expect.poll(async () => (await seen(page, 'click', safari)).length).toBe(1);
+  await expect.poll(async () => (await seen(page, 'right', safari)).length).toBe(1);
   for (const port of ['click', 'right']) {
-    const tap = (await seen(page, port, since)).at(-1)!;
-    expectPayload(tap);
+    const [tap] = await seen(page, port, safari);
+    expectPayload(tap!);
     expect(tap, port).toMatchObject({ pointerType: 'touch', x: expect.closeTo(0.3, 1), y: expect.closeTo(0.3, 1) });
   }
+
+  // A keyboard contextmenu (menu key, Shift+F10) is a PointerEvent with an empty pointerType: 'mouse',
+  // not the last pointerdown's touch.
+  const keyboard = await page.evaluate(() => window.flowPatcher!.clock.currentTime);
+  await page.evaluate(() => {
+    const element = document.querySelector('[data-testid="performance-canvas"]')!;
+    const r = element.getBoundingClientRect();
+    element.dispatchEvent(new PointerEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, button: 0 }));
+  });
+  await expect.poll(async () => (await seen(page, 'right', keyboard)).length).toBe(1);
+  const [menu] = await seen(page, 'right', keyboard);
+  expectPayload(menu!);
+  expect(menu).toMatchObject({ pointerType: 'mouse', button: 0 });
 
   await page.evaluate(() => (window as unknown as { unwatch: (() => void)[] }).unwatch.forEach((stop) => stop()));
   await page.screenshot({ path: 'test-results/click.png' });

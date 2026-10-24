@@ -152,11 +152,11 @@ export interface GestureFields {
 }
 
 /**
- * The canvas event types a source reads when the canvas is played with a pointer: a patch with a
- * source reading one doesn't show the preview's "No canvas input" hint. Sources that read other canvas
- * events from a pointer add their type here.
+ * The canvas event types a source reads when the canvas is played, with a pointer or the keyboard: a
+ * patch with a source reading one doesn't show the preview's "No canvas input" hint. Sources that read
+ * other events the player makes on the canvas add their type here.
  */
-const PLAYED_TYPES: readonly InputEventType[] = ['pointerdown', 'click', 'dblclick', 'auxclick', 'contextmenu', 'wheel'];
+const PLAYED_TYPES: readonly InputEventType[] = ['pointerdown', 'keydown', 'click', 'dblclick', 'auxclick', 'contextmenu', 'wheel'];
 
 /** One pointerdown, for the Immediate path gate check (docs/milestones.md, M1). */
 export interface Tap {
@@ -255,7 +255,7 @@ interface ProbeTrack {
 
 export interface LiveStatus {
   audio: AudioContextState;
-  /** Source nodes the canvas plays with a pointer (`PLAYED_TYPES`): Pointer, Click and the like. */
+  /** Source nodes the canvas is played through (`PLAYED_TYPES`): Pointer, Click, Key and the like. */
   pointers: number;
 }
 

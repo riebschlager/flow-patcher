@@ -95,10 +95,11 @@ function touchExtrasQuery({ state, pushed }: Pick<QueryContext, 'state' | 'pushe
 }
 
 /** Width and Height: the touch slot's latest size, 0 once the slot is free, before any touch, and on a
- *  slot whose holder has only entered (no down or move of its own, so its payload is still the previous finger's). */
+ *  slot whose holder has had no Down, Move, Up or Cancel since it took the slot (`seen`, #101: an enter
+ *  only, so its payload is still the previous finger's). */
 function sizeAt(state: NodeState, port: 'width' | 'height', t: number, channel: number): number {
   const contact = pointerContactAt(state, t, channel);
-  if (!contact || contact.id === null || contact.refAt === null) return 0;
+  if (!contact || contact.id === null || !contact.seen) return 0;
   return contactSize(contact.payload[port]);
 }
 
