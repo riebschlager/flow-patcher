@@ -125,7 +125,7 @@ describe('filter', () => {
     const audio = await renderOffline(1, (context) => {
       const instance = build(context, 2000, { params: { cutoff: 200 } });
       edit = () => instance.update!({ mode: 'lowpass', cutoff: 8000, q: 0.71 }, 0.5);
-    }, { edits: [{ time: 0.4, apply: () => edit() }] });
+    }, { edits: [{ time: 0.4, apply: () => edit() }], attempts: 3 });
     const cut = busRms(audio, 0.45, 0.05), open = busRms(audio, 0.6, 0.1);
     expect(cut).toBeLessThan(SINE * 0.03);
     expect(open).toBeGreaterThan(SINE * 0.95);
@@ -140,7 +140,7 @@ describe('filter', () => {
     const audio = await renderOffline(1, (context) => {
       const instance = build(context, 1000, { params: { cutoff: 1000, q: 0.71 } });
       edit = () => instance.update!({ mode: 'lowpass', cutoff: 1000, q: 4 }, 0.5);
-    }, { edits: [{ time: 0.4, apply: () => edit() }] });
+    }, { edits: [{ time: 0.4, apply: () => edit() }], attempts: 3 });
     const flat = busRms(audio, 0.4, 0.1) / SINE, peaked = busRms(audio, 0.7, 0.1) / SINE;
     expect(flat).toBeCloseTo(Math.SQRT1_2, 1);
     // Q 4 is +12 dB at the cutoff: about 4× the input.

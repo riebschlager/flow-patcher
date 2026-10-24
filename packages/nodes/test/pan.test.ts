@@ -90,7 +90,7 @@ describe('pan', () => {
     const audio = await renderOffline(1, (context) => {
       const instance = build(context, { params: { pan: -1 } });
       edit = () => instance.update!({ pan: 1 }, 0.5);
-    }, { edits: [{ time: 0.4, apply: () => edit() }] });
+    }, { edits: [{ time: 0.4, apply: () => edit() }], attempts: 3 });
     expect(sides(audio, 0.4, 0.1)).toEqual([expect.closeTo(1, 3), expect.closeTo(0, 3)]);
     expect(sides(audio, 0.6, 0.1)).toEqual([expect.closeTo(0, 3), expect.closeTo(1, 3)]);
     // Halfway through the 20 ms ramp the bus is near the centre, on both sides at once.

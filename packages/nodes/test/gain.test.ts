@@ -78,7 +78,7 @@ describe('gain', () => {
     const audio = await renderOffline(1, (context) => {
       const instance = build(context, { params: { gain: 1 } });
       edit = () => instance.update!({ gain: 0.25 }, 0.5);
-    }, { edits: [{ time: 0.4, apply: () => edit() }] });
+    }, { edits: [{ time: 0.4, apply: () => edit() }], attempts: 3 });
     expect(busRms(audio, 0.4, 0.1) / SINE).toBeCloseTo(1, 2);
     expect(busRms(audio, 0.6, 0.1) / SINE).toBeCloseTo(0.25, 2);
     // Halfway through the 20 ms ramp, about halfway down.

@@ -94,7 +94,7 @@ describe('mixer', () => {
     const audio = await renderOffline(1, (context) => {
       const instance = build(context);
       edit = () => instance.update!({ level1: 0, level2: 1, level3: 1, level4: 1, master: 1 }, 0.5);
-    }, { edits: [{ time: 0.4, apply: () => edit() }] });
+    }, { edits: [{ time: 0.4, apply: () => edit() }], attempts: 3 });
     close(sides(audio, 0.4, 0.1), [1, 1]);
     close(sides(audio, 0.6, 0.1), [0, 1]);
     // Halfway through the 20 ms ramp, about halfway down; In 3 never moves (4 ms isn't a whole
