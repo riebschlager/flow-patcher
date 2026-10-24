@@ -4583,6 +4583,311 @@
    "duration": 0.15
   }
  ],
+ "mixer-crossfade.flowpatch": [
+  {
+   "node": "eighths",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "halves",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "fade",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "lead",
+   "port": "note",
+   "time": 0,
+   "channel": 0,
+   "index": 0,
+   "pitch": 72,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "bass",
+   "port": "note",
+   "time": 0,
+   "channel": 0,
+   "index": 0,
+   "pitch": 48,
+   "velocity": 0.8,
+   "duration": 1
+  },
+  {
+   "node": "eighths",
+   "port": "tick",
+   "time": 0.3125,
+   "channel": 0,
+   "index": 1
+  },
+  {
+   "node": "lead",
+   "port": "note",
+   "time": 0.3125,
+   "channel": 0,
+   "index": 1,
+   "pitch": 72,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "eighths",
+   "port": "tick",
+   "time": 0.625,
+   "channel": 0,
+   "index": 2
+  },
+  {
+   "node": "lead",
+   "port": "note",
+   "time": 0.625,
+   "channel": 0,
+   "index": 2,
+   "pitch": 72,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "eighths",
+   "port": "tick",
+   "time": 0.9375,
+   "channel": 0,
+   "index": 3
+  },
+  {
+   "node": "lead",
+   "port": "note",
+   "time": 0.9375,
+   "channel": 0,
+   "index": 3,
+   "pitch": 72,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "eighths",
+   "port": "tick",
+   "time": 1.25,
+   "channel": 0,
+   "index": 4
+  },
+  {
+   "node": "halves",
+   "port": "tick",
+   "time": 1.25,
+   "channel": 0,
+   "index": 1
+  },
+  {
+   "node": "lead",
+   "port": "note",
+   "time": 1.25,
+   "channel": 0,
+   "index": 4,
+   "pitch": 72,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "bass",
+   "port": "note",
+   "time": 1.25,
+   "channel": 0,
+   "index": 1,
+   "pitch": 48,
+   "velocity": 0.8,
+   "duration": 1
+  },
+  {
+   "node": "eighths",
+   "port": "tick",
+   "time": 1.5625,
+   "channel": 0,
+   "index": 5
+  },
+  {
+   "node": "lead",
+   "port": "note",
+   "time": 1.5625,
+   "channel": 0,
+   "index": 5,
+   "pitch": 72,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "eighths",
+   "port": "tick",
+   "time": 1.875,
+   "channel": 0,
+   "index": 6
+  },
+  {
+   "node": "lead",
+   "port": "note",
+   "time": 1.875,
+   "channel": 0,
+   "index": 6,
+   "pitch": 72,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "eighths",
+   "port": "tick",
+   "time": 2.1875,
+   "channel": 0,
+   "index": 7
+  },
+  {
+   "node": "lead",
+   "port": "note",
+   "time": 2.1875,
+   "channel": 0,
+   "index": 7,
+   "pitch": 72,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "eighths",
+   "port": "tick",
+   "time": 2.5,
+   "channel": 0,
+   "index": 8
+  },
+  {
+   "node": "halves",
+   "port": "tick",
+   "time": 2.5,
+   "channel": 0,
+   "index": 2
+  },
+  {
+   "node": "fade",
+   "port": "tick",
+   "time": 2.5,
+   "channel": 0,
+   "index": 1
+  },
+  {
+   "node": "lead",
+   "port": "note",
+   "time": 2.5,
+   "channel": 0,
+   "index": 8,
+   "pitch": 72,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "bass",
+   "port": "note",
+   "time": 2.5,
+   "channel": 0,
+   "index": 2,
+   "pitch": 48,
+   "velocity": 0.8,
+   "duration": 1
+  },
+  {
+   "node": "eighths",
+   "port": "tick",
+   "time": 2.8125,
+   "channel": 0,
+   "index": 9
+  },
+  {
+   "node": "lead",
+   "port": "note",
+   "time": 2.8125,
+   "channel": 0,
+   "index": 9,
+   "pitch": 72,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "eighths",
+   "port": "tick",
+   "time": 3.125,
+   "channel": 0,
+   "index": 10
+  },
+  {
+   "node": "lead",
+   "port": "note",
+   "time": 3.125,
+   "channel": 0,
+   "index": 10,
+   "pitch": 72,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "eighths",
+   "port": "tick",
+   "time": 3.4375,
+   "channel": 0,
+   "index": 11
+  },
+  {
+   "node": "lead",
+   "port": "note",
+   "time": 3.4375,
+   "channel": 0,
+   "index": 11,
+   "pitch": 72,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "eighths",
+   "port": "tick",
+   "time": 3.75,
+   "channel": 0,
+   "index": 12
+  },
+  {
+   "node": "halves",
+   "port": "tick",
+   "time": 3.75,
+   "channel": 0,
+   "index": 3
+  },
+  {
+   "node": "lead",
+   "port": "note",
+   "time": 3.75,
+   "channel": 0,
+   "index": 12,
+   "pitch": 72,
+   "velocity": 0.7,
+   "duration": 0.15
+  },
+  {
+   "node": "bass",
+   "port": "note",
+   "time": 3.75,
+   "channel": 0,
+   "index": 3,
+   "pitch": 48,
+   "velocity": 0.8,
+   "duration": 1
+  }
+ ],
  "orbit-rings.flowpatch": [
   {
    "node": "clock",
