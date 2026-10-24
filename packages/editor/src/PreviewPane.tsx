@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import type { ClickType, LivePatch, PointerPort } from './live';
+import type { ClickType, LivePatch, PenFields, PointerPort } from './live';
 
 const MIN = { width: 200, height: 120 };
 const DEFAULT = { width: 248, height: 156 };
@@ -73,6 +73,24 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
     return last === undefined ? {} : { interval: Math.max(0, (timeStamp - last) / 1000) };
   };
 
+  // Pen (canvas-sources.md): a pen's events carry its tilt, twist and tangential pressure as the browser
+  // reports them, and altitudeAngle and azimuthAngle where it has them (Pen derives them from tilt where it
+  // doesn't). Named as Pen's outputs (ADR 0029). Other pointers leave them out. The barrel button is in
+  // `buttons` (bit 2), so it isn't sent separately.
+  const penFields = (e: PointerEvent | ReactPointerEvent<HTMLCanvasElement>): PenFields | Record<string, never> => {
+    if (e.pointerType !== 'pen') return {};
+    // React's synthetic event doesn't copy the angles (only tilt, twist and tangential pressure), so they come from the native one.
+    const { altitudeAngle, azimuthAngle } = ('nativeEvent' in e ? e.nativeEvent : e) as { altitudeAngle?: number; azimuthAngle?: number };
+    return {
+      tiltX: e.tiltX,
+      tiltY: e.tiltY,
+      twist: e.twist,
+      tangentialPressure: e.tangentialPressure,
+      ...(typeof altitudeAngle === 'number' ? { altitudeAngle } : {}),
+      ...(typeof azimuthAngle === 'number' ? { azimuthAngle } : {}),
+    };
+  };
+
   const send = (port: PointerPort) => (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (!live) return;
     const box = event.currentTarget.getBoundingClientRect();
@@ -97,6 +115,7 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
       alt: e.altKey,
       ctrl: e.ctrlKey,
       meta: e.metaKey,
+      ...penFields(e),
     });
     if (port === 'enter' || port === 'leave') {
       // Hover state only: no sample. A pointer that leaves starts afresh when it comes back.

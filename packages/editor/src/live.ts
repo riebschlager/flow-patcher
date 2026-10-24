@@ -58,7 +58,7 @@ export const droppedWhileCold = (type: InputEventType): boolean =>
   type === 'pointermove' || type === 'pointerenter' || type === 'pointerleave' || type === 'midi' || type === 'wheel';
 
 /** The payload of one pointer event (docs/nodes/canvas-sources.md, Event payload): the raw pointerId as `channel`. */
-export interface PointerFields {
+export interface PointerFields extends Partial<PenFields> {
   channel: number;
   x: number;
   y: number;
@@ -76,6 +76,24 @@ export interface PointerFields {
   meta?: boolean;
   /** Seconds since this pointer's previous sample, from the events' timeStamps (#74). Left out on its first. */
   interval?: number;
+}
+
+/**
+ * What a pen's pointer events add (Pen, docs/nodes/canvas-sources.md), as the browser reports them
+ * and named as Pen's outputs (ADR 0029). Only on `pointerType: 'pen'`. The barrel button is `buttons`
+ * bit 2, so it has no field of its own.
+ */
+export interface PenFields {
+  /** Degrees, −90 to 90: toward +x (right) and +y (the user). */
+  tiltX: number;
+  tiltY: number;
+  /** Degrees clockwise about the pen's axis, 0 to 359. */
+  twist: number;
+  /** The airbrush wheel, −1 to 1. */
+  tangentialPressure: number;
+  /** Radians: 0 lying flat to π/2 upright, and 0 to 2π from +x. Left out where the browser has none; Pen derives them from tilt. */
+  altitudeAngle?: number;
+  azimuthAngle?: number;
 }
 
 /** The click events the canvas forwards (Click, docs/nodes/canvas-sources.md): auxclick is Middle's, contextmenu Right's. */

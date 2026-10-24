@@ -31,7 +31,7 @@ export const RESERVE = 64;
 const DEFAULT_PRESSURE = 0.5;
 
 /** One slot: the pointer holding it, or the last one that did. Plain data, so rewind snapshots can clone it (ADR 0019). */
-interface Contact {
+export interface Contact {
   slot: number;
   /** The raw pointerId holding the slot, or null once it's free (up, cancel, leave). */
   id: number | null;
@@ -324,11 +324,18 @@ export function pointerQuery({ state, pushed }: Pick<QueryContext, 'state' | 'pu
   return result;
 }
 
+/** The slot a signal read on `channel` at t sees (any channel no slot has had reads the latest
+ *  pointer), or undefined before any pointer. Shared with the sources that add signals of their
+ *  own from the slot's latest payload (Pen). */
+export function pointerContactAt(state: NodeState, t: number, channel: number): Readonly<Contact> | undefined {
+  const contacts = contactsAt(state, t);
+  return contacts.find((c) => c.slot === channel) ?? contacts[contacts.length - 1];
+}
+
 /** Pointer's signals at t on a channel (a slot; any other channel reads the latest pointer). */
 export function pointerSignal(state: NodeState, port: string, t: number, channel: number): number {
-  const contacts = contactsAt(state, t);
-  if (port === 'count') return contacts.reduce((n, c) => n + (c.down ? 1 : 0), 0);
-  const contact = contacts.find((c) => c.slot === channel) ?? contacts[contacts.length - 1];
+  if (port === 'count') return contactsAt(state, t).reduce((n, c) => n + (c.down ? 1 : 0), 0);
+  const contact = pointerContactAt(state, t, channel);
   if (!contact) return 0;
   if (port === 'x') return contact.x;
   if (port === 'y') return contact.y;
