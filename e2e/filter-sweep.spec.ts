@@ -157,7 +157,8 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     const gaps = mirror.data.filter(Number.isNaN).length;
     // Re-run cancels: before what the automation already reached. A re-run keeps the ramp its start falls
     // in and cancels from the grid point after it (#103), so an exposed one, whose start is in the ramp the
-    // render thread is in, cancels within two grid steps of the clock.
+    // render thread is in, cancels within two grid steps of the clock (three when AUTOMATION_RENDER_MARGIN
+    // keeps one more ramp; those within two are enough to show the checks below mean something).
     const reruns = probe.cancels.filter((c) => c.t0 < c.reached);
     const exposed = reruns.filter((c) => c.t0 - c.now < 2 / 60);
     const v = mirror.data;
@@ -169,14 +170,16 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     }
     // Holds: a whole render quantum where the cutoff stands still. The sweep never does (its slope is
     // 2400 Hz per 4 s, 0.0125 Hz a sample at 48 kHz, steeper at the wrap); a held quantum is flat.
-    // A freeze is a held quantum that starts at the previous sample's value and comes back onto the line
-    // it left (the change from before it to after it is what 129 samples of the slope on either side
-    // would give, with a grid point anywhere between), with no re-run cancel called from four quanta
-    // before it to its end. Chromium makes those with no edits at all (a control without knob turns,
-    // #103). Near a re-run the same shape can be the engine's: a render already past the point the
-    // re-run kept holds it until the new ramps arrive, and with a small or no base change the param
-    // comes back to within the tolerance of its line. Anything else flat is a real hold.
+    // A freeze is Chromium's: exactly one render quantum held at the previous sample's value, from the
+    // quantum's first sample (the sample before it still moved) to its last, then back onto the line it
+    // left (the change from before it to after it is what 129 samples of the slope on either side would
+    // give, with a grid point anywhere between). It shows with no edits at all (a control without knob
+    // turns, #103), and more often around re-runs, which make many AudioParam calls. The engine's hold
+    // looks different: a render past the last point a re-run kept holds from that point, a grid point,
+    // so the flat stretch starts with the grid, not with the quantum. A flat quantum with a grid point at
+    // its start, or still flat before it, is a real hold. Freezes near a re-run cancel are counted too.
     const holds: number[] = [], freezes: number[] = [];
+    let nearReruns = 0;
     const returns = new Set<number>();
     for (let q = Math.ceil(mirror.from / 128) * 128 - mirror.from; q + 128 < v.length; q += 128) {
       let most = 0;
@@ -187,10 +190,12 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
       const back = v[q + 128]! - v[q - 1]!;
       const froze = Math.abs(v[q]! - v[q - 1]!) < 0.002;
       const onLine = back >= 129 * Math.min(slopeBefore, slopeAfter) - 0.1 && back <= 129 * Math.max(slopeBefore, slopeAfter) + 0.1;
-      const start = (mirror.from + q) / rate, quantum = 128 / rate;
-      const rerun = reruns.some((c) => c.now >= start - 4 * quantum && c.now <= start + quantum);
-      if (froze && onLine && !rerun) {
-        freezes.push((mirror.from + q) / rate);
+      const moving = Math.abs(v[q - 1]! - v[q - 2]!) >= 0.002;
+      const frame = mirror.from + q, gridAtStart = Math.abs(frame - (Math.round((frame * 60) / rate) * rate) / 60) <= 1;
+      if (froze && moving && !gridAtStart && onLine) {
+        const start = frame / rate, quantum = 128 / rate;
+        if (reruns.some((c) => c.now >= start - 4 * quantum && c.now <= start + quantum)) nearReruns++;
+        freezes.push(start);
         returns.add(q + 128);
       } else holds.push((mirror.from + q) / rate);
     }
@@ -243,7 +248,7 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     const cov = mean(pairs.map(([x, y]) => (x - mx) * (y - my)));
     const r = cov / Math.sqrt(mean(pairs.map(([x]) => (x - mx) ** 2)) * mean(pairs.map(([, y]) => (y - my) ** 2)));
     return {
-      seconds: v.length / rate, gaps, besideGaps, holds, freezes, steps, bends, steepest, smallest, largest,
+      seconds: v.length / rate, gaps, besideGaps, holds, freezes, nearReruns, steps, bends, steepest, smallest, largest,
       cancels: probe.cancels.length, reruns: reruns.length, exposed: exposed.length,
       leads: exposed.map((c) => +((c.t0 - c.now) * 1000).toFixed(2)).slice(0, 20),
       blocks: pairs.length, r, filters: probe.filters, rate,
@@ -252,7 +257,7 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
   console.log(
     `filter sweep: ${result.seconds.toFixed(2)} s recorded at ${result.rate} Hz, cutoff ${result.smallest.toFixed(0)}–${result.largest.toFixed(0)} Hz; ` +
       `${final.swaps - first.swaps} swaps; ${result.cancels} cancels, ${result.reruns} re-run cancels, ${result.exposed} within two grid steps of the clock (leads ms: ${result.leads.join(', ')}); ` +
-      `${result.holds.length} held quanta ${JSON.stringify(result.holds)}; ${result.freezes.length} frozen quanta back on their line ${JSON.stringify(result.freezes)}; ${result.steps.length} steps off the grid ${JSON.stringify(result.steps)}; ` +
+      `${result.holds.length} held quanta ${JSON.stringify(result.holds)}; ${result.freezes.length} frozen quanta back on their line ${JSON.stringify(result.freezes)} (${result.nearReruns} within four quanta after a re-run cancel); ${result.steps.length} steps off the grid ${JSON.stringify(result.steps)}; ` +
       `${result.bends} bends off the grid; steepest ${result.steepest.toFixed(2)} Hz a sample (largest turn ${largestTurn.toFixed(0)} Hz); ${result.gaps} samples missing from the recording, ${result.besideGaps} steps beside them; brightness vs cutoff r = ${result.r.toFixed(3)} over ${result.blocks} blocks; ` +
       `late ${final.lateScheduled} (${first.lateScheduled} before the turns), skipped ${final.skipped}`,
   );
