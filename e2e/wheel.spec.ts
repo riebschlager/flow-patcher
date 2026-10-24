@@ -52,6 +52,14 @@ test('wheel on the preview canvas reaches DeltaX, DeltaY, Zoom and the accumulat
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
 
+  // Whether each real (trusted) wheel's default was prevented, as the window sees it after the canvas's listener:
+  // that's what keeps the page from scrolling or zooming. The editor's layout doesn't scroll, so scrollTop can't show it.
+  await page.addInitScript(() => {
+    const seen: boolean[] = ((window as unknown as { wheelPrevented: boolean[] }).wheelPrevented = []);
+    window.addEventListener('wheel', (event) => event.isTrusted && seen.push(event.defaultPrevented));
+  });
+  const prevented = () => page.evaluate(() => (window as unknown as { wheelPrevented: boolean[] }).wheelPrevented);
+
   await page.goto('/?patch=wheel-scroll');
   await expect(page.getByTestId('compile-status')).toHaveText('6 nodes compiled');
   // Wheel plays the canvas, so there's no "No canvas input" hint.
@@ -73,7 +81,6 @@ test('wheel on the preview canvas reaches DeltaX, DeltaY, Zoom and the accumulat
 
   // A real wheel notch down at a quarter across, three quarters down: one push, DeltaY only, and Scroll Y rises.
   await page.mouse.move(box.x + box.width * 0.25, box.y + box.height * 0.75);
-  const scrollTop = await page.evaluate(() => document.scrollingElement!.scrollTop);
   let before = await pushes();
   await page.mouse.wheel(0, 100);
   await expect.poll(async () => (await seen(page, 'deltaY', since)).length).toBe(1);
@@ -83,8 +90,8 @@ test('wheel on the preview canvas reaches DeltaX, DeltaY, Zoom and the accumulat
   expect(notch).toMatchObject({ x: expect.closeTo(0.25, 1), y: expect.closeTo(0.75, 1), deltaX: 0, deltaY: 100, shift: false, alt: false, ctrl: false, meta: false });
   expect(await seen(page, 'deltaX', since)).toEqual([]);
   await expect.poll(() => latest(page, 'scrollY')).toBeGreaterThan(0.3);
-  // The canvas kept it: the page didn't scroll.
-  expect(await page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(scrollTop);
+  // The canvas kept it: its default (scrolling the page) was prevented.
+  expect(await prevented()).toEqual([true]);
   // And Scroll Y decays back toward 0 (decay 1.5 /s).
   await expect.poll(() => latest(page, 'scrollY'), { timeout: 6000 }).toBeLessThan(0.05);
   // The probes keep 2 s of history, so count from here.
@@ -125,5 +132,10 @@ test('wheel on the preview canvas reaches DeltaX, DeltaY, Zoom and the accumulat
   await expect(page.getByTestId('compile-status')).toHaveText('7 nodes compiled');
   expect(await dispatchWheel(page, { fx: 0.5, fy: 0.5, deltaY: 100 })).toBe(false);
   expect(await dispatchWheel(page, { fx: 0.5, fy: 0.5, deltaY: -5, ctrlKey: true })).toBe(false);
+  // A real wheel notch too: the browser keeps its default.
+  const clickBox = (await canvas.boundingBox())!;
+  await page.mouse.move(clickBox.x + clickBox.width / 2, clickBox.y + clickBox.height / 2);
+  await page.mouse.wheel(0, 100);
+  await expect.poll(prevented).toEqual([false]);
   expect(errors).toEqual([]);
 });
