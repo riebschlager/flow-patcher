@@ -35,7 +35,7 @@ import {
 import { nodeRegistry, rendererImage } from '@flow-patcher/nodes';
 import { CANVAS_TYPES, CanvasLifecycle } from './canvas-lifecycle';
 import { EventTrack, PROBE_HISTORY } from './event-track';
-import { HeldKeys, keyStartsAudio, type KeyFields } from './keys';
+import { HeldKeys, isApplePlatform, keyStartsAudio, type KeyFields } from './keys';
 import { MidiHost } from './midi';
 import { browserRequesters, neededPermissions, Permissions } from './permissions';
 
@@ -244,7 +244,7 @@ export class LivePatch {
   private readonly onPageVisibility = () => this.canvasVisibility(document.visibilityState);
   private wasRunning = false;
   /** Keys down on the canvas, to send the keyups the browser won't (Key node). */
-  private readonly keys = new HeldKeys();
+  private readonly keys = new HeldKeys(isApplePlatform(navigator.platform));
 
   /** Starts with an empty patch; `update` brings the document in. */
   constructor() {

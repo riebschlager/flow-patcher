@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import { keyFields } from './keys';
+import { keepsDefault, keyFields } from './keys';
 import type { LivePatch, PointerPort } from './live';
 
 const MIN = { width: 200, height: 120 };
@@ -117,7 +117,7 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
   // keyup on the document, so swallowing keyup would leave them stuck down.
   // Every other key goes to the Key node: keydown here, keyup below (Escape is never sent). With a Key in the
   // patch the canvas is an instrument, so keys lose their page defaults (Space scrolling, quick find), apart
-  // from Tab, which still moves focus, and browser shortcuts with Ctrl or Meta.
+  // from Tab, the function keys and Ctrl or Meta shortcuts (`keepsDefault`).
   const keyDown = (event: ReactKeyboardEvent<HTMLCanvasElement>) => {
     if (event.key === 'Escape') {
       event.currentTarget.blur();
@@ -126,7 +126,7 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
     event.stopPropagation();
     if (!live) return;
     const fields = keyFields(event.nativeEvent);
-    if (live.reads('keydown') && fields.key !== 'Tab' && !fields.ctrl && !fields.meta) event.preventDefault();
+    if (live.reads('keydown') && !keepsDefault(fields)) event.preventDefault();
     live.key('down', fields, event.timeStamp);
   };
   // Not stopped: React Flow has to see it (above).

@@ -134,6 +134,27 @@ describe('key', () => {
     expect(out.all!.map((e) => e.phase)).toEqual(['down', 'up']);
   });
 
+  it('a tap and a re-press at one stamp (held pushes replayed at audio start) leave the key down', () => {
+    // Pushed down, up, down, all at 0.1: the key is held after them, whatever the ports' order.
+    const out = query(key, 0, 1, { pushed: { down: [k(0.1, 'KeyZ'), k(0.1, 'KeyZ')], up: [k(0.1, 'KeyZ'), k(0.5, 'KeyZ')] }, params: { piano: true, keys: 'KeyZ' } });
+    expect(out.all!.map((e) => [e.time, e.phase])).toEqual([[0.1, 'down'], [0.1, 'up'], [0.1, 'down'], [0.5, 'up']]);
+    expect(out.note!.map((n) => n.time)).toEqual([0.1, 0.1]);
+    // The real keyup at 0.5 ends it: Held follows.
+    expect(held(1, [0.2, 0.6], [0, Z], { keys: 'KeyZ' }, { down: [k(0.1, 'KeyZ'), k(0.1, 'KeyZ')], up: [k(0.1, 'KeyZ'), k(0.5, 'KeyZ')] })).toEqual([[1, 1], [0, 0]]);
+  });
+
+  it('a key already down alternates from up: up, down at one stamp is a re-press, and a repeat stays with the open contact', () => {
+    const events = { down: [k(0.1, 'KeyZ'), k(0.3, 'KeyZ'), rep(0.3, 'KeyZ')], up: [k(0.3, 'KeyZ')] };
+    const out = query(key, 0, 1, { pushed: events });
+    expect(out.all!.map((e) => [e.time, e.phase])).toEqual([[0.1, 'down'], [0.3, 'up'], [0.3, 'down']]);
+    // The repeat belongs to the contact that's open at the stamp, so it comes before the re-press.
+    const downs = out.down!.map((e) => [e.time, e.repeat, Math.round((e.age as number) * 1e9) / 1e9]);
+    expect(downs).toEqual([[0.1, false, 0], [0.3, true, 0.2], [0.3, false, 0]]);
+    expect(held(1, [0.5], [0], { keys: '' }, events)).toEqual([[1]]);
+    // Split across windows, the state at the stamp decides the same way.
+    for (const step of [0.025, 0.3, 0.07]) expect(queryTiled(key, 'all', 1, step, { pushed: events, state: {} }), `${step}`).toEqual(out.all);
+  });
+
   it('emits nothing without pushes, and survives weird windows and payloads', () => {
     expect(queryTiled(key, 'down', 2, 0.025)).toEqual([]);
     for (const [t0, t1] of [[1, 1], [2, 1], [NaN, 1], [0, Infinity], [-Infinity, NaN]]) expect(query(key, t0!, t1!)).toEqual({});
@@ -208,7 +229,11 @@ describe('key Held', () => {
     expect(heldCodes(3)).toEqual([]);
     expect(checkHeld('Space KeyA')).toBeNull();
     expect(checkHeld('')).toBeNull();
-    expect(checkHeld('a Space spacebar')).toBe('not a key code: a, spacebar. Use codes like KeyA, Digit1, Space or ArrowUp');
+    expect(checkHeld('a Space spacebar')).toBe('not a key code: a, spacebar. Use codes like KeyA, Digit1, Space or ArrowUp, separated by spaces or commas');
+    // Codes KEY_CODES doesn't list still reach Key, on hashed channels.
+    expect(checkHeld('MediaPlayPause F25 Space')).toBeNull();
+    // Escape returns to the editor: never sent, so never held.
+    expect(checkHeld('Space Escape')).toBe('Escape returns to the editor, so Key never sees it held');
   });
 });
 

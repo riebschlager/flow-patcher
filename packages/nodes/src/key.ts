@@ -67,11 +67,20 @@ export function heldCodes(text: unknown): string[] {
   return typeof text === 'string' ? text.split(/[\s,]+/).filter((code) => code.length > 0) : [];
 }
 
-/** An error for Held keys naming something that isn't a code in KEY_CODES, or null. */
+/** A well-formed `KeyboardEvent.code`: a capital letter, then letters and digits (KeyA, F13, MediaPlayPause). */
+const CODE = /^[A-Z][A-Za-z0-9]*$/;
+
+/**
+ * An error for Held keys naming something Key can't see down, or null: a word that isn't a code
+ * (`a`, `space`), or Escape, which the host never sends. Codes KEY_CODES doesn't list are fine:
+ * Key emits them on hashed channels.
+ */
 export function checkHeld(text: string): string | null {
-  const unknown = heldCodes(text).filter((code) => !CHANNELS.has(code));
-  if (!unknown.length) return null;
-  return `not a key code: ${unknown.join(', ')}. Use codes like KeyA, Digit1, Space or ArrowUp`;
+  const codes = heldCodes(text);
+  const bad = codes.filter((code) => !CODE.test(code));
+  if (bad.length) return `not a key code: ${bad.join(', ')}. Use codes like KeyA, Digit1, Space or ArrowUp, separated by spaces or commas`;
+  if (codes.includes('Escape')) return 'Escape returns to the editor, so Key never sees it held';
+  return null;
 }
 
 /** One key down, as the window began or along it. Plain data (ADR 0019). */
@@ -135,8 +144,61 @@ function heldAt(state: NodeState, t: number): readonly Contact[] {
   return held;
 }
 
-/** Same-time order: keydowns (and repeats) before keyups, so a press shorter than a render quantum ends up. */
-const RANK: Record<Change['kind'], number> = { down: 0, repeat: 0, up: 1 };
+/**
+ * Puts the window's changes in the order they apply: by time, then, for each code at one time, its
+ * keydowns and keyups alternating from the key's state there (down → keyup first, up → keydown
+ * first), so a tap and a re-press that share a stamp (held pushes replayed at audio start, or a press
+ * shorter than a render quantum) end as the key is: [down, up, down] stays held, a lone pair at one
+ * time ends lifted. Left-over keydowns or keyups follow; repeats go with the open contact, after
+ * its keydown if they share the stamp. Codes keep the order they first appear in. Deterministic in
+ * `held` (the keys down as the window began) and the pushes.
+ */
+function order(held: readonly Contact[], items: readonly Change[]): Change[] {
+  const sorted = items.slice().sort((a, b) => a.time - b.time);
+  const sim = held.slice();
+  const out: Change[] = [];
+  for (let i = 0; i < sorted.length;) {
+    let j = i;
+    while (j < sorted.length && sorted[j]!.time === sorted[i]!.time) j++;
+    const codes = new Map<string, { downs: Change[]; ups: Change[]; repeats: Change[] }>();
+    for (const change of sorted.slice(i, j)) {
+      let group = codes.get(change.code);
+      if (!group) codes.set(change.code, (group = { downs: [], ups: [], repeats: [] }));
+      group[change.kind === 'down' ? 'downs' : change.kind === 'up' ? 'ups' : 'repeats'].push(change);
+    }
+    for (const [code, { downs, ups, repeats }] of codes) {
+      let open = sim.some((c) => c.code === code);
+      const sequence: Change[] = open ? [...repeats] : [];
+      let placed = open, d = 0, u = 0;
+      while (d < downs.length || u < ups.length) {
+        if (u < ups.length && (open || d >= downs.length)) {
+          sequence.push(ups[u++]!);
+          open = false;
+        } else {
+          sequence.push(downs[d++]!);
+          open = true;
+          if (!placed) sequence.push(...repeats);
+          placed = true;
+        }
+      }
+      if (!placed) sequence.push(...repeats);
+      for (const change of sequence) {
+        step(sim, change);
+        out.push(change);
+      }
+    }
+    i = j;
+  }
+  return out;
+}
+
+/** Held keys as a set, per resolved params object: signal() reads it often. */
+const chosenCache = new WeakMap<object, ReadonlySet<string>>();
+function chosenOf(params: Readonly<Record<string, unknown>>): ReadonlySet<string> {
+  let chosen = chosenCache.get(params);
+  if (!chosen) chosenCache.set(params, (chosen = new Set(heldCodes(params.keys))));
+  return chosen;
+}
 
 /**
  * Canvas source: the keyboard while the performance canvas has focus (docs/nodes/canvas-sources.md).
@@ -158,8 +220,8 @@ const RANK: Record<Change['kind'], number> = { down: 0, repeat: 0, up: 1 };
  * Edge cases: a keyup for a key that isn't down (pressed before the canvas had focus) is dropped. A
  * keydown that isn't a repeat on a key already down (its keyup was lost) ends it with an Up first,
  * with the keydown's payload, and plays again. A repeat on a key that isn't down only reaches Down.
- * Pushes without a non-empty string `code` have no key and are dropped. At one time, keydowns go
- * before keyups.
+ * Pushes without a non-empty string `code` have no key and are dropped. At one time, a key's
+ * keydowns and keyups alternate from its state there (`order`).
  *
  * **Held**, a Signal: 1 while a key named in Held keys (codes, separated by spaces or commas) is
  * down, else 0. Channel 0 (and any non-integer channel) reads whether any of them is down; another
@@ -176,7 +238,7 @@ export const key: NodeDefinition = {
   version: 1,
   label: 'Key',
   category: 'canvas-sources',
-  description: 'Down and Up events from the keyboard while the canvas has focus, one channel per key, with All, a Held signal for chosen keys, and a Keyboard → Note mode on a two-row piano.',
+  description: 'Down and Up events from the keyboard while the canvas has focus, one channel per key, with All, a Held signal for the keys named in Held keys (codes such as Space, KeyA or ArrowUp; any code but Escape, which returns to the editor), and a Keyboard → Note mode on a two-row piano.',
   ports: [
     { name: 'down', type: 'event', direction: 'out', label: 'Down' },
     { name: 'up', type: 'event', direction: 'out', label: 'Up' },
@@ -205,13 +267,12 @@ export const key: NodeDefinition = {
         items.push({ time: e.time, kind, code: e.code, payload: payloadOf(e) });
       }
     }
-    // Stable: at one time, keydowns then keyups, each in push order.
-    items.sort((a, b) => a.time - b.time || RANK[a.kind] - RANK[b.kind]);
-    state.pending = items;
-    if (!items.length) return {};
+    const ordered = order(held, items);
+    state.pending = ordered;
+    if (!ordered.length) return {};
     const work = held.slice();
     const octave = params.octave as number, piano = params.piano === true;
-    for (const change of items) {
+    for (const change of ordered) {
       const stepped = step(work, change);
       if (!stepped) continue;
       const { time } = change;
@@ -249,7 +310,7 @@ export const key: NodeDefinition = {
   },
   signal(ctx, port, t, channel) {
     if (port !== 'held') return 0;
-    const chosen = new Set(heldCodes(ctx.params.keys));
+    const chosen = chosenOf(ctx.params);
     const counts = (c: Contact) => chosen.size === 0 || chosen.has(c.code);
     const held = heldAt(ctx.state, t);
     const any = !Number.isInteger(channel) || channel === 0;
