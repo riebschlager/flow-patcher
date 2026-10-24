@@ -42,7 +42,8 @@ const feed: NodeDefinition = {
  * checks reach their recognition and claims, not just the no-phase path. Two channels, each
  * with a contact every 1.1 s (channel 1 offset by 0.37 s), 0.8 s long, moving every 25 ms: held
  * still, circling 1.2 turns, or a fast line ending in a release at speed; every fourth ends in
- * a cancel instead of an up.
+ * a cancel instead of an up. Every fifth is instead two quick taps 0.2 s and 0.02 apart (a tap
+ * and a double tap). Recognizers run with Claim on (`buildPlan`), so their claims are checked too.
  */
 const contacts: NodeDefinition = {
   type: 'window-test-contacts', version: 1, label: 'Contacts', category: 'canvas-sources', description: '',
@@ -53,6 +54,14 @@ const contacts: NodeDefinition = {
     for (const channel of [0, 1]) {
       for (let k = Math.max(0, Math.floor((t0 - 0.37 * channel - 0.8) / 1.1) - 1); k * 1.1 + 0.37 * channel < t1; k++) {
         const start = k * 1.1 + 0.37 * channel, cx = 0.3 + 0.4 * channel;
+        if (k % 5 === 4) {
+          const taps: [number, string, number][] = [[0, 'down', cx], [0.05, 'move', cx + 0.003], [0.1, 'up', cx + 0.003], [0.2, 'down', cx + 0.02], [0.28, 'up', cx + 0.02]];
+          for (const [dt, phase, x] of taps) {
+            const time = start + dt;
+            if (time >= t0 && time < t1) out.push({ time, channel, phase, x, y: 0.5, pointerType: 'touch' });
+          }
+          continue;
+        }
         const at = (i: number) => {
           const f = i / 32;
           if (k % 3 === 0) return [cx + 0.002 * Math.sin(i), 0.5];
@@ -180,7 +189,9 @@ export function rewindLogs(definition: NodeDefinition, { seconds = REWIND_SECOND
 /** The node as `n`, its inputs fed, its Signal/Value outputs probed, and with `taps`, a tap into each Event input. */
 function buildPlan(definition: NodeDefinition, seed: number, taps: boolean) {
   const definitions = new Map([definition, feed, contacts, wave, probe, tap].map((d) => [d.type, d]));
-  const nodes: Patch['nodes'] = [{ id: 'n', type: definition.type, typeVersion: definition.version, params: {}, position: { x: 0, y: 0 } }];
+  // Recognizers run with Claim on, so the checks reach the claims of those whose Claim is off by default.
+  const params: Record<string, boolean> = definition.category === 'gesture-recognizers' ? { claim: true } : {};
+  const nodes: Patch['nodes'] = [{ id: 'n', type: definition.type, typeVersion: definition.version, params, position: { x: 0, y: 0 } }];
   const cables: Patch['cables'] = [];
   const add = (id: string, type: string) => nodes.push({ id, type, typeVersion: 1, params: {}, position: { x: 0, y: 0 } });
   for (const port of definition.ports.filter((p) => p.direction === 'in')) {

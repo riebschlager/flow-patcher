@@ -44,33 +44,39 @@ const timerPatch: Patch = {
 };
 
 /**
- * Raw pointer pushes at clock times. Pointer 7 lifts at 0.65 s, just before Tap's long press
- * (0.2 + 0.5 s, from the stamp); pointer 8 lifts at 1.0 s, just before Hold's claim (0.4 +
- * 0.25 + 0.4 × 1.1 s). By the time each up arrives, the scheduler has queried 120 ms past it.
+ * Raw pointer pushes at clock times, stamped 5 ms later. Pointer 7 lifts at 0.65 s, before Tap's
+ * long press (0.205 + 0.5 s); pointer 8 lifts at 1.05 s, before Hold's claim (0.405 + 0.25 +
+ * 0.4 × 1.1 s ≈ 1.095 s). Each up arrives after the scheduler has queried past that timer (its
+ * lookahead is 120 ms), so the claim was already made and the up has to withdraw it.
  */
 const PUSHES: { at: number; port: string; fields: Omit<EngineEvent, 'time'> }[] = [
   { at: 0.2, port: 'down', fields: { channel: 7, x: 0.3, y: 0.3, pointerType: 'touch' } },
   { at: 0.4, port: 'down', fields: { channel: 8, x: 0.7, y: 0.7, pointerType: 'touch' } },
   { at: 0.65, port: 'up', fields: { channel: 7, x: 0.3, y: 0.3, pointerType: 'touch' } },
-  { at: 1.0, port: 'up', fields: { channel: 8, x: 0.7, y: 0.7, pointerType: 'touch' } },
+  { at: 1.05, port: 'up', fields: { channel: 8, x: 0.7, y: 0.7, pointerType: 'touch' } },
 ];
 
-function perform(wakes: number[], lookahead?: number): { log: LoggedEvent[]; rewinds: number } {
+/** The run's log and rewinds, and before each up push, what Tap and Hold had claimed so far. */
+function perform(wakes: number[], lookahead?: number): { log: LoggedEvent[]; rewinds: number; beforeUps: LoggedEvent[][] } {
   const compiled = compilePatch(timerPatch, nodeRegistry);
   if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
   const clock = new ManualClock();
   const scheduler = new Scheduler(new Runtime(compiled.plan), { clock, record: true, ...(lookahead ? { lookahead } : {}) });
+  const beforeUps: LoggedEvent[][] = [];
   const timeline = [...PUSHES.map((p, i) => ({ at: p.at, push: i })), ...wakes.map((at) => ({ at, push: -1 }))].sort((a, b) => a.at - b.at || b.push - a.push);
   for (const { at, push } of timeline) {
     clock.set(at);
     if (push < 0) scheduler.wake();
-    else scheduler.push('pointer', PUSHES[push]!.port, PUSHES[push]!.fields);
+    else {
+      if (PUSHES[push]!.port === 'up') beforeUps.push(scheduler.events().filter((e) => (e.node === 'tap' && e.port === 'longPress') || (e.node === 'hold' && e.port === 'passCancel')));
+      scheduler.push('pointer', PUSHES[push]!.port, PUSHES[push]!.fields);
+    }
   }
   for (let k = 1; (scheduler.horizon ?? -Infinity) < 2; k++) {
     clock.set(2 + k * 0.025);
     scheduler.wake();
   }
-  return { log: scheduler.events().filter((e) => e.time < 2), rewinds: scheduler.stats.rewinds };
+  return { log: scheduler.events().filter((e) => e.time < 2), rewinds: scheduler.stats.rewinds, beforeUps };
 }
 
 const grid = (step: number) => Array.from({ length: Math.ceil(2 / step) }, (_, k) => k * step);
@@ -80,6 +86,11 @@ describe('timer claims with live input (ADR 0019)', () => {
     const ahead = perform(grid(0.002), 0.004);
     const live = perform(grid(0.025));
     expect(live.rewinds).toBeGreaterThan(0);
+    // Not vacuous: just before each up was pushed, the live run had already made the claim it rules out.
+    expect(live.beforeUps[0]!.filter((e) => e.node === 'tap' && e.channel === 1).map((e) => e.time)).toEqual([expect.closeTo(0.705, 9)]);
+    expect(live.beforeUps[1]!.filter((e) => e.node === 'hold' && e.channel === 2).map((e) => e.time)).toEqual([expect.closeTo(1.095, 9)]);
+    // The run with every push ahead of the horizon never made them.
+    expect(ahead.beforeUps.flat().filter((e) => (e.node === 'tap' && e.channel === 1) || e.node === 'hold')).toEqual([]);
     expect(live.log).toEqual(ahead.log);
     const of = (id: string, port: string) => live.log.filter((e) => e.node === id && e.port === port);
     // Pointer 7 (slot 1) lifted before its long press, and pointer 8 (slot 2) before its hold claimed.

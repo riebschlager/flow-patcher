@@ -56,8 +56,9 @@ const on = (list: readonly EngineEvent[] | undefined, channel: number) => (list 
  *
  * Before the cancel, Pass must carry exactly the channel's In events strictly before `time`, so a
  * claim that forwards its triggering event and then the cancel fails. Channels in `sameTime` (a
- * pinch's partner finger, whose own event at the claim's time came before the trigger) may also
- * have passed In events at `time`, as a prefix of their In events.
+ * pinch's partner finger) may also have passed their In events at `time` that come before the
+ * trigger in input order; the trigger is the first In event at `time` on a claimed channel not in
+ * `sameTime`.
  */
 export function expectClaim(out: Record<string, EngineEvent[]>, input: readonly EngineEvent[], { claimed, time, free = [], sameTime = [] }: { claimed: number[]; time: number; free?: number[]; sameTime?: number[] }): void {
   for (const channel of claimed) {
@@ -70,11 +71,10 @@ export function expectClaim(out: Record<string, EngineEvent[]>, input: readonly 
     expect(on(out.passCancel, channel).length).toBe(1);
     for (const port of ['passDown', 'passMove', 'passUp']) expect(on(out[port], channel).filter((e) => e.time > time), `${port} after the claim`).toEqual([]);
     const before = pass.slice(0, -1);
-    const mine = on(input, channel);
-    if (sameTime.includes(channel)) {
-      expect(before).toEqual(mine.slice(0, before.length));
-      expect(before.every((e) => e.time <= time)).toBe(true);
-    } else expect(before, `Pass before the claim on channel ${channel}`).toEqual(mine.filter((e) => e.time < time));
+    // The trigger: the first In event at the claim's time on a claimed channel not in `sameTime`.
+    const trigger = input.findIndex((e) => e.time === time && claimed.includes(e.channel) && !sameTime.includes(e.channel));
+    const allowed = input.filter((e, i) => e.channel === channel && (e.time < time || (sameTime.includes(channel) && e.time === time && trigger >= 0 && i < trigger)));
+    expect(before, `Pass before the claim on channel ${channel}`).toEqual(allowed);
   }
   for (const channel of free) expect(on(out.pass, channel), `channel ${channel} passes untouched`).toEqual(on(input, channel));
 }
