@@ -275,6 +275,27 @@ describe('pointer', () => {
     expect(events(full, 'cancel')).toEqual([]);
   });
 
+  it('marks the leave of a pointer whose moves were all thinned, at its own position', () => {
+    // A hovers on slot 1 and leaves while touches hold slots 2–4. In the limit window [0.24, 0.36) the
+    // touches' moves fill the budget first; pen B then takes slot 1, and its moves are thinned before it leaves.
+    const list: Push[] = [{ port: 'move', event: { time: 0.04, channel: 1, x: 0.8, y: 0.8, pointerType: 'mouse', buttons: 0 } }];
+    for (const id of [41, 42, 43]) list.push({ port: 'down', event: { time: 0.05, channel: id, x: 0.5, y: 0.5, pointerType: 'touch' } });
+    list.push({ port: 'leave', event: { time: 0.1, channel: 1, pointerType: 'mouse' } });
+    for (let k = 1; k <= 40; k++) for (const id of [41, 42, 43]) list.push({ port: 'move', event: { time: 0.2405 + k * 0.001, channel: id, x: 0.5 + k * 0.001, y: 0.5, pointerType: 'touch' } });
+    list.push({ port: 'move', event: { time: 0.3, channel: 7, x: 0.1, y: 0.2, pointerType: 'pen', buttons: 0 } });
+    list.push({ port: 'move', event: { time: 0.31, channel: 7, x: 0.12, y: 0.2, pointerType: 'pen', buttons: 0 } });
+    list.push({ port: 'leave', event: { time: 0.33, channel: 7, pointerType: 'pen' } });
+    for (const step of [1, 0.1, 0.025]) {
+      const all = events(list, 'all', step);
+      // Not vacuous: none of B's moves made it out.
+      expect(all.filter((e) => e.pointerType === 'pen' && e.phase === 'move'), `${step}`).toEqual([]);
+      expect(all.filter((e) => e.phase === 'leave').map((e) => [e.time, e.channel, e.x, e.y, e.pointerType]), `${step}`).toEqual([
+        [0.1, 1, 0.8, 0.8, 'mouse'],
+        [0.33, 1, 0.12, 0.2, 'pen'],
+      ]);
+    }
+  });
+
   it('orders same-time pushes Down, Move, Up, Cancel on one pointer, and new pointers by pointerId', () => {
     const list: Push[] = [
       { port: 'up', event: { time: 0.075, channel: 20, x: 0.3, y: 0.3 } },

@@ -57,8 +57,9 @@ interface Contact {
   angle: number;
   /** Time of the latest down, move, up or cancel. */
   last: number;
-  /** Whether the holder has emitted a Down or Move since it took the slot. Until it has, the record's
-   *  position and payload are the previous holder's, so it gets no leave (ADR 0028, #101). */
+  /** Whether the holder has had a Down, Move, Up or Cancel since it took the slot, emitted or thinned by the
+   *  budget. Until it has, the record's position and payload are the previous holder's, so it gets no
+   *  leave (ADR 0028, #101). */
   seen: boolean;
   /** The rest of the latest event's payload (pointerType, size, buttons, modifiers), for a Cancel when it's evicted. */
   payload: Record<string, EventField>;
@@ -102,7 +103,7 @@ interface Stepped {
   angle: number;
   age: number;
   /** The contact whose slot was taken (MAX_SLOTS): a Cancel first if it was down, a leave if it
-   *  hovered and emitted since it took the slot, else nothing. */
+   *  hovered and had a Down, Move, Up or Cancel since it took the slot, else nothing. */
   evicted: Contact | null;
 }
 
@@ -146,8 +147,8 @@ function step(contacts: Contacts, change: Change): Stepped | null {
   let contact = contacts.find((c) => c.id === change.id);
   if (kind === 'leave') {
     // A pointer that's down keeps its slot until its Up or Cancel. A hovering one gives it up, and
-    // All marks the end of its hover, at the slot's last position, if it emitted anything since it
-    // took the slot: before that, the position and payload are the previous holder's.
+    // All marks the end of its hover, at the slot's last position, if it had a Down, Move, Up or Cancel
+    // since it took the slot (thinned ones count): before that, the position and payload are the previous holder's.
     if (!contact || contact.down) return null;
     contact.id = null;
     if (!contact.seen) return null;
@@ -403,8 +404,9 @@ export function pointerSignal(state: NodeState, port: string, t: number, channel
  * puts a hover-end marker on All (ADR 0028, amended for #101): `phase: 'leave'` on the slot's
  * channel, at the leave's time, with the slot's last x, y and pressure, no motion, age 0, and
  * the leave's other payload fields (an eviction's leave: the evicted pointer's last payload). A
- * pointer that emitted nothing since it took the slot (an enter, then a leave) gets no leave:
- * the slot's record still holds the previous holder's position. It has no per-phase port and costs one event (All only), and
+ * pointer with no Down, Move, Up or Cancel since it took the slot (an enter, then a leave or
+ * eviction) gets no leave: the slot's record still holds the previous holder's position. One
+ * whose moves were all thinned by the budget still gets one, at its own position. It has no per-phase port and costs one event (All only), and
  * like Down, Up and Cancel it's never thinned. A leave while down emits nothing: the slot waits
  * for its Up or Cancel, which ends the contact. Events whose channel isn't an integer have no
  * pointer and are dropped.
