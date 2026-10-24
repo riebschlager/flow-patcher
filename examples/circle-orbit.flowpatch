@@ -1,0 +1,189 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261030,
+  "nodes": [
+    {
+      "id": "pointer",
+      "type": "pointer",
+      "typeVersion": 2,
+      "params": {},
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "circle",
+      "type": "circle",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 240,
+        "y": 100
+      }
+    },
+    {
+      "id": "touch",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.25,
+        "pitch": 69,
+        "velocity": 0.6
+      },
+      "position": {
+        "x": 480,
+        "y": 0
+      }
+    },
+    {
+      "id": "start",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 0.6,
+        "pitch": 57,
+        "velocity": 0.7
+      },
+      "position": {
+        "x": 480,
+        "y": 120
+      }
+    },
+    {
+      "id": "end",
+      "type": "make-note",
+      "typeVersion": 2,
+      "params": {
+        "length": 1,
+        "pitch": 64,
+        "velocity": 0.7
+      },
+      "position": {
+        "x": 480,
+        "y": 240
+      }
+    },
+    {
+      "id": "synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.01,
+        "level": 0.3,
+        "release": 0.5,
+        "wave": "sine"
+      },
+      "position": {
+        "x": 720,
+        "y": 100
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 960,
+        "y": 100
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "pointer",
+        "port": "all"
+      },
+      "to": {
+        "node": "circle",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "circle",
+        "port": "passDown"
+      },
+      "to": {
+        "node": "touch",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "circle",
+        "port": "start"
+      },
+      "to": {
+        "node": "start",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "circle",
+        "port": "end"
+      },
+      "to": {
+        "node": "end",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "circle",
+        "port": "revolutions"
+      },
+      "to": {
+        "node": "end",
+        "port": "pitch"
+      },
+      "depth": 12
+    },
+    {
+      "from": {
+        "node": "touch",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "start",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "end",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    }
+  ]
+}
