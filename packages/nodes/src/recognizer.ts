@@ -2,7 +2,7 @@
 // the In and Pass ports, the event budget, and routing a stream contact by contact.
 // Not a node: each recognizer's own file holds its definition and its gesture logic.
 import { limitWindowOf, NODE_EVENT_LIMIT, type EngineEvent, type NodeState, type PortSpec, type QueryResult } from '@flow-patcher/engine';
-import { PHASES, type Phase } from './pointer';
+import { PHASES, RESERVE, type Phase } from './pointer';
 
 export const IN_PORT: PortSpec = { name: 'in', type: 'event', direction: 'in', label: 'In' };
 
@@ -17,13 +17,8 @@ export const PASS_PORTS: PortSpec[] = [
 
 const PASS_PHASE: Record<Phase, string> = { down: 'passDown', move: 'passMove', up: 'passUp', cancel: 'passCancel' };
 
-/**
- * Events per limit window (ADR 0022) kept for Pass's downs, ups and cancels and the gesture
- * events that aren't moves: forwarded moves (two events each, Pass and Pass Move) and
- * move-like gesture events stop once a window's count would pass NODE_EVENT_LIMIT − RESERVE,
- * so the runtime's per-node cap never takes an end or a claim's cancel. As in Pointer.
- */
-export const RESERVE = 64;
+/** Events per limit window kept for downs, ups and cancels, shared with Pointer (ADR 0022). */
+export { RESERVE };
 
 /** An event's contact phase, or null when it has none (Click, Wheel, MIDI, a Clock tick). */
 export const phaseOf = (event: EngineEvent): Phase | null => ((PHASES as readonly unknown[]).includes(event.phase) ? (event.phase as Phase) : null);

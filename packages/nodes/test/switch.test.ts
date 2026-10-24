@@ -134,7 +134,10 @@ describe('switch', () => {
     const out = query(switchNode, 0, 1, { state, mods: { index: [{ depth: 1, signal: byChannel }] }, inputs: { in: events } }) as Record<string, EngineEvent[]>;
     expectWellFormed(out);
     expectUnderCap(out);
-    for (const port of OUTS) expect(out[port]!.filter((e) => e.phase === 'down').length).toBeGreaterThanOrEqual(7);
+    // Index = 1 + channel % 4 over channels 1–30: 7, 8, 8, 7 contacts, each down with its end.
+    const ends = (e: EngineEvent) => e.phase === 'up' || e.phase === 'cancel';
+    expect(OUTS.map((port) => out[port]!.filter((e) => e.phase === 'down').length)).toEqual([7, 8, 8, 7]);
+    expect(OUTS.map((port) => out[port]!.filter(ends).length)).toEqual([7, 8, 8, 7]);
     expect(Object.values(out).flat().filter((e) => e.phase === 'move').length).toBeLessThan(30 * 20);
   });
 

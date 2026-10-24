@@ -45,7 +45,7 @@ function tiled(step: number, params: Record<string, unknown> = {}, events = stre
 describe('zone', () => {
   it('is a recognizer with eight zone outputs, Zones, and Pass with its phase splits; no mask until #102', () => {
     expect(zone.category).toBe('gesture-recognizers');
-    expect(zone.version).toBe(2);
+    expect(zone.version).toBe(1);
     expect(zone.ports.filter((p) => p.direction === 'out').map((p) => p.name)).toEqual(PORTS);
     expect(SHAPES).toEqual(['grid', 'left/right', 'rings']);
     expect(zone.params.map((p) => p.name)).not.toContain('mask');
@@ -165,6 +165,11 @@ describe('zone', () => {
     expect(out.zone1!.filter((e) => e.phase === 'down')).toHaveLength(10);
     // Each contact's real end goes out once, in the zone it's in: the burst's last 10 events.
     expect(ZONES.flatMap((port) => out[port] ?? []).filter((e) => ends(e) && e.time === events.at(-1)!.time)).toHaveLength(10);
+    // The window filled before the first crossing (x passes 0.25 at step 16), so every crossing was
+    // held back: each contact stays in zone 1 and ends there (7 ups, 3 cancels).
+    for (const port of ['zone2', 'zone3', 'zone4']) expect(out[port], port).toBeUndefined();
+    expect(out.zone1!.filter((e) => e.phase === 'up')).toHaveLength(7);
+    expect(out.zone1!.filter((e) => e.phase === 'cancel')).toHaveLength(3);
     // Moves were thinned, and crossings with them once the window filled.
     expect(out.zones!.filter((e) => e.phase === 'move').length).toBeLessThan(10 * 60 - 30);
     // In a fresh window the crossings go through: here, spread over 0.5 s.

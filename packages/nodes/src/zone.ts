@@ -67,7 +67,7 @@ export function zoneOf(ctx: Pick<NodeContext, 'params' | 'param'>, event: Engine
  */
 export const zone: NodeDefinition = {
   type: 'zone',
-  version: 2,
+  version: 1,
   label: 'Zone',
   category: 'gesture-recognizers',
   description: 'Splits events by canvas region (grid cells, left/right or rings), following the pointer; a contact crossing zones ends in one and starts in the next. Events in no zone go out of Pass.',

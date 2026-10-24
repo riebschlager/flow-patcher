@@ -30,8 +30,9 @@ interface Latch {
  * Two things choose the output, and the latest one wins:
  * - Index, the knob plus any cable into it, read at each choice on the event's channel.
  * - Select: each event latches an output until the next one. A finite `value` field picks
- *   output `value` (rounded, clamped to 1–4); an event without one steps to the next output
- *   (4 wraps to 1), so a Key's Down can cycle modes.
+ *   output `value` (rounded, clamped to 1–4); an event without one steps from channel 0's
+ *   current output (the latch, else Index on channel 0) to the next, 4 wrapping to 1, so a
+ *   Key's Down can cycle modes.
  * A Select latch holds until Index changes: Index is compared, on channel 0, at each Select event
  * and each choice, and when it differs from the last reading the latch drops and Index rules
  * again. A change and its undo between two readings go unnoticed. A Select event and a `down` at
@@ -46,7 +47,7 @@ interface Latch {
  */
 export const switchNode: NodeDefinition = {
   type: 'switch',
-  version: 2,
+  version: 1,
   label: 'Switch / Select',
   category: 'control-logic',
   description: 'Routes events to one of four outputs, chosen by Index or latched by Select, whichever changed last. A contact stays on the output its down picked until it ends.',

@@ -29,7 +29,7 @@
     {
       "id": "mode",
       "type": "switch",
-      "typeVersion": 2,
+      "typeVersion": 1,
       "params": {
         "index": 1
       },

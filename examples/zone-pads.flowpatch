@@ -16,7 +16,7 @@
     {
       "id": "pads",
       "type": "zone",
-      "typeVersion": 2,
+      "typeVersion": 1,
       "params": {
         "centerX": 0.5,
         "centerY": 0.5,

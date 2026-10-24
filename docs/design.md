@@ -116,7 +116,7 @@ Recognizers consume raw events and emit higher-level ones. They are ordinary nod
 | Pinch | Pinch in, Spread, Scale and Rotation signals, midpoint | Pair selection, thresholds |
 | Stroke | Per-stroke path length, curvature, average speed; Silk/Rush classification | Speed split point |
 | Dwell | Fires when a pointer hovers in one spot (mouse and pen only) | Radius, time |
-| Zone | Splits events by canvas region: grid cells, left/right, rings, or a drawn mask | Rows, columns, shape |
+| Zone | Splits events by canvas region: grid cells, left/right, rings (a drawn mask waits for an editor drawing tool, #102) | Rows, columns, shape |
 | Modifier Router | Routes events to different outputs by button or modifier (right-drag → output 2) | Mapping table |
 
 ### Who owns a pointer
@@ -165,7 +165,7 @@ The v1 catalog has about 60 small nodes in eight families. Canvas sources and re
 | Node | What it does |
 | --- | --- |
 | Gate | Passes events while a Signal or toggle is high |
-| Switch / Select | Routes events to one of N outputs by index |
+| Switch / Select | Routes events to one of 4 outputs by index, or by a latching Select input |
 | Merge / Split Channels | Combines or separates per-pointer channels |
 | Counter | Counts events; wraps at N; outputs count as a Signal |
 | Random | Seeded random value per event, or a smooth random Signal |
