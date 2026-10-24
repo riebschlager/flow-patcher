@@ -1,4 +1,5 @@
 import type { NodeDefinition } from '@flow-patcher/engine';
+import { LEAVE } from './pointer';
 import { IN_PORT, Outputs, PASS_PORTS } from './recognizer';
 
 /** Pointer types that can hover. A touch has no hover. */
@@ -43,13 +44,13 @@ const closed = (open: boolean): Stay => ({ open, anchored: false, ax: 0, ay: 0, 
  * carries every event unchanged, and on Pass Down, Move, Up and Cancel without `phase`, so Dwell
  * can sit anywhere in a recognizer chain (or split a routed output by phase).
  *
- * All has no leave phase yet: a pointer that leaves the canvas still and its last hover move
- * near the edge fires a Dwell there. #101 adds a hover-end marker to Pointer's All, and Dwell
- * will drop its stay on it.
+ * A hover's leave (`phase: 'leave'` on All, ADR 0028 amended for #101) drops the channel's stay
+ * without firing, so a pointer that leaves the canvas still doesn't dwell at the edge, and a
+ * later pointer that reuses the slot starts afresh. The leave goes out on Pass alone.
  *
  * State: `stays` per channel, and `cell`, the event budget: forwarded moves and events with no
- * phase are thinned below NODE_EVENT_LIMIT − RESERVE, so downs, ups, cancels and Dwell's fires
- * always go out. Events are processed in time order and due fires before each event
+ * phase are thinned below NODE_EVENT_LIMIT − RESERVE, so downs, ups, cancels, leaves and Dwell's
+ * fires always go out. Events are processed in time order and due fires before each event
  * (a fire due at an event's time comes first), then those due before the window ends, so neither
  * depends on windowing.
  */
@@ -93,7 +94,7 @@ export const dwell: NodeDefinition = {
         stays[key] = { open: false, anchored: true, ax: x as number, ay: y as number, radius: param('radius', time, channel), fireAt: time + param('time', time, channel), x: x as number, y: y as number, pointerType: pointerType as string };
       };
       if (phase === 'down') stays[key] = closed(true);
-      else if (phase === 'cancel') delete stays[key];
+      else if (phase === 'cancel' || phase === LEAVE) delete stays[key];
       else if (phase === 'up') {
         // A mouse or pen still over the canvas hovers from where it lifted: click, then hold still.
         if (hovering) anchor();

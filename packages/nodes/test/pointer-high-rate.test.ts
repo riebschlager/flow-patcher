@@ -199,7 +199,7 @@ describe('pointer-high-rate', () => {
     ]);
   });
 
-  it('thins moves in a full limit window and keeps every Down, Up and Cancel', () => {
+  it('thins moves in a full limit window and keeps every Down, Up, Cancel and leave', () => {
     // Three fingers at 1 kHz for 120 ms in one limit window [0.24, 0.36): 360 samples, 720 events.
     const pushed: Record<string, EngineEvent[]> = { down: [], move: [], up: [] };
     for (const id of [1, 2, 3]) pushed.down!.push({ time: 0.24, channel: id, x: 0.1 * id, y: 0.5 });
@@ -207,6 +207,9 @@ describe('pointer-high-rate', () => {
     const xAt = (id: number, k: number) => 0.1 * id + Math.min(k, 100) * 0.001 + Math.max(0, k - 100) * 0.003;
     for (let k = 1; k < 119; k++) for (const id of [1, 2, 3]) pushed.move!.push({ time: 0.24 + k * 0.001, channel: id, x: xAt(id, k), y: 0.5, coalesced: true, interval: 0.001 });
     for (const id of [1, 2, 3]) pushed.up!.push({ time: 0.359, channel: id, x: xAt(id, 118), y: 0.5, interval: 0.001 });
+    // A mouse hovering in from the window's start, which leaves once the window is full: the leave isn't thinned.
+    pushed.move!.unshift({ time: 0.2405, channel: 9, x: 0.9, y: 0.1, buttons: 0, coalesced: true });
+    pushed.leave = [{ time: 0.35, channel: 9, x: 1, y: 0.1 }];
     const run = (step: number) => {
       const state = {};
       const out: Record<string, EngineEvent[]> = {};
@@ -218,6 +221,7 @@ describe('pointer-high-rate', () => {
     expect(total).toBeLessThanOrEqual(NODE_EVENT_LIMIT);
     expect(out.down).toHaveLength(3);
     expect(out.up).toHaveLength(3);
+    expect(out.all!.filter((e) => e.phase === 'leave').map((e) => [e.time, e.channel, e.x])).toEqual([[0.35, 4, 0.9]]);
     expect(out.move!.length).toBe((NODE_EVENT_LIMIT - RESERVE) / 2 - 3);
     // The moves that went are the window's latest: the last emitted is early, at 1 unit/s.
     expect(out.move!.at(-1)!.time).toBeLessThan(0.3);

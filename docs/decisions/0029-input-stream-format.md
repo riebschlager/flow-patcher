@@ -1,6 +1,6 @@
 # 0029 · Input streams record canvas events, and any patch can replay them
 
-Status: Accepted · 2026-10-23
+Status: Accepted · 2026-10-23 · Amended 2026-10-24 (pointerleave and the hover-end marker, #101)
 
 ## Context
 Replays need recorded input: M2's mode patches replay scripted input, and M4's performance recordings are the patch plus its input event streams (design.md "Performance recordings"). Today's `examples/<name>.inputs.json` lists pushes addressed to node ids and ports (`{ node, port, event }`). A file like that only replays through a patch with the same node ids, and it records what the patch did with the input, not what the player did.
@@ -21,7 +21,7 @@ Replays need recorded input: M2's mode patches replay scripted input, and M4's p
 - **`type`** is the canvas event: `pointerdown`, `pointermove`, `pointerup`, `pointercancel`, `pointerenter`, `pointerleave`, `click`, `dblclick`, `auxclick`, `contextmenu`, `wheel`, `keydown`, `keyup`, `gesturechange`, `resize`, `focus`, `blur`, `visibilitychange` or `midi`.
   - `pointerrawupdate` and coalesced samples are recorded as `pointermove` with `coalesced: true`. Pointer ignores those, and Pointer (high rate) reads them.
   - pointerdown, pointermove (coalesced samples included), pointerup and pointercancel also record `interval` (not pointerenter or pointerleave), the seconds since that pointer's previous sample by the browser's clock: one browser event's samples share a stamp, and stamps carry handler delays (#74). The live host doesn't listen to `pointerrawupdate` (docs/nodes/canvas-sources.md).
-  - `pointerenter` and `pointerleave` only update Pointer's hover state. They have no phase on All (ADR 0028).
+  - `pointerenter` only updates Pointer's hover state, and has no phase on All. `pointerleave` frees a hovering pointer's slot and puts a hover-end marker, `phase: 'leave'`, on All (ADR 0028, amended for #101); a leave while down emits nothing.
 
 ### Payload fields
 - The other fields are what the source nodes read, under the names their outputs use. design.md "Event payload" gives the base fields. docs/nodes/canvas-sources.md is the per-source list: pen tilt and twist, `key`, `code` and `repeat`, wheel deltas, gesture scale and rotation, canvas size, visibility, and MIDI `status`, `data1` and `data2`, the message's bytes as numbers (the MIDI channel is in `status`; a midi event has no `channel`). Only channel messages are recorded: the host drops system messages (sysex, clock, active sensing). Two-byte messages (program change, channel pressure) have no `data2`.
