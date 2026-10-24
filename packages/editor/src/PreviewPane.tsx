@@ -36,6 +36,18 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
     return () => observer.disconnect();
   }, []);
 
+  // The canvas's size in CSS pixels, for the Canvas node's Width, Height and Aspect.
+  useEffect(() => {
+    const element = canvas.current;
+    if (!element || !live) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const box = entry!.contentBoxSize[0]!;
+      live.canvasResize(box.inlineSize, box.blockSize);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [live]);
+
   // Each pointer's latest sample time (event.timeStamp, ms), for `interval`: motion is measured on the
   // browser's clock, since the stamps carry render quanta and handler delays (canvas-sources.md).
   const [lastSample] = useState(() => new Map<number, number>());
@@ -147,6 +159,8 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
           tabIndex={0}
           aria-label="Performance canvas"
           onKeyDown={keep}
+          onFocus={() => live?.canvasFocus(true)}
+          onBlur={() => live?.canvasFocus(false)}
           onContextMenu={contextMenu}
           onPointerDown={send('down')}
           onPointerMove={send('move')}

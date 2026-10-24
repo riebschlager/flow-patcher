@@ -101,4 +101,8 @@ describe('cold input', () => {
     expect(droppedWhileCold('pointermove')).toBe(true);
     for (const type of ['pointerdown', 'pointerup', 'pointercancel', 'keydown'] as const) expect(droppedWhileCold(type), type).toBe(false);
   });
+
+  it('drops the canvas\'s lifecycle while audio is stopped: the host sends its state when audio starts', () => {
+    for (const type of ['resize', 'focus', 'blur', 'visibilitychange'] as const) expect(droppedWhileCold(type), type).toBe(true);
+  });
 });
