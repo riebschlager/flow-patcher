@@ -27,15 +27,18 @@ declare global {
 // Web Audio. The cutoff's automation is mirrored call for call onto a
 // ConstantSourceNode's offset, whose output an AudioWorklet records sample by
 // sample. Knob turns on the cabled cutoff re-run the windows from the swap
-// (ADR 0031): automate keeps the ramp in progress up to t0, cancels the rest and
-// schedules again from there, in the same task. ADR 0031, Consequences: a browser that renders between the
-// two calls could hold the previous value for one render quantum. The sweep never
-// stands still, so a hold shows up as a flat quantum in the mirror. Before #103 an
-// exposed re-run (one within a grid step of the clock) gave the ramp in progress a
-// new end, so the param stepped by the knob change times the share of the ramp
-// already played (80–340 Hz). Now the re-run keeps that ramp up to its t0 and
-// ramps to the new base by the next grid point: the course bends at t0 but never
-// jumps. The test requires no hold and no step, and logs the bends.
+// (ADR 0031): automate keeps the ramp being played whole, cancels after it and
+// schedules again from there, in the same task. ADR 0031, Consequences: a browser
+// that renders between the calls could hold the previous value for one render
+// quantum. The sweep never stands still, so a hold shows up as a flat quantum in
+// the mirror. Before #103 an exposed re-run (one whose start is in the ramp the
+// render thread is in) gave that ramp a new end, so the param stepped by the knob
+// change times the share of the ramp already played (80–340 Hz). Now the new
+// values start at the grid point after it: the course bends on the grid and never
+// jumps. Chromium now and then freezes a param for one quantum at its previous
+// value and then goes on along its line, with or without edits (a control run
+// without knob turns showed 5 in 20 runs, #103); those are counted and logged,
+// not failed. The test requires no other hold and no step.
 
 const field = (page: Page, node: string, param: string) =>
   page.locator(`.react-flow__node[data-id="${node}"] .param-row[data-param="${param}"] [data-testid="param-field"]`);
@@ -51,7 +54,7 @@ async function dragBy(page: Page, target: Locator, dx: number) {
   await page.mouse.up();
 }
 
-test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns neither hold a quantum nor step', async ({ page }) => {
+test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns neither hold the param nor step', async ({ page }) => {
   test.setTimeout(60_000);
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -147,10 +150,11 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     };
     const mirror = stitch(probe.mirror), out = stitch(probe.out);
     const gaps = mirror.data.filter(Number.isNaN).length;
-    // Re-run cancels: t0 before what the automation already reached. Exposed ones land within one grid
-    // step of the clock, so they withdraw the ramp the render thread is in.
+    // Re-run cancels: before what the automation already reached. A re-run keeps the ramp its start falls
+    // in and cancels from the grid point after it (#103), so an exposed one, whose start is in the ramp the
+    // render thread is in, cancels within two grid steps of the clock.
     const reruns = probe.cancels.filter((c) => c.t0 < c.reached);
-    const exposed = reruns.filter((c) => c.t0 - c.now < 1 / 60);
+    const exposed = reruns.filter((c) => c.t0 - c.now < 2 / 60);
     const v = mirror.data;
     let smallest = Infinity, largest = -Infinity;
     for (const x of v) {
@@ -160,18 +164,31 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     }
     // Holds: a whole render quantum where the cutoff stands still. The sweep never does (its slope is
     // 2400 Hz per 4 s, 0.0125 Hz a sample at 48 kHz, steeper at the wrap); a held quantum is flat.
-    const holds: number[] = [];
+    // A freeze is a held quantum that starts at the previous sample's value and comes back onto the line
+    // it left (the change from before it to after it is what 129 samples of the slope on either side
+    // would give, with a grid point anywhere between). Anything else flat is a real hold.
+    const holds: number[] = [], freezes: number[] = [];
+    const returns = new Set<number>();
     for (let q = Math.ceil(mirror.from / 128) * 128 - mirror.from; q + 128 < v.length; q += 128) {
       let most = 0;
       // The 127 changes inside the quantum: a hold that ends with a jump back at the next quantum is still flat.
       for (let i = q + 1; i < q + 128; i++) most = Math.max(most, Math.abs(v[i]! - v[i - 1]!));
-      if (most < 0.002) holds.push((mirror.from + q) / rate);
+      if (!(most < 0.002)) continue;
+      const slopeBefore = (v[q - 1]! - v[q - 9]!) / 8, slopeAfter = (v[q + 136]! - v[q + 128]!) / 8;
+      const back = v[q + 128]! - v[q - 1]!;
+      const froze = Math.abs(v[q]! - v[q - 1]!) < 0.002;
+      const onLine = back >= 129 * Math.min(slopeBefore, slopeAfter) - 0.1 && back <= 129 * Math.max(slopeBefore, slopeAfter) + 0.1;
+      if (froze && onLine) {
+        freezes.push((mirror.from + q) / rate);
+        returns.add(q + 128);
+      } else holds.push((mirror.from + q) / rate);
     }
     // Steps: a sample-to-sample change far past any slope the automation has (its steepest, the wrap,
     // is 2400 Hz over one 1/60 s grid step, 3 Hz a sample), off the 60 Hz grid, and outside the range of
     // the changes on either side by more than 0.5 Hz: a jump in value. Before #103 an exposed re-run cancel
-    // made one. A bend, where a re-run's ramp to the new base starts, changes the slope from one sample on
-    // and lands between its neighbours (or equal to one); bends are counted, with the steepest new slope.
+    // made one. A bend changes the slope from one sample on and lands between its neighbours (or equal to
+    // one); a re-run's ramp to the new base starts on the grid, so bends off it are only counted, with the
+    // steepest new slope.
     // The mirror is a proxy param: it gets each call just after the real one, in the same task.
     // A quantum missing from the recording comes with an audio-thread glitch (seen once in a few runs,
     // with a small step a quantum before it), so steps within three quanta of one are left out and counted.
@@ -180,6 +197,8 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     for (let i = 2; i + 1 < v.length; i++) {
       const before = v[i - 1]! - v[i - 2]!, d = v[i]! - v[i - 1]!, after = v[i + 1]! - v[i]!;
       if (!(Math.abs(d) > 0.5) || Math.abs(d - before) < 0.5) continue;
+      // A freeze's return to its line is counted with the freeze.
+      if (returns.has(i)) continue;
       const frame = mirror.from + i, time = frame / rate, k = Math.round((frame * 60) / rate);
       if (Math.abs(frame - (k * rate) / 60) <= 2) continue;
       if (v.subarray(Math.max(0, i - 384), i + 384).some(Number.isNaN)) {
@@ -212,7 +231,7 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     const cov = mean(pairs.map(([x, y]) => (x - mx) * (y - my)));
     const r = cov / Math.sqrt(mean(pairs.map(([x]) => (x - mx) ** 2)) * mean(pairs.map(([, y]) => (y - my) ** 2)));
     return {
-      seconds: v.length / rate, gaps, besideGaps, holds, steps, bends, steepest, smallest, largest,
+      seconds: v.length / rate, gaps, besideGaps, holds, freezes, steps, bends, steepest, smallest, largest,
       cancels: probe.cancels.length, reruns: reruns.length, exposed: exposed.length,
       leads: exposed.map((c) => +((c.t0 - c.now) * 1000).toFixed(2)).slice(0, 20),
       blocks: pairs.length, r, filters: probe.filters, rate,
@@ -220,8 +239,8 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
   });
   console.log(
     `filter sweep: ${result.seconds.toFixed(2)} s recorded at ${result.rate} Hz, cutoff ${result.smallest.toFixed(0)}–${result.largest.toFixed(0)} Hz; ` +
-      `${final.swaps - first.swaps} swaps; ${result.cancels} cancels, ${result.reruns} re-run cancels, ${result.exposed} within one grid step of the clock (leads ms: ${result.leads.join(', ')}); ` +
-      `${result.holds.length} held quanta ${JSON.stringify(result.holds)}; ${result.steps.length} steps off the grid ${JSON.stringify(result.steps)}; ` +
+      `${final.swaps - first.swaps} swaps; ${result.cancels} cancels, ${result.reruns} re-run cancels, ${result.exposed} within two grid steps of the clock (leads ms: ${result.leads.join(', ')}); ` +
+      `${result.holds.length} held quanta ${JSON.stringify(result.holds)}; ${result.freezes.length} frozen quanta back on their line ${JSON.stringify(result.freezes)}; ${result.steps.length} steps off the grid ${JSON.stringify(result.steps)}; ` +
       `${result.bends} bends off the grid (steepest ${result.steepest.toFixed(2)} Hz a sample); ${result.gaps} samples missing from the recording, ${result.besideGaps} steps beside them; brightness vs cutoff r = ${result.r.toFixed(3)} over ${result.blocks} blocks; ` +
       `late ${final.lateScheduled} (${first.lateScheduled} before the turns), skipped ${final.skipped}`,
   );
@@ -232,13 +251,13 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
   expect(final.swaps - first.swaps).toBeGreaterThanOrEqual(TURNS);
   // The swaps re-ran windows the automation had covered, some close enough to the clock to withdraw the ramp in progress.
   expect(result.reruns).toBeGreaterThan(0);
-  // And some within one grid step of the clock, the only ones that can withdraw the ramp being played: without them the hold and step checks mean nothing.
+  // And some exposed, the only ones that could change the ramp being played: without them the hold and step checks mean nothing.
   expect(result.exposed).toBeGreaterThan(0);
   // The cutoff swept, and the sustained note's brightness followed it.
   expect(result.largest - result.smallest).toBeGreaterThan(1500);
   expect(result.blocks).toBeGreaterThan(40);
   expect(result.r).toBeGreaterThan(0.8);
-  // No quantum held at the previous value (ADR 0031, Consequences).
+  // No quantum held at the previous value (ADR 0031, Consequences), other than Chromium's freezes that go on along their line.
   expect(result.holds).toEqual([]);
   // No jump: re-runs keep the ramp in progress up to their start (#103).
   expect(result.steps).toEqual([]);
