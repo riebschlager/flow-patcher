@@ -29,12 +29,12 @@
       }
     },
     {
-      "id": "conductPress",
-      "type": "dwell",
+      "id": "conductDrag",
+      "type": "drag",
       "typeVersion": 1,
       "params": {
-        "radius": 0.02,
-        "time": 0.6
+        "claim": false,
+        "minDistance": 0.025
       },
       "position": {
         "x": 480,
@@ -42,12 +42,12 @@
       }
     },
     {
-      "id": "spacePress",
-      "type": "dwell",
+      "id": "spaceDrag",
+      "type": "drag",
       "typeVersion": 1,
       "params": {
-        "radius": 0.02,
-        "time": 0.6
+        "claim": false,
+        "minDistance": 0.025
       },
       "position": {
         "x": 480,
@@ -141,7 +141,7 @@
         "port": "out1"
       },
       "to": {
-        "node": "conductPress",
+        "node": "conductDrag",
         "port": "in"
       }
     },
@@ -151,14 +151,14 @@
         "port": "out2"
       },
       "to": {
-        "node": "spacePress",
+        "node": "spaceDrag",
         "port": "in"
       }
     },
     {
       "from": {
-        "node": "conductPress",
-        "port": "passDown"
+        "node": "conductDrag",
+        "port": "start"
       },
       "to": {
         "node": "conduct",
@@ -167,8 +167,8 @@
     },
     {
       "from": {
-        "node": "spacePress",
-        "port": "passDown"
+        "node": "spaceDrag",
+        "port": "start"
       },
       "to": {
         "node": "space",

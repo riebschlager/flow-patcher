@@ -1,5 +1,6 @@
 import type { EngineEvent, NodeDefinition, PortSpec } from '@flow-patcher/engine';
-import { IN_PORT, Outputs, routeContact } from './recognizer';
+import { IN_PORT, Outputs } from './recognizer';
+import { routeContact } from './route';
 
 /** Outputs Switch chooses between: one per Flow tool mode (Paint, Conduct, Space, Orbit). */
 export const SWITCH_OUTPUTS = 4;

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { clonePlain, compilePatch, inputRouter, replayInput, Runtime, type EngineEvent, type EventField, type InputEvent, type LoggedEvent, type NodeDefinition, type Patch, type SignalSource } from '@flow-patcher/engine';
 import { nodeRegistry, switchNode } from '../src';
 import { outputOf, SWITCH_OUTPUTS } from '../src/switch';
-import { routeContacts } from '../src/recognizer';
+import { routeContacts } from '../src/route';
 import { query, queryTiled } from './helpers';
 import { burst, expectUnderCap, expectWellFormed } from './routing';
 

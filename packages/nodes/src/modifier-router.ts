@@ -1,5 +1,6 @@
 import type { EngineEvent, NodeDefinition, ParamSpec, PortSpec } from '@flow-patcher/engine';
-import { IN_PORT, Outputs, PASS_PORTS, routeContacts } from './recognizer';
+import { IN_PORT, Outputs, PASS_PORTS } from './recognizer';
+import { routeContacts } from './route';
 
 /** Routed outputs, checked in order. */
 export const ROUTER_OUTPUTS = 4;

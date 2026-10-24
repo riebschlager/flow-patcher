@@ -39,12 +39,12 @@
       }
     },
     {
-      "id": "lowPress",
-      "type": "dwell",
+      "id": "lowDrag",
+      "type": "drag",
       "typeVersion": 1,
       "params": {
-        "radius": 0.02,
-        "time": 0.6
+        "claim": false,
+        "minDistance": 0.025
       },
       "position": {
         "x": 480,
@@ -52,12 +52,12 @@
       }
     },
     {
-      "id": "highPress",
-      "type": "dwell",
+      "id": "highDrag",
+      "type": "drag",
       "typeVersion": 1,
       "params": {
-        "radius": 0.02,
-        "time": 0.6
+        "claim": false,
+        "minDistance": 0.025
       },
       "position": {
         "x": 480,
@@ -148,7 +148,7 @@
         "port": "out1"
       },
       "to": {
-        "node": "lowPress",
+        "node": "lowDrag",
         "port": "in"
       }
     },
@@ -158,14 +158,14 @@
         "port": "out2"
       },
       "to": {
-        "node": "highPress",
+        "node": "highDrag",
         "port": "in"
       }
     },
     {
       "from": {
-        "node": "lowPress",
-        "port": "passDown"
+        "node": "lowDrag",
+        "port": "start"
       },
       "to": {
         "node": "low",
@@ -174,8 +174,8 @@
     },
     {
       "from": {
-        "node": "highPress",
-        "port": "passDown"
+        "node": "highDrag",
+        "port": "start"
       },
       "to": {
         "node": "high",

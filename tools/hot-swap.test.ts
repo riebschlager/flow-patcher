@@ -53,11 +53,11 @@ describe('a knob change across a rewind (ADR 0021)', () => {
       out: (inputs.in ?? []).map((e) => ({ time: e.time, channel: e.channel, beat: value('transport', e.time) as number, phase: signal('phase', e.time) })),
     }),
   };
-  const tap: NodeDefinition = { type: 'tap', version: 1, label: 'Tap', category: 'canvas-sources', description: '', ports: [{ name: 'out', type: 'event', direction: 'out' }], params: [] };
-  const registry = new Map(nodeRegistry).set('reader', reader).set('tap', tap);
+  const pusher: NodeDefinition = { type: 'pusher', version: 1, label: 'Pusher', category: 'canvas-sources', description: '', ports: [{ name: 'out', type: 'event', direction: 'out' }], params: [] };
+  const registry = new Map(nodeRegistry).set('reader', reader).set('pusher', pusher);
   const patch = () => makePatch(
-    [node('clock', 'clock', { bpm: 120, division: '1/16' }), node('tap', 'tap'), node('read', 'reader')],
-    [cable('clock', 'tick', 'read', 'in'), cable('tap', 'out', 'read', 'in'), cable('clock', 'transport', 'read', 'transport'), cable('clock', 'phase', 'read', 'phase')],
+    [node('clock', 'clock', { bpm: 120, division: '1/16' }), node('pusher', 'pusher'), node('read', 'reader')],
+    [cable('clock', 'tick', 'read', 'in'), cable('pusher', 'out', 'read', 'in'), cable('clock', 'transport', 'read', 'transport'), cable('clock', 'phase', 'read', 'phase')],
   );
 
   /** The swap at 1.001 s takes effect at the window boundary 1.02 s; the tap at 1.002 s lands at 1.007 s, before it. */
@@ -69,7 +69,7 @@ describe('a knob change across a rewind (ADR 0021)', () => {
       edits.push({
         time: 1.002,
         apply: (r) => {
-          seen.tapAt = r.scheduler.push('tap', 'out', { channel: 0 })!.time;
+          seen.tapAt = r.scheduler.push('pusher', 'out', { channel: 0 })!.time;
           seen.anchors = anchors(r.runtime);
         },
       });

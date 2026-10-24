@@ -127,8 +127,8 @@ describe('catalog types check (M2 gate)', () => {
   });
 
   it('rejects a node type that is not in packages/nodes', () => {
-    expect(nonCatalogNodes(patch(['pointer', 'tap', 'clock', 'metro']))).toEqual(['"n1" (tap)', '"n3" (metro)']);
-    expect(() => expectCatalogTypes(patch(['pointer', 'tap']), 'paint')).toThrow('paint uses node types that aren\'t in packages/nodes: "n1" (tap)');
+    expect(nonCatalogNodes(patch(['pointer', 'lasso', 'clock', 'metro']))).toEqual(['"n1" (lasso)', '"n3" (metro)']);
+    expect(() => expectCatalogTypes(patch(['pointer', 'lasso']), 'paint')).toThrow('paint uses node types that aren\'t in packages/nodes: "n1" (lasso)');
   });
 
   it('passes a patch of catalog types only', () => {

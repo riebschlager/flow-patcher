@@ -1,6 +1,6 @@
 # 0028 · Recognizers chain on one phase-tagged stream; a claim is a Cancel on Pass
 
-Status: Accepted · 2026-10-23
+Status: Accepted · 2026-10-23 · Amended 2026-10-24 (timer claims, the Claim toggle, log order; see the end)
 
 ## Context
 design.md ("Who owns a pointer") gives every recognizer a **Pass** output carrying the raw events it didn't claim. When it claims a channel, a Cancel goes to everything downstream of Pass. Chaining recognizers through Pass sets priority. That leaves two questions open for M2:
@@ -60,3 +60,15 @@ design.md ("Who owns a pointer") gives every recognizer a **Pass** output carryi
 - Adding All bumps those source nodes' versions, and their example patches are updated (pre-M4 rule).
   - Because All is logged, the goldens of examples that use those sources gain All's events.
   - That lands with #74, after #72. #72's migration of the input files must leave the goldens unchanged, so the two changes stay separate.
+
+## Amendment · 2026-10-24
+Building the recognizers (#78) settled three points the decision left open.
+
+- **Timer claims.** Some claims are decided by time alone, with no In event to replace: Tap's Long press, and Hold reaching its Min charge.
+  - The cancel goes out on Pass at the timer's time. It repeats the contact's latest event, with that time and phase `cancel`.
+  - The timer is a pure function of event times and params, so it rewinds and replays like any query. A later up that rules it out withdraws it on rewind.
+  - A timer due at an In event's exact time fires before that event.
+- **The Claim toggle.** Every recognizer has a Claim toggle. Off, it recognizes and emits its gesture events, but never claims: Pass carries everything.
+  - On by default for Pinch, Drag, Hold and Circle, where taking the contact is the point of the gesture.
+  - Off by default for Tap, Flick and Stroke, which usually ride along with painting.
+- **Log order.** The cancel keeps the triggering event's place in the recognizer's own output. The runtime's log orders same-time events by channel, so in the log a same-time cancel can sit before or after the other channels' events.

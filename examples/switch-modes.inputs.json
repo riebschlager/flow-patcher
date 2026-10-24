@@ -10,5 +10,6 @@
     {"time":2.5,"type":"pointermove","channel":2,"x":0.8,"y":0.3,"pressure":0.6,"pointerType":"touch"},
     {"time":2.6,"type":"pointerup","channel":2,"x":0.8,"y":0.3,"pressure":0,"pointerType":"touch"},
     {"time":2.8,"type":"pointerdown","channel":3,"x":0.4,"y":0.7,"pressure":0.6,"pointerType":"touch"},
-    {"time":2.9,"type":"pointerup","channel":3,"x":0.4,"y":0.7,"pressure":0,"pointerType":"touch"}
+    {"time":2.85,"type":"pointermove","channel":3,"x":0.5,"y":0.7,"pressure":0.6,"pointerType":"touch"},
+    {"time":2.9,"type":"pointerup","channel":3,"x":0.5,"y":0.7,"pressure":0,"pointerType":"touch"}
   ] }
