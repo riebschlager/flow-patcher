@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compilePatch, inputRouter, ManualClock, Runtime, Scheduler, type InputFields, type Plan } from '@flow-patcher/engine';
+import { compilePatch, IMMEDIATE_OFFSET, inputRouter, ManualClock, Runtime, Scheduler, type InputFields, type Plan } from '@flow-patcher/engine';
 import { nodeRegistry } from '@flow-patcher/nodes';
 import { CANVAS_TYPES, CanvasLifecycle } from '../src/canvas-lifecycle';
 import { droppedWhileCold } from '../src/live';
@@ -103,6 +103,34 @@ describe('a Canvas added while audio runs', () => {
 
   it('is sent the size once its swap has landed, wherever now falls in the window', () => {
     for (const now of [1.0, 1.003, 1.01, 1.0199, 1.02]) expect(widthAfterSwap(now, true), String(now)).toBe(400);
+  });
+
+  it('is sent the size by the scheduler\'s wakes when no frame runs (a hidden page)', () => {
+    const clock = new ManualClock();
+    const runtime = new Runtime(before);
+    let wakeTick = () => {};
+    let current = before;
+    const host = { send: (event: InputFields) => scheduler.pushAll(inputRouter(current).route(event)), running: () => true, now: () => clock.audioTime() };
+    const lifecycle = new CanvasLifecycle(host, 'hidden');
+    // The host's timer, paced so each wake is followed by a tick; tick() is never called directly here.
+    const scheduler: Scheduler = new Scheduler(runtime, { clock, timer: lifecycle.pace({ every: (_ms, tick) => ((wakeTick = tick), () => {}) }) });
+    scheduler.start();
+    for (let k = 1; k <= 40; k++) {
+      clock.set(k * 0.025);
+      wakeTick();
+    }
+    lifecycle.resize(400, 200);
+    clock.set(1.003);
+    const report = scheduler.swap(after);
+    current = after;
+    lifecycle.adopt(['c'], report.time);
+    expect(report.time).toBeGreaterThan(1.003 + IMMEDIATE_OFFSET);
+    // Wakes only, as a hidden page's throttled timer gives them.
+    for (let k = 1; k <= 4; k++) {
+      clock.set(1.003 + k * 0.1);
+      wakeTick();
+    }
+    expect(runtime.signalAt('c', 'width', 1.5)).toBe(400);
   });
 
   it('would lose a size pushed before the swap lands', () => {

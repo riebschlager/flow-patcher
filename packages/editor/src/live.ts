@@ -268,12 +268,13 @@ export class LivePatch {
         running: () => context.state === 'running',
         hidden: () => document.hidden,
       },
-      timer: {
+      // A due Canvas size is sent after the wakes too: they go on while the page is hidden and frames don't.
+      timer: this.lifecycle.pace({
         every(ms, tick) {
           const id = setInterval(tick, ms);
           return () => clearInterval(id);
         },
-      },
+      }),
       onStall: (stall) => console.warn(`[live] stall: ${stall.skipped} window(s) skipped, ${(stall.late * 1000).toFixed(1)} ms late`),
     });
     context.addEventListener('statechange', () => {
@@ -282,6 +283,7 @@ export class LivePatch {
       // Then the canvas's lifecycle, dropped while audio was stopped, catches up.
       const running = context.state === 'running';
       if (running && !this.wasRunning) this.lifecycle.start();
+      else this.lifecycle.tick();
       this.wasRunning = running;
       this.emit();
     });

@@ -1,7 +1,7 @@
 // The canvas's lifecycle for the Canvas node (docs/nodes/canvas-sources.md): its size, focus and the
 // page's visibility, as the live host sends them. Apart from LivePatch so it can be tested on a
 // ManualClock.
-import { IMMEDIATE_OFFSET, type InputEventType, type InputFields } from '@flow-patcher/engine';
+import { IMMEDIATE_OFFSET, type InputEventType, type InputFields, type SchedulerTimer } from '@flow-patcher/engine';
 
 /** The canvas's lifecycle events, which the host sends again as state when audio starts. */
 export const CANVAS_TYPES: ReadonlySet<InputEventType> = new Set(['resize', 'focus', 'blur', 'visibilitychange']);
@@ -31,8 +31,9 @@ export interface CanvasLifecycleHost {
  *
  * A source that reads the size and is new to the plan is sent it once its swap has taken effect: a swap
  * lands at a window boundary at or after now (ADR 0023), and a push stamped before that reaches a window
- * the new node isn't in yet, so it would be lost. `tick` (each frame) sends it when a push would be
- * stamped at or after the swap.
+ * the new node isn't in yet, so it would be lost. `tick` sends it when a push would be stamped at or
+ * after the swap. The host calls it each frame, at each AudioContext state change, and after each of the
+ * scheduler's wakes (`pace`), since frames stop while the page is hidden and the wakes don't.
  */
 export class CanvasLifecycle {
   readonly surface: CanvasState;
@@ -93,7 +94,18 @@ export class CanvasLifecycle {
     this.tick();
   }
 
-  /** Each frame: sends the size to a new reader once a push would land at or after its swap. */
+  /** The scheduler's wake timer, with a `tick` after every wake, so a due size is sent while frames are paused. */
+  pace(timer: SchedulerTimer): SchedulerTimer {
+    return {
+      every: (ms, tick) => timer.every(ms, () => {
+        tick();
+        this.tick();
+      }),
+    };
+  }
+
+  /** Sends the size to a new reader once a push would land at or after its swap. Cheap, and does nothing
+   *  when no size is due, so it can be called as often as the host likes. */
   tick(): void {
     const due = this.sizeDue;
     if (due === null || !this.host.running() || this.host.now() + IMMEDIATE_OFFSET < due) return;
