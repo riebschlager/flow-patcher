@@ -22,18 +22,19 @@ function plan() {
 
 /**
  * Two pens (raw ids 7 and 9) as the host sends them, with tilt but no altitude or azimuth on pen
- * 7 (a browser without them): 7 hovers in tilted, presses with the barrel held, drags and lifts;
+ * 7 (a browser without them): 7 hovers in tilted, presses, presses the barrel mid-drag (a chorded
+ * button, so a move: buttons 3, button 2) and lifts;
  * 9 presses while 7 is down, twisting, with only altitude and azimuth, and is cancelled.
  */
 const session: Push[] = [
   { port: 'enter', event: { time: 0.05, channel: 7, x: 0.1, y: 0.5, pointerType: 'pen', tiltX: 45, tiltY: 0 } },
   { port: 'move', event: { time: 0.06, channel: 7, x: 0.12, y: 0.5, pressure: 0, pointerType: 'pen', buttons: 0, tiltX: 45, tiltY: 0, twist: 0 } },
-  { port: 'move', event: { time: 0.08, channel: 7, x: 0.14, y: 0.5, pressure: 0, pointerType: 'pen', buttons: 2, tiltX: 0, tiltY: -30, twist: 0 } },
-  { port: 'down', event: { time: 0.1, channel: 7, x: 0.2, y: 0.5, pressure: 0.4, pointerType: 'pen', button: 0, buttons: 3, tiltX: 0, tiltY: -30, twist: 10, tangentialPressure: 0.5 } },
-  { port: 'move', event: { time: 0.15, channel: 7, x: 0.3, y: 0.5, pressure: 0.6, pointerType: 'pen', buttons: 3, tiltX: 20, tiltY: 20, twist: 20, tangentialPressure: 0.25 } },
+  { port: 'move', event: { time: 0.08, channel: 7, x: 0.14, y: 0.5, pressure: 0, pointerType: 'pen', buttons: 0, tiltX: 0, tiltY: -30, twist: 0 } },
+  { port: 'down', event: { time: 0.1, channel: 7, x: 0.2, y: 0.5, pressure: 0.4, pointerType: 'pen', button: 0, buttons: 1, tiltX: 0, tiltY: -30, twist: 10, tangentialPressure: 0.5 } },
+  { port: 'move', event: { time: 0.15, channel: 7, x: 0.3, y: 0.5, pressure: 0.6, pointerType: 'pen', button: 2, buttons: 3, tiltX: 20, tiltY: 20, twist: 20, tangentialPressure: 0.25 } },
   { port: 'down', event: { time: 0.2, channel: 9, x: 0.8, y: 0.8, pressure: 0.5, pointerType: 'pen', button: 0, buttons: 1, altitudeAngle: Q, azimuthAngle: H, twist: 90 } },
   { port: 'move', event: { time: 0.25, channel: 9, x: 0.8, y: 0.7, pressure: 0.5, pointerType: 'pen', buttons: 1, altitudeAngle: Q, azimuthAngle: H, twist: 180 } },
-  { port: 'up', event: { time: 0.3, channel: 7, x: 0.3, y: 0.5, pressure: 0, pointerType: 'pen', button: 0, buttons: 2, tiltX: 20, tiltY: 20, twist: 20, tangentialPressure: 0.25 } },
+  { port: 'up', event: { time: 0.3, channel: 7, x: 0.3, y: 0.5, pressure: 0, pointerType: 'pen', button: 0, buttons: 0, tiltX: 20, tiltY: 20, twist: 20, tangentialPressure: 0.25 } },
   { port: 'move', event: { time: 0.32, channel: 7, x: 0.31, y: 0.5, pressure: 0, pointerType: 'pen', buttons: 0, tiltX: 20, tiltY: 20, twist: 20 } },
   { port: 'leave', event: { time: 0.35, channel: 7, x: 0.31, y: 0.5, pointerType: 'pen' } },
   { port: 'cancel', event: { time: 0.4, channel: 9, x: 0.8, y: 0.7, pressure: 0, pointerType: 'pen', buttons: 0, altitudeAngle: Q, azimuthAngle: H, twist: 180 } },
@@ -115,18 +116,18 @@ describe('pen', () => {
     const [hover, tilted] = events(session, 'move');
     // Tilt 45° along +x, no altitude or azimuth from the host: altitude π/4, azimuth 0.
     close(hover!, { tiltX: 45, tiltY: 0, altitudeAngle: Q, azimuthAngle: 0, twist: 0, tangentialPressure: 0, barrel: 0, age: 0 });
-    // Tilt 30° toward −y: azimuth 3π/2, altitude 60°. The barrel held while hovering.
-    close(tilted!, { tiltX: 0, tiltY: -30, altitudeAngle: Math.PI / 3, azimuthAngle: 3 * H, barrel: 1 });
+    // Tilt 30° toward −y: azimuth 3π/2, altitude 60°.
+    close(tilted!, { tiltX: 0, tiltY: -30, altitudeAngle: Math.PI / 3, azimuthAngle: 3 * H, barrel: 0 });
     const [down7, down9] = events(session, 'down');
-    expect(down7).toMatchObject({ pressure: 0.4, buttons: 3, twist: 10, tangentialPressure: 0.5, barrel: 1, dx: expect.any(Number), age: 0 });
+    expect(down7).toMatchObject({ pressure: 0.4, buttons: 1, twist: 10, tangentialPressure: 0.5, barrel: 0, dx: expect.any(Number), age: 0 });
     // Only altitude and azimuth from the host: tilt comes from them (45° toward +y).
     close(down9!, { altitudeAngle: Q, azimuthAngle: H, tiltX: 0, tiltY: 45, twist: 90, barrel: 0 });
     // Pointer's motion: 7 moved 0.06 in 20 ms before its Down.
     close(down7!, { dx: 3, dy: 0, speed: 3 });
     const [, , drag] = events(session, 'move');
-    close(drag!, { age: 0.05, dx: 2, twist: 20, tangentialPressure: 0.25 });
-    // The Up with the barrel still held: buttons 2.
-    expect(events(session, 'up')[0]).toMatchObject({ barrel: 1, pressure: 0 });
+    // The barrel pressed mid-drag: a chorded move.
+    close(drag!, { age: 0.05, dx: 2, twist: 20, tangentialPressure: 0.25, barrel: 1, button: 2 });
+    expect(events(session, 'up')[0]).toMatchObject({ barrel: 0, pressure: 0 });
   });
 
   it('gives the same events on every port in one, two and three windows and in 25 ms tiles', () => {
@@ -152,7 +153,7 @@ describe('pen', () => {
     // Channel 0 and a channel no slot has had read the pen that changed last (9's move at 0.25).
     expect(read(session, 0.27, 0)).toEqual({ ...read(session, 0.27, 2), channel: 0 });
     expect(read(session, 0.27, 5)).toEqual({ ...read(session, 0.27, 2), channel: 5 });
-    // After 7's Up (its barrel still held): the slot is free, so Barrel and Tangential pressure read 0; tilt holds.
+    // After 7's Up: the slot is free, so Barrel and Tangential pressure read 0; tilt holds.
     close(read(session, 0.31, 1), { barrel: 0, tangentialPressure: 0, pressure: 0, tiltX: 20, twist: 20, count: 1 });
     // Its hover after the Up takes slot 1 again; then the leave frees it and the angles hold.
     close(read(session, 0.33, 1), { x: 0.31, barrel: 0, tiltX: 20 });
@@ -191,6 +192,61 @@ describe('pen', () => {
     expect(query(pen, 0, 1, { state: {}, pushed: { down: [{ time: 0.1, channel: 4, x: 0.5, y: 0.5, pointerType: 'touch' }, { time: 0.2, channel: 5, x: 0.5, y: 0.5 }] } })).toEqual({});
   });
 
+  it('follows the browser on the barrel: pressed in the air it is a Down with button 2 and the hover pressure, on Pen and Pointer', () => {
+    const barrel: Push[] = [
+      { port: 'move', event: { time: 0.1, channel: 3, x: 0.5, y: 0.5, pressure: 0, pointerType: 'pen', button: -1, buttons: 0, tiltX: 10 } },
+      // The barrel in the air: the first button, so a pointerdown, with no tip pressure.
+      { port: 'down', event: { time: 0.2, channel: 3, x: 0.5, y: 0.5, pressure: 0, pointerType: 'pen', button: 2, buttons: 2, tiltX: 10 } },
+      // The tip touches while the barrel is held: a chorded button, so a move.
+      { port: 'move', event: { time: 0.3, channel: 3, x: 0.55, y: 0.5, pressure: 0.5, pointerType: 'pen', button: 0, buttons: 3, tiltX: 10 } },
+      { port: 'move', event: { time: 0.4, channel: 3, x: 0.6, y: 0.5, pressure: 0, pointerType: 'pen', button: 0, buttons: 2, tiltX: 10 } },
+      { port: 'up', event: { time: 0.5, channel: 3, x: 0.6, y: 0.5, pressure: 0, pointerType: 'pen', button: 2, buttons: 0, tiltX: 10 } },
+    ];
+    expect(events(barrel, 'down').map((e) => [e.time, e.channel, e.button, e.pressure, e.barrel])).toEqual([[0.2, 1, 2, 0, 1]]);
+    expect(events(barrel, 'all').map((e) => [e.time, e.phase, e.barrel])).toEqual([[0.1, 'move', 0], [0.2, 'down', 1], [0.3, 'move', 1], [0.4, 'move', 1], [0.5, 'up', 0]]);
+    // Pointer reads the same press as a Down too (it has no barrel field).
+    const fromPointer = queryTiled(pointer, 'down', 1, 1, { state: {}, pushed: pushedOf(barrel) });
+    expect(fromPointer.map((e) => [e.time, e.button, e.pressure])).toEqual([[0.2, 2, 0]]);
+    expect(fromPointer[0]!.barrel).toBeUndefined();
+    const at = (t: number) => read(barrel, t, 1);
+    close(at(0.25), { barrel: 1, pressure: 0, count: 1 });
+    close(at(0.35), { barrel: 1, pressure: 0.5, count: 1 });
+    close(at(0.45), { barrel: 1, pressure: 0, count: 1 });
+    close(at(0.55), { barrel: 0, count: 0 });
+    // An Up that still reports the barrel (or the airbrush wheel) frees the slot, and they read 0 there.
+    const held: Push[] = [
+      { port: 'down', event: { time: 0.1, channel: 3, x: 0.5, y: 0.5, pressure: 0.5, pointerType: 'pen', button: 0, buttons: 3, tangentialPressure: 0.4 } },
+      { port: 'up', event: { time: 0.2, channel: 3, x: 0.5, y: 0.5, pressure: 0, pointerType: 'pen', button: 0, buttons: 2, tangentialPressure: 0.4 } },
+    ];
+    close(read(held, 0.15, 1), { barrel: 1, tangentialPressure: 0.4 });
+    close(read(held, 0.25, 1), { barrel: 0, tangentialPressure: 0 });
+  });
+
+  it("reads a pen held upright on a slot a new pen has only entered, not the previous pen's values", () => {
+    const list: Push[] = [
+      { port: 'down', event: { time: 0.1, channel: 7, x: 0.5, y: 0.5, pressure: 0.5, pointerType: 'pen', button: 0, buttons: 3, tiltX: 40, tiltY: 0, twist: 100, tangentialPressure: 0.6 } },
+      { port: 'up', event: { time: 0.2, channel: 7, x: 0.5, y: 0.5, pressure: 0, pointerType: 'pen', button: 0, buttons: 0, tiltX: 40, tiltY: 0, twist: 100, tangentialPressure: 0.6 } },
+      { port: 'leave', event: { time: 0.25, channel: 7, x: 0.5, y: 0.5, pointerType: 'pen', tiltX: 40 } },
+      // Pen 8 enters and takes slot 1, then sends its first move.
+      { port: 'enter', event: { time: 0.5, channel: 8, x: 0, y: 0.5, pointerType: 'pen', tiltX: -10 } },
+      { port: 'move', event: { time: 0.6, channel: 8, x: 0.1, y: 0.5, pressure: 0, pointerType: 'pen', buttons: 0, tiltX: -10, twist: 5 } },
+      // Pen 9 enters slot 2 and leaves without a sample.
+      { port: 'enter', event: { time: 0.7, channel: 9, x: 1, y: 0.5, pointerType: 'pen', tiltX: 60 } },
+      { port: 'leave', event: { time: 0.75, channel: 9, x: 1, y: 0.5, pointerType: 'pen', tiltX: 60 } },
+    ];
+    // Pen 7's last values hold on its freed slot until another pen takes it.
+    close(read(list, 0.4, 1), { tiltX: 40, twist: 100, altitudeAngle: (50 * Math.PI) / 180 });
+    for (const t of [0.5, 0.55]) {
+      const row = read(list, t, 1);
+      for (const field of PEN_FIELDS) expect(row[field], `${t} ${field}`).toBe(PEN_DEFAULTS[field]);
+    }
+    close(read(list, 0.65, 1), { tiltX: -10, twist: 5, azimuthAngle: Math.PI });
+    for (const t of [0.72, 0.8]) for (const field of PEN_FIELDS) expect(read(list, t, 2)[field], `${t} ${field}`).toBe(PEN_DEFAULTS[field]);
+    // The same in 25 ms windows.
+    const times = [0.15, 0.4, 0.5, 0.55, 0.65, 0.72, 0.8];
+    expect(readSignals(list, 0.025, times, [1, 2])).toEqual(readSignals(list, 1, times, [1, 2]));
+  });
+
   it('gives defined pen fields for weird and out-of-range payloads', () => {
     const fields = (event: Record<string, unknown>) => penFieldsOf(event);
     // Nothing, or nothing finite: a pen held upright.
@@ -214,6 +270,17 @@ describe('pen', () => {
     close(fields({ altitudeAngle: 0, azimuthAngle: Q }), { tiltX: 90, tiltY: 90 });
     // Only an azimuth: upright, so no tilt whatever the azimuth.
     close(fields({ azimuthAngle: 1 }), { altitudeAngle: H, azimuthAngle: 1, tiltX: 0, tiltY: 0 });
+    // Flat along an axis: altitude 0, azimuth along it (the spec checks the axes first). Flat off both axes: azimuth 0.
+    close(fields({ tiltX: 90, tiltY: 0 }), { altitudeAngle: 0, azimuthAngle: 0 });
+    close(fields({ tiltX: -90, tiltY: 0 }), { altitudeAngle: 0, azimuthAngle: Math.PI });
+    close(fields({ tiltX: 0, tiltY: 90 }), { altitudeAngle: 0, azimuthAngle: H });
+    close(fields({ tiltX: 0, tiltY: -90 }), { altitudeAngle: 0, azimuthAngle: 3 * H });
+    close(fields({ tiltX: 90, tiltY: 90 }), { altitudeAngle: 0, azimuthAngle: 0 });
+    // Angles to tilt and back agree, lying flat along each axis and leaning anywhere.
+    for (const [altitudeAngle, azimuthAngle] of [[0, 0], [0, H], [0, Math.PI], [0, 3 * H], [0.7, 2], [1.2, 5], [Q, Q], [H, 0]] as const) {
+      const { tiltX, tiltY } = fields({ altitudeAngle, azimuthAngle });
+      close(fields({ tiltX, tiltY }), { altitudeAngle, azimuthAngle });
+    }
     // Tilt to angles and back agree, and the host's own altitude and azimuth are kept as sent.
     const derived = fields({ tiltX: 30, tiltY: -40 });
     close(fields({ altitudeAngle: derived.altitudeAngle, azimuthAngle: derived.azimuthAngle }), { tiltX: 30, tiltY: -40 });

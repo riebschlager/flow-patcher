@@ -22,14 +22,22 @@ const clamp = (value: number, lo: number, hi: number) => Math.min(hi, Math.max(l
 /** Into [0, m): angles that wrap. Values already in range stay exactly as they are. */
 const wrap = (value: number, m: number) => (value >= 0 && value < m ? value : ((value % m) + m) % m);
 
-/** Altitude and azimuth (radians) from tilt (degrees), as the Pointer Events spec converts them. */
+/** Altitude and azimuth (radians) from tilt (degrees), as the Pointer Events spec converts them
+ *  (tilt2spherical): the azimuth along an axis first, so a pen lying flat along one keeps its direction. */
 function sphericalOf(tiltX: number, tiltY: number): { altitudeAngle: number; azimuthAngle: number } {
   const tx = tiltX / DEG, ty = tiltY / DEG;
-  if (Math.abs(tiltX) === 90 || Math.abs(tiltY) === 90) return { altitudeAngle: 0, azimuthAngle: 0 };
-  if (tiltX === 0) return { altitudeAngle: HALF_PI - Math.abs(ty), azimuthAngle: tiltY > 0 ? HALF_PI : tiltY < 0 ? 3 * HALF_PI : 0 };
-  if (tiltY === 0) return { altitudeAngle: HALF_PI - Math.abs(tx), azimuthAngle: tiltX < 0 ? Math.PI : 0 };
-  const tanX = Math.tan(tx), tanY = Math.tan(ty);
-  return { altitudeAngle: Math.atan(1 / Math.hypot(tanX, tanY)), azimuthAngle: wrap(Math.atan2(tanY, tanX), TAU) };
+  const flat = Math.abs(tiltX) === 90 || Math.abs(tiltY) === 90;
+  let azimuthAngle = 0;
+  if (tiltX === 0) azimuthAngle = tiltY > 0 ? HALF_PI : tiltY < 0 ? 3 * HALF_PI : 0;
+  else if (tiltY === 0) azimuthAngle = tiltX < 0 ? Math.PI : 0;
+  // Flat off both axes: the spec leaves the azimuth undefined, and says 0.
+  else if (!flat) azimuthAngle = wrap(Math.atan2(Math.tan(ty), Math.tan(tx)), TAU);
+  let altitudeAngle: number;
+  if (flat) altitudeAngle = 0;
+  else if (tiltX === 0) altitudeAngle = HALF_PI - Math.abs(ty);
+  else if (tiltY === 0) altitudeAngle = HALF_PI - Math.abs(tx);
+  else altitudeAngle = Math.atan(1 / Math.hypot(Math.tan(tx), Math.tan(ty)));
+  return { altitudeAngle, azimuthAngle };
 }
 
 /** Tilt (degrees) from altitude and azimuth (radians), as the Pointer Events spec converts them. */
@@ -102,7 +110,9 @@ function penSignal(state: NodeState, port: string, t: number, channel: number): 
   if (!(PEN_FIELDS as readonly string[]).includes(port)) return pointerSignal(state, port, t, channel);
   const field = port as PenField;
   const contact = pointerContactAt(state, t, channel);
-  if (!contact) return PEN_DEFAULTS[field];
+  // Before any pen, or on a slot whose holder has only entered (no down or move of its own, so its
+  // payload is still the previous holder's): a pen held upright.
+  if (!contact || contact.refAt === null) return PEN_DEFAULTS[field];
   // A free slot has no pen on it: nothing presses the barrel or the airbrush wheel.
   if ((field === 'barrel' || field === 'tangentialPressure') && contact.id === null) return 0;
   const value = contact.payload[field];
@@ -128,8 +138,14 @@ function penSignal(state: NodeState, port: string, t: number, channel: number): 
  *
  * Signals, per channel (slot), from the slot's latest event: Tilt X, Tilt Y, Altitude, Azimuth
  * and Twist in the fields' units, held after Up, Cancel or a leave as X and Y are; Tangential
- * pressure and Barrel button, which read 0 once the slot is free. Channel 0 reads the latest pen,
- * and before any pen they read a pen held upright (PEN_DEFAULTS).
+ * pressure and Barrel button, which read 0 once the slot is free. Channel 0 reads the latest pen.
+ * Before any pen, and on a slot a pen has only entered (no Down or Move yet), they read a pen held
+ * upright (PEN_DEFAULTS), not the previous holder's values.
+ *
+ * The barrel button follows the browser: pressed in the air it's a pointerdown with `button` 2
+ * (Pointer Events counts any button as the active buttons state), so Pen emits a Down with the
+ * hover's pressure, and Pointer does too; a press while another button is held is a pointermove.
+ * A patch that wants tip contacts only filters on `button` or `pressure`.
  */
 export const pen: NodeDefinition = {
   type: 'pen',

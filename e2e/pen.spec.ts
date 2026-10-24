@@ -72,9 +72,11 @@ test('pen events reach Pen with tilt, angles, twist, tangential pressure and the
   await expect.poll(() => latest(page, 'altitudeAngle')).toBeCloseTo(Math.PI / 2, 6);
   expect(await latest(page, 'barrel')).toBe(0);
 
-  // A pen hovers in, tilted, with the angles the browser computes from tilt; presses with the barrel
-  // held (buttons 3), sending altitude and azimuth, so the browser computes the tilt (it prefers tilt
-  // when given both); drags; lifts; and leaves. Expected tilt: the spec's conversion, which Chromium
+  // A pen hovers in, tilted, with the angles the browser computes from tilt; presses the barrel in the
+  // air (the first button, so a pointerdown with button 2 and no tip pressure, as browsers send it),
+  // sending altitude and azimuth, so the browser computes the tilt (it prefers tilt when given both);
+  // touches the tip down while holding it (a chorded button: a move with buttons 3) and drags; lets
+  // both go; and leaves. Expected tilt: the spec's conversion, which Chromium
   // rounds to whole degrees. Pen's fields are also compared exactly with what Pointer saw raw.
   const tiltOf = (altitude: number, azimuth: number) => [Math.atan(Math.cos(azimuth) / Math.tan(altitude)) * 180 / Math.PI, Math.atan(Math.sin(azimuth) / Math.tan(altitude)) * 180 / Math.PI] as const;
   const [downX, downY] = tiltOf(1, 2.5), [dragX, dragY] = tiltOf(1.1, 2.6);
@@ -82,8 +84,8 @@ test('pen events reach Pen with tilt, angles, twist, tangential pressure and the
   const pen = { pointerType: 'pen' };
   await dispatch(page, 'pointerover', { fx: 0.05, fy: 0.5, ...pen, tiltX: 30, tiltY: 0 });
   await dispatch(page, 'pointermove', { fx: 0.1, fy: 0.5, ...pen, buttons: 0, pressure: 0, tiltX: 30, tiltY: 0, twist: 10 });
-  await dispatch(page, 'pointerdown', { fx: 0.2, fy: 0.4, ...pen, button: 0, buttons: 3, pressure: 0.6, twist: 45, tangentialPressure: 0.5, altitudeAngle: 1, azimuthAngle: 2.5, width: 1, height: 1, shiftKey: true });
-  await dispatch(page, 'pointermove', { fx: 0.3, fy: 0.4, ...pen, buttons: 3, pressure: 0.7, twist: 50, tangentialPressure: -0.25, altitudeAngle: 1.1, azimuthAngle: 2.6 });
+  await dispatch(page, 'pointerdown', { fx: 0.2, fy: 0.4, ...pen, button: 2, buttons: 2, pressure: 0, twist: 45, tangentialPressure: 0.5, altitudeAngle: 1, azimuthAngle: 2.5, width: 1, height: 1, shiftKey: true });
+  await dispatch(page, 'pointermove', { fx: 0.3, fy: 0.4, ...pen, button: 0, buttons: 3, pressure: 0.7, twist: 50, tangentialPressure: -0.25, altitudeAngle: 1.1, azimuthAngle: 2.6 });
   // Mid-drag: the signals follow the pen's latest event.
   await expect.poll(() => latest(page, 'twist')).toBeCloseTo(50, 3);
   expect(await latest(page, 'tiltX')).toBeCloseTo(dragX, 0);
@@ -93,7 +95,7 @@ test('pen events reach Pen with tilt, angles, twist, tangential pressure and the
   expect(await latest(page, 'tangentialPressure')).toBeCloseTo(-0.25, 3);
   expect(await latest(page, 'barrel')).toBe(1);
   expect(await latest(page, 'pressure')).toBeCloseTo(0.7, 3);
-  await dispatch(page, 'pointerup', { fx: 0.3, fy: 0.4, ...pen, button: 0, buttons: 0, pressure: 0, tiltX: -20, tiltY: 10, twist: 50 });
+  await dispatch(page, 'pointerup', { fx: 0.3, fy: 0.4, ...pen, button: 2, buttons: 0, pressure: 0, tiltX: -20, tiltY: 10, twist: 50 });
   await dispatch(page, 'pointerout', { fx: 1.2, fy: 0.4, ...pen, tiltX: -20, tiltY: 10 });
 
   await expect.poll(async () => (await seen(page, 'pen', since)).map((e) => e.phase)).toEqual(['move', 'down', 'move', 'up']);
@@ -111,11 +113,12 @@ test('pen events reach Pen with tilt, angles, twist, tangential pressure and the
   expect(hover!.azimuthAngle).toBeCloseTo(0, 3);
   expect(down!.tiltX).toBeCloseTo(downX, 0);
   expect(down!.tiltY).toBeCloseTo(downY, 0);
-  expect(down).toMatchObject({ twist: 45, tangentialPressure: 0.5, barrel: 1, buttons: 3, button: 0, shift: true, x: expect.closeTo(0.2, 1), y: expect.closeTo(0.4, 1) });
-  expect(down!.pressure).toBeCloseTo(0.6, 3);
+  // The barrel in the air: a Down with button 2 and the hover's pressure.
+  expect(down).toMatchObject({ twist: 45, tangentialPressure: 0.5, barrel: 1, buttons: 2, button: 2, pressure: 0, shift: true, x: expect.closeTo(0.2, 1), y: expect.closeTo(0.4, 1) });
   expect(down!.altitudeAngle).toBeCloseTo(1, 6);
   expect(down!.azimuthAngle).toBeCloseTo(2.5, 6);
-  expect(drag).toMatchObject({ twist: 50, barrel: 1 });
+  expect(drag).toMatchObject({ twist: 50, barrel: 1, buttons: 3, button: 0 });
+  expect(drag!.pressure).toBeCloseTo(0.7, 3);
   expect(drag!.tiltX).toBeCloseTo(dragX, 0);
   // Down and drag may share a render quantum's stamp, so age is 0 or more: their stamps' difference.
   expect(drag!.age).toBeCloseTo(drag!.time - down!.time, 9);
