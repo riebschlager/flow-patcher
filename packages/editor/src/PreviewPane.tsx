@@ -107,7 +107,7 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
   // browser's clock, since the stamps carry render quanta and handler delays (canvas-sources.md).
   const [lastSample] = useState(() => new Map<number, number>());
   // The pointerType of the last pointerdown on the canvas, for click events that carry none (Safari).
-  const lastDownType = useRef('mouse');
+  const [lastDown] = useState(() => ({ pointerType: 'mouse' }));
   /** Seconds since this pointer's previous sample, or nothing for its first; and `timeStamp` becomes the latest. */
   const intervalOf = (pointerId: number, timeStamp: number): { interval?: number } => {
     const last = lastSample.get(pointerId);
@@ -134,7 +134,7 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
   };
 
   const send = (port: PointerPort) => (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (port === 'down') lastDownType.current = event.pointerType;
+    if (port === 'down') lastDown.pointerType = event.pointerType;
     if (!live) return;
     const box = event.currentTarget.getBoundingClientRect();
     if (port === 'down') {
@@ -207,7 +207,7 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
     live.click(type, {
       x: clamp01((event.clientX - box.left) / box.width),
       y: clamp01((event.clientY - box.top) / box.height),
-      pointerType: native.pointerType || lastDownType.current,
+      pointerType: native.pointerType || lastDown.pointerType,
       button: event.button,
       buttons: event.buttons,
       shift: event.shiftKey,
