@@ -23,9 +23,9 @@ export const pan: NodeDefinition = {
     return {
       inputs: { in: panner },
       outputs: { out: panner },
-      automate(t0, t1) {
+      automate(t0, t1, clock) {
         // A bus has no event channels: modulation is read on channel 0.
-        if (cabled) automation.follow(t0, t1, (t) => param('pan', t));
+        if (cabled) automation.follow(t0, t1, (t) => param('pan', t), clock);
       },
       update(next, time) {
         // A cabled pan follows the re-run's automate, which reads the new base.

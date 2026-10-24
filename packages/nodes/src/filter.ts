@@ -41,10 +41,10 @@ export const filter: NodeDefinition = {
     return {
       inputs: { in: biquad },
       outputs: { out: biquad },
-      automate(t0, t1) {
+      automate(t0, t1, clock) {
         // A bus has no event channels: modulation is read on channel 0.
-        if (cabled.cutoff) automation.cutoff.follow(t0, t1, (t) => param('cutoff', t));
-        if (cabled.q) automation.q.follow(t0, t1, (t) => biquadQ(mode, param('q', t)));
+        if (cabled.cutoff) automation.cutoff.follow(t0, t1, (t) => param('cutoff', t), clock);
+        if (cabled.q) automation.q.follow(t0, t1, (t) => biquadQ(mode, param('q', t)), clock);
       },
       update(next, time) {
         // Cabled params follow the re-run's automate, which reads the new base.

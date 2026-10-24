@@ -36,9 +36,9 @@ export const mixer: NodeDefinition = {
     return {
       inputs: Object.fromEntries(strips.map((strip, i) => [`in${i + 1}`, strip])),
       outputs: { out: master },
-      automate(t0, t1) {
+      automate(t0, t1, clock) {
         // A bus has no event channels: modulation is read on channel 0.
-        for (const { name, automation, cabled } of levels) if (cabled) automation.follow(t0, t1, (t) => param(name, t));
+        for (const { name, automation, cabled } of levels) if (cabled) automation.follow(t0, t1, (t) => param(name, t), clock);
       },
       update(next, time) {
         // Cabled levels follow the re-run's automate, which reads the new base.

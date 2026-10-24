@@ -34,10 +34,19 @@ export function automationTimes(t0: number, t1: number, rate = AUTOMATION_RATE):
  *  at the clock or later, and the clock is never more than a lookahead (1.25 s while hidden) behind a run. */
 export const AUTOMATION_MEMORY = 4;
 
+/**
+ * How far past the audio clock a re-run keeps what is scheduled, in seconds: the render thread can be
+ * ahead of currentTime by a render callback (up to 512 frames, 11.6 ms at 44.1 kHz, in Chrome on macOS)
+ * plus the quantum it is rendering (2.9 ms). A kept point it has already passed held the param until the
+ * new ramps arrived, then stepped (#103: at 4 ms past currentTime). *(tune)*
+ */
+export const AUTOMATION_RENDER_MARGIN = 0.015;
+
 /** A param that follows a modulated value on the automation grid (`paramAutomation`). */
 export interface ParamAutomation {
-  /** Follows `value(t)` on the grid in [t0, t1), replacing what was scheduled from t0 on. */
-  follow(t0: number, t1: number, value: (t: number) => number): void;
+  /** Follows `value(t)` on the grid in [t0, t1), replacing what was scheduled from t0 on. `clock` is the
+   *  audio clock at hand-over (`AudioInstance.automate`'s third argument); -Infinity when there is none. */
+  follow(t0: number, t1: number, value: (t: number) => number, clock?: number): void;
 }
 
 /**
@@ -53,7 +62,10 @@ export interface ParamAutomation {
  * being played a new end, and the param would step by the change times the share
  * of the ramp already played (#103). So the first new ramp spans one grid step
  * (slopes stay bounded), the change shows 1/60 to 2/60 s after t0, and a render
- * already past t0 but not past the kept point sees no change. With an unchanged
+ * already past t0 but not past the kept point sees no change. When the kept point
+ * is less than AUTOMATION_RENDER_MARGIN past the clock, the render thread may
+ * have passed it already, so the ramp after it is kept too: then the change shows
+ * up to about two grid steps after t0. With an unchanged
  * value the kept point is the one the re-run would schedule, so a re-run leaves
  * the param's course as it was, and the course after forward runs depends only
  * on the grid points covered, not on window splits.
@@ -62,7 +74,7 @@ export function paramAutomation(target: AudioParamLike, rate = AUTOMATION_RATE):
   // What is scheduled on target, in time order; times are distinct.
   let points: { time: number; value: number }[] = [];
   return {
-    follow(t0, t1, value) {
+    follow(t0, t1, value, clock = -Infinity) {
       if (!Number.isFinite(t0)) return;
       let at = points.length;
       while (at > 0 && points[at - 1]!.time >= t0) at--;
@@ -70,11 +82,13 @@ export function paramAutomation(target: AudioParamLike, rate = AUTOMATION_RATE):
       const kept = points[at];
       if (kept) {
         at++;
+        // And on while the last kept point is so close to the clock that the render may be past it.
+        while (at < points.length && points[at - 1]!.time < clock + AUTOMATION_RENDER_MARGIN) at++;
         // Cancels only what follows it; nothing at all if nothing does.
         if (at < points.length) target.cancelScheduledValues(points[at]!.time);
       } else target.cancelScheduledValues(t0);
       points.length = at;
-      const from = kept ? kept.time : -Infinity;
+      const from = kept ? points[at - 1]!.time : -Infinity;
       for (const t of automationTimes(t0, t1, rate)) {
         if (!(t > from)) continue;
         const v = value(t);
