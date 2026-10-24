@@ -188,6 +188,7 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     // so the flat stretch starts with the grid, not with the quantum. A flat quantum with a grid point at
     // its start, or still flat before it, is a real hold. How many freezes lie near a re-run cancel is only logged.
     const holds: number[] = [], freezes: number[] = [];
+    const shapes: unknown[] = [];
     let nearReruns = 0;
     const returns = new Set<number>();
     for (let q = Math.ceil(mirror.from / 128) * 128 - mirror.from; q + 128 < v.length; q += 128) {
@@ -209,7 +210,22 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
         if (reruns.some((c) => c.now >= start - 4 * quantum && c.now <= start + quantum)) nearReruns++;
         freezes.push(start);
         returns.add(q + 128);
-      } else holds.push((mirror.from + q) / rate);
+      } else {
+        holds.push(frame / rate);
+        // What tells a freeze from an engine hold, if one ever shows up (#103): the failed freeze conditions, the
+        // changes around the quantum (from 3 samples before to 2 after it), the slopes, where the nearest grid point
+        // lies (frames from the quantum's start) and the re-run cancels around it, in ms from the quantum's start.
+        const ms = (t: number) => +((t - frame / rate) * 1000).toFixed(1);
+        const grid = Math.round((frame * 60) / rate);
+        shapes.push({
+          time: +(frame / rate).toFixed(4),
+          failed: Object.entries({ froze, moving, gridBefore: !gridBefore, onLine }).filter(([, ok]) => !ok).map(([name]) => name),
+          changes: [-3, -2, -1, 0, 1, 64, 126, 127, 128, 129, 130].map((o) => +(v[q + o]! - v[q + o - 1]!).toFixed(3)),
+          back: +back.toFixed(3), slopes: [+slopeBefore.toFixed(4), +slopeAfter.toFixed(4)],
+          gridFrames: +(frame - (grid * rate) / 60).toFixed(1),
+          cancels: reruns.filter((c) => Math.abs(c.now - frame / rate) < 0.03).map((c) => ({ at: ms(c.t0), now: ms(c.now), reached: ms(c.reached) })),
+        });
+      }
     }
     // Steps: a sample-to-sample change far past any slope the automation has (its steepest, the wrap,
     // is 2400 Hz over one 1/60 s grid step, 3 Hz a sample), off the 60 Hz grid, and outside the range of
@@ -260,7 +276,7 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     const cov = mean(pairs.map(([x, y]) => (x - mx) * (y - my)));
     const r = cov / Math.sqrt(mean(pairs.map(([x]) => (x - mx) ** 2)) * mean(pairs.map(([, y]) => (y - my) ** 2)));
     return {
-      seconds: v.length / rate, gaps, besideGaps, holds, freezes, nearReruns, steps, bends, steepest, smallest, largest,
+      seconds: v.length / rate, gaps, besideGaps, holds, shapes, freezes, nearReruns, steps, bends, steepest, smallest, largest,
       cancels: probe.cancels.length, reruns: reruns.length, exposed: exposed.length,
       leads: exposed.map((c) => +((c.t0 - c.now) * 1000).toFixed(2)).slice(0, 20),
       blocks: pairs.length, r, filters: probe.filters, rate,
@@ -274,6 +290,7 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
       `late ${final.lateScheduled} (${first.lateScheduled} before the turns), skipped ${final.skipped}`,
   );
 
+  for (const shape of result.shapes) console.log(`filter sweep hold: ${JSON.stringify(shape)}`);
   expect(result.filters).toBe(1);
   // The recorder can miss a quantum's message now and then; a missing quantum is skipped, not counted as a hold.
   expect(result.gaps).toBeLessThan(result.seconds * result.rate * 0.01);
