@@ -19637,6 +19637,193 @@
    "phase": "up"
   }
  ],
+ "reverb-space.flowpatch": [
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "room",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "pattern",
+   "port": "hit",
+   "time": 0,
+   "channel": 0,
+   "index": 0,
+   "velocity": 1
+  },
+  {
+   "node": "tone",
+   "port": "note",
+   "time": 0,
+   "channel": 0,
+   "index": 0,
+   "velocity": 0.7,
+   "pitch": 53,
+   "duration": 0.3
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0.4166666666666667,
+   "channel": 0,
+   "index": 1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0.8333333333333334,
+   "channel": 0,
+   "index": 2
+  },
+  {
+   "node": "pattern",
+   "port": "hit",
+   "time": 0.8333333333333334,
+   "channel": 0,
+   "index": 2,
+   "velocity": 0.65
+  },
+  {
+   "node": "tone",
+   "port": "note",
+   "time": 0.8333333333333334,
+   "channel": 0,
+   "index": 2,
+   "velocity": 0.7,
+   "pitch": 57,
+   "duration": 0.3
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.25,
+   "channel": 0,
+   "index": 3
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.6666666666666667,
+   "channel": 0,
+   "index": 4
+  },
+  {
+   "node": "pattern",
+   "port": "hit",
+   "time": 1.6666666666666667,
+   "channel": 0,
+   "index": 4,
+   "velocity": 1
+  },
+  {
+   "node": "tone",
+   "port": "note",
+   "time": 1.6666666666666667,
+   "channel": 0,
+   "index": 4,
+   "velocity": 0.7,
+   "pitch": 64,
+   "duration": 0.3
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.0833333333333335,
+   "channel": 0,
+   "index": 5
+  },
+  {
+   "node": "pattern",
+   "port": "hit",
+   "time": 2.0833333333333335,
+   "channel": 0,
+   "index": 5,
+   "velocity": 0.65
+  },
+  {
+   "node": "tone",
+   "port": "note",
+   "time": 2.0833333333333335,
+   "channel": 0,
+   "index": 5,
+   "velocity": 0.7,
+   "pitch": 64,
+   "duration": 0.3
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.5,
+   "channel": 0,
+   "index": 6
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.916666666666667,
+   "channel": 0,
+   "index": 7
+  },
+  {
+   "node": "pattern",
+   "port": "hit",
+   "time": 2.916666666666667,
+   "channel": 0,
+   "index": 7,
+   "velocity": 0.65
+  },
+  {
+   "node": "tone",
+   "port": "note",
+   "time": 2.916666666666667,
+   "channel": 0,
+   "index": 7,
+   "velocity": 0.7,
+   "pitch": 69,
+   "duration": 0.3
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.3333333333333335,
+   "channel": 0,
+   "index": 8
+  },
+  {
+   "node": "pattern",
+   "port": "hit",
+   "time": 3.3333333333333335,
+   "channel": 0,
+   "index": 8,
+   "velocity": 1
+  },
+  {
+   "node": "tone",
+   "port": "note",
+   "time": 3.3333333333333335,
+   "channel": 0,
+   "index": 8,
+   "velocity": 0.7,
+   "pitch": 72,
+   "duration": 0.3
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.75,
+   "channel": 0,
+   "index": 9
+  }
+ ],
  "sample-and-hold.flowpatch": [
   {
    "node": "clock",

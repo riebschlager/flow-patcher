@@ -1,0 +1,179 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261025,
+  "nodes": [
+    {
+      "id": "clock",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 72,
+        "division": "1/8"
+      },
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "room",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 72,
+        "division": "1/1",
+        "rate": 0.5
+      },
+      "position": {
+        "x": 0,
+        "y": 320
+      }
+    },
+    {
+      "id": "pattern",
+      "type": "euclidean",
+      "typeVersion": 1,
+      "params": {
+        "hits": 5,
+        "steps": 8
+      },
+      "position": {
+        "x": 240,
+        "y": 100
+      }
+    },
+    {
+      "id": "tone",
+      "type": "chord-tone",
+      "typeVersion": 1,
+      "params": {
+        "down": 0,
+        "length": 0.3,
+        "symbol": "Fmaj7",
+        "up": 2,
+        "velocity": 0.7
+      },
+      "position": {
+        "x": 480,
+        "y": 100
+      }
+    },
+    {
+      "id": "synth",
+      "type": "simple-synth",
+      "typeVersion": 2,
+      "params": {
+        "attack": 0.005,
+        "level": 0.3,
+        "release": 0.5,
+        "wave": "triangle"
+      },
+      "position": {
+        "x": 720,
+        "y": 100
+      }
+    },
+    {
+      "id": "space",
+      "type": "reverb",
+      "typeVersion": 1,
+      "params": {
+        "damping": 0.5,
+        "decay": 4,
+        "mix": 0.2,
+        "predelay": 0.03,
+        "variant": 0
+      },
+      "position": {
+        "x": 960,
+        "y": 100
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 1200,
+        "y": 100
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "clock",
+        "port": "tick"
+      },
+      "to": {
+        "node": "pattern",
+        "port": "tick"
+      }
+    },
+    {
+      "from": {
+        "node": "pattern",
+        "port": "hit"
+      },
+      "to": {
+        "node": "tone",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "room",
+        "port": "phase"
+      },
+      "to": {
+        "node": "tone",
+        "port": "position"
+      }
+    },
+    {
+      "from": {
+        "node": "tone",
+        "port": "note"
+      },
+      "to": {
+        "node": "synth",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "synth",
+        "port": "audio"
+      },
+      "to": {
+        "node": "space",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "room",
+        "port": "phase"
+      },
+      "to": {
+        "node": "space",
+        "port": "mix"
+      },
+      "depth": 0.6
+    },
+    {
+      "from": {
+        "node": "space",
+        "port": "out"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    }
+  ]
+}
