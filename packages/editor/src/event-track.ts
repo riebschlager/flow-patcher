@@ -19,8 +19,9 @@ export class EventTrack {
 
   constructor(readonly node: string, readonly port: string, private prev: number) {}
 
-  /** Reads ahead again: what the runtime retains now, and the earlier copy of what it has pruned. A rewind or
-   *  swap only replaces events at or after currentTime, so what was pruned (before it) can't have changed. */
+  /** Reads ahead again: what the runtime retains now, and the earlier copy of what it has pruned. A rewind only
+   *  replaces events from its stamp on, after currentTime, and a swap only those at least SWAP_MARGIN past
+   *  now (ADR 0023), so what was pruned (before it) can't have changed. */
   refresh(runtime: EventSource): void {
     const prev = this.prev;
     const from = runtime.retainedFrom ?? -Infinity;

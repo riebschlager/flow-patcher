@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { IMMEDIATE_OFFSET } from '../packages/engine/src/scheduler';
 import type { LivePatch } from '../packages/editor/src/live';
-import { audioCallback } from './audio-clock';
+import { burstProbeReady, installBurstProbe } from './audio-burst';
+import { audioCallback, stepLog } from './audio-clock';
 
 declare global {
   interface Window {
@@ -16,6 +17,7 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
 
+  await installBurstProbe(page);
   await page.goto('/?patch=pointer-notes');
   await expect(page.getByTestId('compile-status')).toHaveText('4 nodes compiled');
   const canvas = page.getByTestId('performance-canvas');
@@ -26,6 +28,8 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
   for (let i = 0; i < 400; i++) await page.mouse.move(box.x + 10 + (i % 200), box.y + 10 + (i % 7) * 10);
 
   // The first tap starts audio, and still sounds once it has.
+  // The probe must be in the graph before the tap resumes the context, so it sees the resume's bursts.
+  await burstProbeReady(page);
   await canvas.click({ position: { x: 40, y: 40 } });
   await expect(page.getByTestId('audio-state')).toHaveText('live');
   await expect.poll(() => page.evaluate(() => window.flowPatcher!.taps[0]?.note ?? null)).not.toBeNull();
@@ -36,23 +40,29 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
     await page.waitForTimeout(37);
   }
   const taps = await page.evaluate(() => window.flowPatcher!.taps.filter((tap) => !tap.cold));
-  const { callback, largestStep } = await audioCallback(page);
+  const steps = await audioCallback(page);
+  const { step } = steps;
   // #97: why a warm tap's note sometimes lands past ±2 ms on CI. Logged before the checks, so a failing run has it.
   const baseLatency = await page.evaluate(() => window.flowPatcher!.clock.baseLatency);
   const msOf = (s: number | null) => (s === null ? 'null' : (s * 1000).toFixed(2));
-  console.log(`[tap timing] baseLatency ${msOf(baseLatency)} ms, callback ${msOf(callback)} ms, largest step ${msOf(largestStep)} ms`);
+  console.log(`[tap timing] baseLatency ${msOf(baseLatency)} ms, one step ${msOf(step)} ms: ${stepLog(steps)}`);
   for (const tap of taps) {
     // From the push's own clock read (stamp less the offset): past the offset at start(), the note is late.
     // That holds while no push falls back to the horizon (pushFallbacks is checked to be 0 below).
     const read = tap.stamped! - IMMEDIATE_OFFSET;
-    console.log(`[tap timing] clock moved ${msOf(read - tap.at)} before the push's read, ${msOf(tap.startClock === null ? null : tap.startClock - read)} by start(), ${msOf(tap.after - read)} by its end; note−stamp ${msOf(tap.note === null ? null : tap.note - tap.stamped!)}; push ${tap.pushMs.toFixed(1)} ms (0.1 ms resolution)`);
+    // Clock readings from the push's read: just before the first start(), just after it, and at the push's end.
+    // A note past ±2 ms with a jump of about one callback between the read and start() is ADR 0027's mechanism;
+    // lateness with the clock still at the read through start() points elsewhere (main-thread stall).
+    const since = (s: number | null) => msOf(s === null ? null : s - read);
+    console.log(`[tap timing] clock moved ${msOf(read - tap.at)} before the push's read, ${since(tap.startClock)} just before start(), ${since(tap.startClockAfter)} just after it, ${msOf(tap.after - read)} by the push's end; ` +
+      `note−stamp ${msOf(tap.note === null ? null : tap.note - tap.stamped!)}; largest step so far ${msOf(tap.largestStep)}; push ${tap.pushMs.toFixed(1)} ms (0.1 ms resolution)`);
   }
   expect(taps).toHaveLength(10);
   for (const tap of taps) {
     // push reads currentTime again after the handler did, and an audio callback can land between the
     // two reads. The +5 ms is the lower bound here; the gate's ±2 ms is then measured from push's read.
     expect(tap.stamped! - tap.at).toBeGreaterThanOrEqual(0.005 - 1e-6);
-    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(0.005 + callback + 1e-6);
+    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(0.005 + steps.callback + 1e-6);
     expect(tap.note).not.toBeNull();
     expect(Math.abs(tap.note! - tap.stamped!)).toBeLessThanOrEqual(0.002);
   }

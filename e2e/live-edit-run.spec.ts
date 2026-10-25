@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { LivePatch } from '../packages/editor/src/live';
-import { audioCallback } from './audio-clock';
+import { burstProbeReady, installBurstProbe } from './audio-burst';
+import { audioCallback, stepLog } from './audio-clock';
 
 declare global {
   interface Window {
@@ -76,10 +77,13 @@ test('scripted edits on the playing demo hand no scheduled event late, and no ta
     }
   });
 
+  await installBurstProbe(page);
   await page.goto('/?patch=m1-demo');
   await expect(page.getByTestId('compile-status')).toHaveText('12 nodes compiled');
   expect(await page.evaluate(() => document.visibilityState)).toBe('visible');
   const canvas = page.getByTestId('performance-canvas');
+  // The probe must be in the graph before the tap resumes the context, so it sees the resume's bursts.
+  await burstProbeReady(page);
   await canvas.click({ position: { x: 40, y: 40 } });
   await expect(page.getByTestId('audio-state')).toHaveText('live');
   await expect(page.locator('[data-node-type="sampled-voice"] [data-testid="node-status"]')).toHaveCount(0, { timeout: 10_000 });
@@ -145,14 +149,14 @@ test('scripted edits on the playing demo hand no scheduled event late, and no ta
 
   const final = await stats(page);
   const audio = await page.evaluate(() => ({ starts: window.starts!, late: window.lateStarts! }));
-  // One clock step: the callback (baseLatency) or the largest step seen, whichever is longer.
-  const { callback, largestStep } = await audioCallback(page);
-  const step = Math.max(callback, largestStep);
+  // One clock step (ADR 0027): the largest of baseLatency, the sampled step and the audio thread's largest burst.
+  const steps = await audioCallback(page);
+  const { step } = steps;
   // After hand-over, start() sees only the microseconds before the voice calls it; the runtime's clamp is the real lateness.
   const worstLate = Math.max(0, ...audio.late.map((s) => s.currentTime - s.when));
   console.log(
     `${edits} edits, ${final.swaps - first.swaps} swaps, ${final.pushes} pushes; ${final.delivered - first.delivered} events delivered, ${audio.starts} start() calls; ` +
-      `late: ${final.lateScheduled} scheduled, ${final.lateImmediate} immediate (worst ${final.lateImmediateMaxMs.toFixed(2)} ms), ${final.lateCaughtUp} caught up (worst ${final.lateCaughtUpMaxMs.toFixed(2)} ms), ${audio.late.length} start() (worst ${(worstLate * 1000).toFixed(2)} ms); one step ${(step * 1000).toFixed(2)} ms; ${final.skipped} windows skipped, ${final.pushFallbacks} push fallbacks`,
+      `late: ${final.lateScheduled} scheduled, ${final.lateImmediate} immediate (worst ${final.lateImmediateMaxMs.toFixed(2)} ms), ${final.lateCaughtUp} caught up (worst ${final.lateCaughtUpMaxMs.toFixed(2)} ms, main thread ${final.lateCaughtUpWakeMs.toFixed(2)} ms from its wake to its hand-over), ${audio.late.length} start() (worst ${(worstLate * 1000).toFixed(2)} ms); one step ${(step * 1000).toFixed(2)} ms (${stepLog(steps)}); ${final.skipped} windows skipped, ${final.pushFallbacks} push fallbacks`,
   );
   expect(edits).toBe(ROUNDS * 9);
   expect(final.swaps - first.swaps).toBeGreaterThanOrEqual(edits);
@@ -161,8 +165,8 @@ test('scripted edits on the playing demo hand no scheduled event late, and no ta
   expect(final.lateScheduled).toBe(0);
   // A tap's notes may reach Web Audio behind the clock, by at most one step (ADR 0027); Web Audio plays them at the next quantum.
   expect(final.lateImmediateMaxMs).toBeLessThanOrEqual(step * 1000 + 1e-3);
-  // A caught-up event (any catch-up, the first tap's included; ADR 0033) may land behind the clock by a step too.
-  expect(final.lateCaughtUpMaxMs).toBeLessThanOrEqual(step * 1000 + 1e-3);
+  // A caught-up event (any catch-up, the first tap's included; ADR 0033) may land behind the clock by a step plus the main thread's time from its wake's start to its hand-over.
+  expect(final.lateCaughtUpMaxMs).toBeLessThanOrEqual(step * 1000 + final.lateCaughtUpWakeMs + 1e-3);
   expect(worstLate).toBeLessThanOrEqual(step + 1e-6);
   expect(final.skipped).toBe(0);
   expect(final.pushFallbacks).toBe(0);
