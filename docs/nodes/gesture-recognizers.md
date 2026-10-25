@@ -4,7 +4,7 @@ Recognizers consume raw [canvas source](canvas-sources.md) events and emit highe
 
 | Node | Emits | Key knobs | Flow source |
 | --- | --- | --- | --- |
-| Drag | Start, Move, End with start point, delta, distance, duration | Minimum distance | `gestures.js` |
+| Drag | Start, Move, End with start point, delta, distance, duration; with Spacing above 0, Move only once the contact is Spacing from the last Start/Move (brush spacing: per distance, not per device move) | Minimum distance, Spacing | `gestures.js` |
 | Tap | Tap, Double tap, Long press | Max movement, max duration, long-press time | `gestures.js` |
 | Hold | Charge signal rising while held still; Release with charge amount | Stillness radius, charge time | Flow's Gather (`gestures.js` / `performance.js`) |
 | Flick | Flick on release above a speed, with direction and speed | Speed threshold | `gestures.js` |
