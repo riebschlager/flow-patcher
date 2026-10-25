@@ -990,13 +990,20 @@ export class Runtime {
     let cancelled = 0;
     const updated: string[] = [];
     if (this.audioContext) {
-      for (const node of plan.order) {
-        if (!node.definition.audio) continue;
-        const old = prev.audio.get(node.id);
-        const keep = old && (!rebuild.has(node.id) || (inPlace.has(node.id) && old.update));
-        if (keep) next.audio.set(node.id, old);
-        else next.audio.set(node.id, this.buildAudio(node, next));
-        if (keep && rebuild.has(node.id)) updated.push(node.id);
+      // Setup reads (value/signal/param in audio()) resolve cables in the plan being built:
+      // its sources may not exist in the one still running (#118).
+      this.active = next;
+      try {
+        for (const node of plan.order) {
+          if (!node.definition.audio) continue;
+          const old = prev.audio.get(node.id);
+          const keep = old && (!rebuild.has(node.id) || (inPlace.has(node.id) && old.update));
+          if (keep) next.audio.set(node.id, old);
+          else next.audio.set(node.id, this.buildAudio(node, next));
+          if (keep && rebuild.has(node.id)) updated.push(node.id);
+        }
+      } finally {
+        this.active = this.stage;
       }
       for (const instance of prev.audio.values()) {
         if (![...next.audio.values()].includes(instance)) cancelled += this.retire(instance, time);
@@ -1969,7 +1976,8 @@ export class Runtime {
   /**
    * Source accessors for a node's cables. Sources are looked up per call in
    * the active stage, so build order doesn't matter, and an audio instance a
-   * swap kept reads its sources as the plan running the chunk has them.
+   * swap kept reads its sources as the plan running the chunk has them. While a
+   * swap builds audio instances, the active stage is the one being built.
    */
   private wiring(links: NodeLinks): NodeWiring {
     const source = (link: Link) => {
