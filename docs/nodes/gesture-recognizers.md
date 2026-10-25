@@ -42,14 +42,14 @@ Each mode is its own patch, read from Flow's `performance.js`. Flow picked Condu
   - A press plays a Chord Tone picked by X, louder and longer lower down, and drops dye.
   - A stroke plays a note each Spacing of travel, through a Gate open while Pointer Speed is at least 0.04, so slow strokes (Flow's soft ribbon) play too, just sparser. Flow throttled by time instead (`launch`: 160 ms, or 300 − 230·energy ms). Spacing keeps it on the claim-aware stream, since Pointer's own signals don't know about claims.
   - Hold's Release, Pinch's Spread and Pinch's End (two fingers lifted after pinching in) bloom four chord tones around X. Hold's Charge, smoothed, raises the room (Reverb Mix, up to 0.585 more), lowers the level by up to 0.13 and turns a whirlpool. Flick plays a bright accent.
-  - The filter follows Y while pressed, 16.7 kHz × 2^(−2.98·y): Flow's latch, 650 · 24^(1−y), blended with 18 kHz at 65%. It's open when nothing is down.
+  - The filter follows Y while pressed, 16.4 kHz × 2^(−2.98·y): Flow's latch, 650 · 24^(1−y), blended with 18 kHz at 65%. A smoothed Active cable (−0.134 octaves) takes it back to 18 kHz when nothing is down, as in Flow.
   - Changed from Flow:
     - The filter follows Y continuously. Flow latched it, only on vertical motion, and reset it to 18 kHz at each press.
     - Notes have no per-note pan by X or per-note tone (Flow's `noteExpression`), as Sampled Voice has neither.
     - Pinch In plays a low gathered tone, which Flow didn't. A pinch's charge doesn't raise the room as Hold's does.
     - A pinch's bloom centres on the first finger's X, not the midpoint. The flick accent has no outward offset or jet.
 - **Conduct**: the pointer plays nothing. While pressed, the filter goes 18 kHz × 2^(−3.7·y), which is Flow's 350 · (18000/350)^(1−y) at 65%, so about 1.4 kHz at the bottom. Pan goes 0.65 · (x − 0.5), ±0.325. A Force pushes the fluid along the motion.
-- **Space**: Reverb Mix rises to 0.65 with 1 − y and Delay Mix to 0.55 with x. Delay is synced to the Clock's Transport, Feedback 0.42. A whirlpool follows the pointer, spinning one way on the left half and the other on the right, as in Flow. Flow's room and echo were sends with the dry signal kept; Reverb and Delay here are equal-power inserts.
+- **Space**: Reverb Mix rises to 0.65 with 1 − y and Delay Mix to 0.585 with x. Delay is synced to the Clock's Transport, Feedback 0.42. A whirlpool follows the pointer, spinning one way on the left half and the other on the right, as in Flow. Flow's room and echo were sends with the dry signal kept; Reverb and Delay here are equal-power inserts.
 - **Orbit**: Circle (Claim on) gives the Angle for Orbit Rings and the spin for a twin whirlpool. The orbit amount, 0.5 + 0.5 · energy with energy = Pointer Speed / 1.5 clamped, scales Delay Mix (0.52), Reverb Mix (0.2) and Filter Q (0.4 + 0.39 · orbit). The filter stays open at 18 kHz, as in Flow.
   - Changed from Flow:
     - Pan is the circling X times the orbit amount. Flow used sin(heading), and a circling pointer's X swings the same way.

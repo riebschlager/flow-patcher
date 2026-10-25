@@ -307,12 +307,25 @@
       "type": "filter",
       "typeVersion": 2,
       "params": {
-        "cutoff": 16700,
+        "cutoff": 18000,
         "q": 0.7
       },
       "position": {
         "x": 1920,
         "y": 600
+      }
+    },
+    {
+      "id": "pressed",
+      "type": "smooth",
+      "typeVersion": 1,
+      "params": {
+        "fall": 0.85,
+        "rise": 0.12
+      },
+      "position": {
+        "x": 720,
+        "y": 620
       }
     },
     {
@@ -908,6 +921,27 @@
         "node": "closing",
         "port": "in"
       }
+    },
+    {
+      "from": {
+        "node": "active",
+        "port": "out"
+      },
+      "to": {
+        "node": "pressed",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "pressed",
+        "port": "out"
+      },
+      "to": {
+        "node": "filter",
+        "port": "cutoff"
+      },
+      "depth": -0.134
     },
     {
       "from": {

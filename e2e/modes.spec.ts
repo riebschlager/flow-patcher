@@ -39,12 +39,13 @@ async function follow(page: Page, outputs: [string, string, 'event' | 'note'][])
   }, outputs);
 }
 const count = (page: Page, key: string) => page.evaluate((k) => window.modeSeen![k]!.length, key);
-/** The count once it has stopped changing for 300 ms: notes still in the scheduler or the probe are in. */
+/** The count once it has held for two 300 ms gaps: notes still in the scheduler or the probe are in. */
 async function settled(page: Page, key: string): Promise<number> {
-  let last = -1;
+  let last = -1, same = 0;
   for (;;) {
     const now = await count(page, key);
-    if (now === last) return now;
+    same = now === last ? same + 1 : 0;
+    if (same === 2) return now;
     last = now;
     await page.waitForTimeout(300);
   }
@@ -89,7 +90,7 @@ test('Paint: strokes play a note each Spacing of travel, fast or slow, and a hel
   const SPACING = 0.07;
 
   // Fast: 0.6 across in about half a second.
-  await drag(page, [0.15, 0.6], [0.75, 0.6], 30, 16);
+  await drag(page, [0.15, 0.6], [0.75, 0.6], 30, 16, 0.03);
   const fast = await settled(page, 'moving.out');
   expect(fast).toBeGreaterThanOrEqual(Math.floor(0.6 / SPACING) - 2);
   expect(fast).toBeLessThanOrEqual(Math.ceil(0.6 / SPACING));
@@ -151,7 +152,7 @@ test('Space: up adds room, right adds echoes, and both fall away on release', as
   await page.mouse.move(...at(0.9, 0.1));
   await page.mouse.down();
   await page.mouse.move(...at(0.92, 0.1));
-  // Room: 0.05 + 0.6·(1 − y); echoes: 0.55·x. Top right, (0.92, 0.1): room 0.59, echoes 0.51.
+  // Room: 0.05 + 0.6·(1 − y); echoes: 0.585·x. Top right, (0.92, 0.1): room 0.59, echoes 0.54.
   await expect.poll(() => param(page, 'space', 'mix')).toBeGreaterThan(0.45);
   await expect.poll(() => param(page, 'echo', 'mix')).toBeGreaterThan(0.4);
   // Bottom right, (0.92, 0.9): echoes stay, the room goes. Swapped axes would fail here.
