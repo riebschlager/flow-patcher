@@ -1,6 +1,6 @@
 # 0035 · A retired audio chain rings out together
 
-Status: Accepted · 2026-10-25 · Amends [0023](0023-hot-swap-reruns-from-next-boundary.md)
+Status: Proposed · 2026-10-25 · Amends [0023](0023-hot-swap-reruns-from-next-boundary.md)
 
 ## Context
 ADR 0023 disposes a retired audio instance once currentTime passes the swap and its own `idleAt()`. Retiring instances keep their connections (so their notes sound out), and an effect's `idleAt` counts its tail from the last chunk it was automated. That works when only the effect is rebuilt: its upstream moves to the new instance. It fails when the upstream retires too (#115). A seed change rebuilds every audio node, Output included, and Output has no `idleAt`, so the old Output was disposed at the swap and took the whole old chain with it: Delay (0.5 s, feedback 0.42) → Reverb (Decay 1) → Output went silent at the swap, mid-echo. Had Output been kept, the old Delay would still have fed the old Reverb past the Reverb's own `idleAt`, which would have cut the echo train about a second later. Fixing the first alone by keeping the old Output alive would leave two Output stages, each with its own limiter, summing into the destination: their sum can pass the Output ceiling, which ADR 0011's peak guard rules out.
