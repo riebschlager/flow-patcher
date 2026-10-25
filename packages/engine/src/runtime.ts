@@ -351,7 +351,9 @@ export interface DeliveryTiming {
    *  it (headless, tests), `now` is the clock throughout. */
   currentTime?: () => number;
   /** A late wake's missed stretch (ADR 0017): events before `until` move `shift`
-   *  seconds later, so they keep their spacing and play late instead of stacking. */
+   *  seconds later, so they keep their spacing and play late instead of stacking.
+   *  The scheduler moves the stretch to start at its `now` plus the immediate
+   *  offset (ADR 0033), so `shift` is the wake's lateness plus that lead. */
   catchUp?: { until: number; shift: number };
   /** The path the events took, for the late counters. Default 'scheduled'.
    *  A push marks its event with it, for the visual nodes (ADR 0020). */
@@ -365,9 +367,10 @@ export interface RuntimeCounters {
   /** Events a catch-up moved later. */
   caughtUp: number;
   /** Of those, the ones behind the audio clock at hand-over, read as for
-   *  lateScheduled. A catch-up moves its stretch to start at the wake's `now`, with
-   *  no lead, so a clock step during the wake's query makes its first events late.
-   *  Counted here, not in lateScheduled (ADR 0033). So is any other event with no
+   *  lateScheduled. A catch-up moves its stretch to start at the wake's `now` plus
+   *  the immediate offset, a lead of 5 ms, so a clock step during the wake's query
+   *  and hand-over larger than that makes its first events late. Counted here, not
+   *  in lateScheduled (ADR 0033). So is any other event with no
    *  lead, one at or before the wake's `now` (the first wake at now == 0, a window
    *  resuming at now): lateness is classified by lead, not by path. */
   lateCaughtUp: number;

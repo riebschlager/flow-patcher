@@ -194,14 +194,35 @@ describe('Catch-up: a 150 ms stall loses nothing and stacks nothing', () => {
     const ref = reference();
     expect(json(scheduler.events())).toBe(json(ref.scheduler.events()));
     expect(json(deliveries.map((d) => d.event.index))).toBe(json(ref.deliveries.map((d) => d.event.index)));
-    // The caught-up ticks moved by the same amount, so their spacing holds and none share a time.
+    // The caught-up ticks moved by the same amount, to start at the wake plus the immediate offset (ADR 0033),
+    // so their spacing holds and none share a time.
     const caught = deliveries.filter((d) => d.at === resume && (d.event.index as number) * 0.01 < resume);
     expect(caught.length).toBe(stats.caughtUp);
     expect(caught.length).toBeGreaterThanOrEqual(3);
-    for (const d of caught) expect(d.event.time).toBeCloseTo((d.event.index as number) * 0.01 + (resume - horizon), 9);
+    for (const d of caught) expect(d.event.time).toBeCloseTo((d.event.index as number) * 0.01 + (resume - horizon) + IMMEDIATE_OFFSET, 9);
     expect(new Set(caught.map((d) => d.event.time)).size).toBe(caught.length);
     expect(deliveries.every((d) => d.event.time >= d.at)).toBe(true);
     expect(stats.lateScheduled).toBe(0);
+  });
+
+  it('keeps caught-up events window-independent with the lead: the same log for any wake grid, each catch-up shifted as a block', () => {
+    const ref = reference();
+    for (const step of [0.01, 0.025, 0.05]) {
+      const run = setup(p);
+      run.wakeEvery(0, 0.5, step);
+      const horizon = run.scheduler.horizon!;
+      const resume = 0.5 - step + 0.15;
+      run.wakeAt(resume);
+      run.wakeEvery(Math.ceil(resume / step) * step, 1.5, step);
+      expect(run.scheduler.stats).toMatchObject({ catchUps: 1, stalls: 0, skipped: 0, lateScheduled: 0, lateCaughtUp: 0 });
+      // The log keeps generated times, whatever the windows and the catch-up (up to where both runs queried).
+      const upTo = (events: LoggedEvent[]) => json(events.filter((e) => e.time < 1.5));
+      expect(upTo(run.scheduler.events())).toBe(upTo(ref.scheduler.events()));
+      // Every caught-up tick moved by one shift, the wake's lateness plus the lead: spacing kept.
+      const caught = run.deliveries.filter((d) => d.at === resume && (d.event.index as number) * 0.01 < resume);
+      expect(caught.length).toBeGreaterThanOrEqual(3);
+      for (const d of caught) expect(d.event.time).toBeCloseTo((d.event.index as number) * 0.01 + (resume - horizon) + IMMEDIATE_OFFSET, 9);
+    }
   });
 
   it('catches up to 100 ms past the horizon, and skips beyond that', () => {
@@ -377,10 +398,25 @@ describe('late counters read the audio clock at hand-over', () => {
       clock.set(0.003);
       jump.to = 0.003 + 0.0116;
       scheduler.wake();
-      // Handed over at the wake's now, 0.003, which the floor read agreed with; start() came 11.6 ms later.
-      expect(starts[0]).toEqual({ when: 0.003, at: 0.003 + 0.0116 });
+      // Handed over at the wake's now plus the 5 ms lead, 0.008, which the floor read agreed with; start() came
+      // 11.6 ms after the wake, a 512-frame burst, so 6.6 ms after its time.
+      expect(starts[0]).toEqual({ when: 0.003 + IMMEDIATE_OFFSET, at: 0.003 + 0.0116 });
       expect(scheduler.stats).toMatchObject({ caughtUp: 1, lateCaughtUp: 1, lateScheduled: 0, lateImmediate: 0 });
       expect(scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(lateness(starts) * 1000, 9);
+      expect(scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(6.6, 9);
+    });
+
+    it('does not count a caught-up note late when the clock steps less than the lead before its start()', () => {
+      const { clock, scheduler, starts, jump } = build(patch([node('m', 'metro', { period: 0.5 }), node('j', 'jumpy')], [cable('m', 'j')]));
+      clock.isRunning = false;
+      scheduler.wake();
+      clock.isRunning = true;
+      clock.set(0.003);
+      // One 128-frame quantum at 44.1 kHz, 2.9 ms, between the floor read and start(): inside the 5 ms lead.
+      jump.to = 0.003 + 0.0029;
+      scheduler.wake();
+      expect(starts[0]).toEqual({ when: 0.003 + IMMEDIATE_OFFSET, at: 0.003 + 0.0029 });
+      expect(scheduler.stats).toMatchObject({ caughtUp: 1, lateCaughtUp: 0, lateCaughtUpMaxMs: 0, lateScheduled: 0 });
     });
 
     it('counts a first-wake t=0 event the step left behind start() in lateCaughtUp: it had no lead', () => {
@@ -1235,7 +1271,7 @@ describe('scheduler', () => {
     expect(part.scheduler.stats.catchUpMaxMs).toBeCloseTo(20, 6);
     const shifted = part.deliveries.filter((d) => d.at === 0.15 && (d.event.index as number) * 0.005 < 0.15);
     expect(shifted.length).toBeGreaterThan(0);
-    for (const d of shifted) expect(d.event.time).toBeCloseTo((d.event.index as number) * 0.005 + 0.02, 9);
+    for (const d of shifted) expect(d.event.time).toBeCloseTo((d.event.index as number) * 0.005 + 0.02 + IMMEDIATE_OFFSET, 9);
     // All of it queried already: no catch-up at all.
     const all = setup(metroPatch());
     all.wakeAt(0);
@@ -1308,8 +1344,8 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     run.runtime.query = (t0, t1, timing) => (windows.push([t0, t1]), query(t0, t1, timing));
     coldStart(run, 0.003);
     expect(windows).toEqual([[0, 0.003 + LOOKAHEAD]]);
-    // The t=0 tick, moved by the 3 ms catch-up; the rest at their own times.
-    expect(deliveredAt(run)).toEqual([[0.003, 0.003, 0], [0.003, 0.05, 1], [0.003, 0.1, 2]]);
+    // The t=0 tick, moved by the 3 ms catch-up plus the immediate offset's lead; the rest at their own times.
+    expect(deliveredAt(run)).toEqual([[0.003, 0.003 + IMMEDIATE_OFFSET, 0], [0.003, 0.05, 1], [0.003, 0.1, 2]]);
     expect(run.scheduler.stats).toMatchObject({ catchUps: 1, caughtUp: 1, stalls: 0, skipped: 0, lateScheduled: 0 });
     expect(run.scheduler.stats.catchUpMaxMs).toBeCloseTo(3, 9);
     expect(run.scheduler.stats.firstWake).toBe(0.003);
@@ -1322,12 +1358,12 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
   });
 
   it('catches up from 0 up to the catch-up limit; past it, starts at now without a stall', () => {
-    // At the limit: [0, 0.1) moved to start at 0.1, spacing kept.
+    // At the limit: [0, 0.1) moved to start at 0.1 + the offset, spacing kept.
     const atLimit = setup(metroPatch(0.025));
     coldStart(atLimit, 0.1);
     const caught = atLimit.live().filter((d) => (d.event.index as number) * 0.025 < 0.1);
     expect(caught.map((d) => d.event.index)).toEqual([0, 1, 2, 3]);
-    for (const d of caught) expect(d.event.time).toBeCloseTo((d.event.index as number) * 0.025 + 0.1, 9);
+    for (const d of caught) expect(d.event.time).toBeCloseTo((d.event.index as number) * 0.025 + 0.1 + IMMEDIATE_OFFSET, 9);
     expect(atLimit.scheduler.stats).toMatchObject({ catchUps: 1, caughtUp: 4, stalls: 0, skipped: 0, lateScheduled: 0 });
     expect(atLimit.scheduler.stats.catchUpMaxMs).toBeCloseTo(100, 9);
 
@@ -1365,7 +1401,7 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     hidden.clock.isHidden = true;
     coldStart(hidden, 0.003);
     expect(hidden.scheduler.horizon).toBeCloseTo(0.003 + HIDDEN_LOOKAHEAD, 12);
-    expect(deliveredAt(hidden)[0]).toEqual([0.003, 0.003, 0]);
+    expect(deliveredAt(hidden)[0]).toEqual([0.003, 0.003 + IMMEDIATE_OFFSET, 0]);
     expect(hidden.scheduler.stats).toMatchObject({ catchUps: 1, stalls: 0 });
 
     const halted = setup(metroPatch(0.05), { timer: { every: () => () => {} } });
@@ -1374,7 +1410,7 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     halted.scheduler.halt();
     halted.clock.isRunning = true;
     halted.wakeAt(0.003);
-    expect(deliveredAt(halted)[0]).toEqual([0.003, 0.003, 0]);
+    expect(deliveredAt(halted)[0]).toEqual([0.003, 0.003 + IMMEDIATE_OFFSET, 0]);
   });
 
   it('does not catch up at a resume after a suspend or a halt, once a window was queried', () => {
@@ -1404,7 +1440,8 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
       // The first tap: held while suspended.
       expect(run.scheduler.push('t', 'out', { channel: 0 })).toBeNull();
     });
-    expect(deliveredAt(run)).toEqual([[0.003, 0.003, 1], [0.003, 0.003 + IMMEDIATE_OFFSET, 2]]);
+    // Both with the immediate offset's lead, so at one time: the caught-up tick first, then the tap.
+    expect(deliveredAt(run)).toEqual([[0.003, 0.003 + IMMEDIATE_OFFSET, 1], [0.003, 0.003 + IMMEDIATE_OFFSET, 2]]);
     expect(run.scheduler.stats).toMatchObject({ deferredPushes: 1, pushes: 1, catchUps: 1, stalls: 0, lateScheduled: 0, lateImmediate: 0 });
     // The log is the same as a clock that started at 0 and a tap pushed at 0.003.
     run.wakeEvery(0.025, 1.2);
@@ -1420,7 +1457,7 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
   });
 
   it('counts a caught-up event the clock passed during the query in lateCaughtUp, not lateScheduled', () => {
-    // A slow first query: the audio clock steps 8 ms while it runs, after the wake read now.
+    // A slow first query: the audio clock steps 8 ms while it runs, after the wake read now, past the 5 ms lead.
     let clock: ManualClock | null = null;
     const slow: NodeDefinition = { ...metro, type: 'slow', query: (ctx) => (clock && (clock.audio = 0.011), metro.query!(ctx)) };
     const run = setup(patch([node('m', 'slow', { period: 0.05 }), node('r', 'recorder')], [cable('m', 'r')]), {}, [slow]);
@@ -1429,11 +1466,11 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     run.clock.isRunning = true;
     clock = run.clock;
     run.wakeAt(0.003);
-    // The t=0 tick, moved by the catch-up to 0.003 and then to the clock at hand-over.
+    // The t=0 tick, moved by the catch-up to 0.008 and then to the clock at hand-over.
     expect(deliveredAt(run)[0]).toEqual([0.011, 0.011, 0]);
     expect(run.scheduler.stats).toMatchObject({ caughtUp: 1, lateCaughtUp: 1, lateScheduled: 0, lateImmediate: 0, lateImmediateMaxMs: 0 });
-    // Moved 8 ms: how far the clock stepped during the query.
-    expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(8, 9);
+    // 3 ms late: the 8 ms step during the query, less the 5 ms lead.
+    expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(8 - IMMEDIATE_OFFSET * 1000, 9);
   });
 
   it('counts late caught-up events of every catch-up in lateCaughtUp, mid-session too, with the worst in lateCaughtUpMaxMs', () => {
@@ -1453,13 +1490,14 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     clock = run.clock;
     run.wakeAt(0, 0.025);
     expect(run.scheduler.stats).toMatchObject({ catchUps: 0, firstWake: 0 });
-    // Two late wakes within the limit, 50 and 70 ms past the horizon, with the clock stepping 4 and 9 ms during
-    // their queries: each window's first event, caught up to now, is behind the clock at hand-over by that step.
+    // Two late wakes within the limit, 50 and 70 ms past the horizon, with the clock stepping 9 and 14 ms during
+    // their queries: each window's first event, caught up to now + 5 ms, is behind the clock at hand-over by that
+    // step less the lead.
     run.clock.set(run.scheduler.horizon! + 0.05);
-    move = 0.004;
+    move = 0.009;
     run.scheduler.wake();
     run.clock.set(run.scheduler.horizon! + 0.07);
-    move = 0.009;
+    move = 0.014;
     run.scheduler.wake();
     expect(run.scheduler.stats).toMatchObject({ catchUps: 2, stalls: 0, lateCaughtUp: 2, lateScheduled: 0, lateImmediate: 0 });
     expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(9, 6);
@@ -1470,7 +1508,7 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     coldStart(run, 0.003, () => {
       expect(run.scheduler.swap(run.compile(metroPatch(0.05))).windows).toBe(0);
     });
-    expect(deliveredAt(run)[0]).toEqual([0.003, 0.003, 0]);
+    expect(deliveredAt(run)[0]).toEqual([0.003, 0.003 + IMMEDIATE_OFFSET, 0]);
     expect(run.scheduler.stats).toMatchObject({ catchUps: 1, stalls: 0, lateScheduled: 0 });
   });
 });

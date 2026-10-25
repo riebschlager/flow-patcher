@@ -3,8 +3,8 @@
 // Every 25 ms it asks the runtime for the events from its horizon to
 // now + 120 ms (1.25 s while the page is hidden). Windows are contiguous, so
 // each moment is queried once. A wake up to 100 ms past its horizon still
-// queries the stretch it missed, moved to start now so its events keep their
-// spacing; a later wake is a stall and skips the missed windows. The first
+// queries the stretch it missed, moved to start now + 5 ms (the immediate
+// offset, a lead like a tap's) so its events keep their spacing; a later wake is a stall and skips the missed windows. The first
 // running wake starts the patch at 0: if the clock is already past it (the
 // AudioContext started before the wake, as on the first tap), [0, now) is
 // caught up the same way when it is within the limit. Past it, the patch
@@ -211,7 +211,7 @@ export class Scheduler {
   /**
    * One wake: query from the horizon to now + lookahead. A wake up to
    * catchUpLimit past the horizon still queries what it missed, moved later
-   * to start now; a later one skips the missed windows. The first running
+   * to start at now + immediateOffset; a later one skips the missed windows. The first running
    * wake treats 0 as its horizon: up to catchUpLimit past it, it catches up
    * [0, now); later, it starts at now without counting a stall. A window
    * never starts before the runtime's horizon, so no stretch is queried twice.
@@ -261,14 +261,16 @@ export class Scheduler {
     }
     // Whoever queried the runtime last, never query a stretch twice.
     t0 = Math.max(t0, this.runtime.horizon ?? -Infinity);
-    // What's still missed after that, [t0, now), is caught up: moved to start now.
+    // What's still missed after that, [t0, now), is caught up: moved to start at now + immediateOffset,
+    // the lead a tap's note gets (ADR 0033, #97). Handed over at now with no lead, a clock burst during
+    // the wake's query and schedule() left its first events late by the burst plus that work.
     // (A resume, a stall and a first wake past the limit all begin at now or later, so they
     // never catch up; within the limit, `late` was at most catchUpLimit, and the clamp only
     // shrinks it. So no catch-up is ever longer than catchUpLimit, whoever queried before.)
     if (t0 < now) {
-      catchUp = { until: now, shift: now - t0 };
+      catchUp = { until: now, shift: now - t0 + this.immediateOffset };
       this.own.catchUps++;
-      this.own.catchUpMaxMs = Math.max(this.own.catchUpMaxMs, catchUp.shift * 1000);
+      this.own.catchUpMaxMs = Math.max(this.own.catchUpMaxMs, (now - t0) * 1000);
     }
     const t1 = now + (this.clock.hidden?.() ? this.hiddenLookahead : this.lookahead);
     // An extra wake (a visibility change, a push, a resume) may find the window already queried.

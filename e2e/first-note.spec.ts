@@ -20,9 +20,10 @@ declare global {
 
 // A note at t=0 plays (#105). The AudioContext is suspended until the first tap
 // resumes it, and by the first running wake its clock is already past 0. That wake
-// starts the patch at 0 and catches [0, now) up, moved to start now (ADR 0017), so
-// the Clock's t=0 note sounds at the resume instead of the next tick, a whole
-// period later. The tap's own note, held for the resume, follows it 5 ms later.
+// starts the patch at 0 and catches [0, now) up, moved to start at now + 5 ms (ADR 0017,
+// with ADR 0033's lead), so the Clock's t=0 note sounds 5 ms after the resume instead of
+// the next tick, a whole period later. The tap's own note, held for the resume, has the
+// same 5 ms lead from a later clock read, so it follows at the same time or after.
 
 const CLOCK_HZ = 440 * 2 ** ((60 - 69) / 12);
 const TAP_HZ = 440 * 2 ** ((72 - 69) / 12);
@@ -94,19 +95,22 @@ test('the first tap starts audio, and the t=0 Clock note sounds at once, before 
     .toBeLessThanOrEqual(CATCH_UP_LIMIT);
   const clockNote = seen.find((s) => Math.abs(s.hz - CLOCK_HZ) < 1);
   const tapNote = seen.find((s) => Math.abs(s.hz - TAP_HZ) < 1);
-  // The t=0 tick, caught up: the first wake moved it to its own clock reading, the resume, not 1 s later.
-  // A catch-up has no lead, so a clock step during that wake can leave it behind currentTime, by up to a step
-  // (the runtime moves it to the clock at hand-over and counts it in lateCaughtUp; Web Audio plays it at once).
+  // The t=0 tick, caught up: the first wake moved it to its own clock reading plus the 5 ms lead (ADR 0033), not
+  // 1 s later. A first wake at exactly 0 has nothing to catch up, and the tick is at 0 in its ordinary window.
+  // A clock burst during that wake longer than the lead can leave it behind currentTime, by up to a step (the
+  // runtime moves it to the clock at hand-over and counts it in lateCaughtUp; Web Audio plays it at once).
   expect(clockNote, 'the t=0 Clock note was never started').toBeDefined();
-  expect(clockNote!.when).toBeGreaterThanOrEqual(stats.firstWake! - 1e-9);
-  expect(clockNote!.when - stats.firstWake!).toBeLessThanOrEqual(step + 1e-6);
+  const lead = stats.caughtUp > 0 ? IMMEDIATE_OFFSET : 0;
+  expect(clockNote!.when).toBeGreaterThanOrEqual(stats.firstWake! + lead - 1e-9);
+  expect(clockNote!.when - (stats.firstWake! + lead)).toBeLessThanOrEqual(step + 1e-6);
   expect(clockNote!.at - clockNote!.when).toBeLessThanOrEqual(step + 1e-6);
   expect(seen.indexOf(clockNote!)).toBeLessThan(seen.indexOf(tapNote!));
   // The tap, held while audio was stopped, is stamped currentTime + 5 ms by the same wake, after the catch-up.
   expect(tap.cold).toBe(true);
-  // Its push read the clock after that wake handed the t=0 note over, so it follows by at least the 5 ms offset.
+  // Its push read the clock after that wake handed the t=0 note over, so it follows by at least the 5 ms offset less
+  // the caught-up note's own 5 ms lead: at the same time or after it.
   expect(tapNote!.at - tapNote!.when).toBeLessThanOrEqual(step + 1e-6);
-  expect(tapNote!.when - clockNote!.when).toBeGreaterThanOrEqual(IMMEDIATE_OFFSET - 1e-6);
+  expect(tapNote!.when - clockNote!.when).toBeGreaterThanOrEqual(IMMEDIATE_OFFSET - lead - 1e-6);
   // At least the pointerdown was held (the context may already run by the pointerup, under load).
   expect(stats.deferredPushes).toBeGreaterThanOrEqual(1);
   expect(stats.lateScheduled).toBe(0);

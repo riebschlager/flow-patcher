@@ -1,6 +1,6 @@
 # 0017 · A 5 ms immediate-path offset, and catch-up for late scheduler wakes
 
-Status: Accepted · 2026-10-21 · Amends [0008](0008-one-clock-window-queries.md) · Amended by [0027](0027-immediate-notes-within-one-clock-step.md) (a tap's own note may land up to one clock step late), [0033](0033-first-wake-catches-up-from-zero.md) (the first wake catches up from 0, within the limit)
+Status: Accepted · 2026-10-21 · Amends [0008](0008-one-clock-window-queries.md) · Amended by [0027](0027-immediate-notes-within-one-clock-step.md) (a tap's own note may land up to one clock step late), [0033](0033-first-wake-catches-up-from-zero.md) (the first wake catches up from 0, within the limit; a caught-up stretch starts at now + 5 ms, #97)
 
 ## Context
 ADR 0008 stamps live input at `ctx.currentTime + ~10 ms`, and skips missed windows after any stall. The M0 spike measured both on the reference devices ([spike-notes.md](../spike-notes.md)):
