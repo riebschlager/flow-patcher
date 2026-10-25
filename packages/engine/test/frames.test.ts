@@ -179,10 +179,11 @@ describe('frames and the immediate path (ADR 0020)', () => {
     const runtime = new Runtime(compile(p(0.05)), { history: true });
     for (let k = 0; k < 4; k++) runtime.query(k * 0.025, (k + 1) * 0.025);
     // A tap on a window boundary, so the swap below re-runs from its time.
-    runtime.push('t', 'out', { time: 0.025, channel: 5 }, { now: 0.02, path: 'immediate' });
+    runtime.push('t', 'out', { time: 0.025, channel: 5 }, { now: 0.01, path: 'immediate' });
     runtime.frame(-0.1, -0.08, 0.02);
     expect(seen(runtime).map((e) => [e.time, e.path])).toEqual([[0.025, 'immediate']]);
-    const report = runtime.swap(compile(p(0.04)), { now: 0.02, path: 'scheduled' });
+    // 0.01 + SWAP_MARGIN: the boundary at the tap's time.
+    const report = runtime.swap(compile(p(0.04)), { now: 0.01, path: 'scheduled' });
     expect(report.time).toBe(0.025);
     expect(report.affected.has('v')).toBe(true);
     runtime.frame(-0.08, 0.1, 0.02);

@@ -10,6 +10,7 @@ import {
   ManualClock,
   Runtime,
   Scheduler,
+  SWAP_MARGIN,
   type AudioContextLike,
   type EngineEvent,
   type LoggedEvent,
@@ -391,6 +392,55 @@ describe('late counters read the audio clock at hand-over', () => {
       jump.to = 0.025 + 0.0116;
       scheduler.wake();
       expect(scheduler.stats.lateScheduled).toBe(1);
+    });
+
+    it('a swap whose instance build takes 20 ms picks a boundary past the clock after it, so nothing it re-runs is late (#97)', () => {
+      // A recorder whose build moves the clock on by `build.time` (a Reverb rendering its impulse).
+      const build = { clock: null as ManualClock | null, time: 0 };
+      const deliveries: Delivery[] = [];
+      const slowBuild: NodeDefinition = {
+        type: 'slow-build', version: 1, label: 'Slow build', category: 'instruments', description: '',
+        ports: [{ name: 'in', type: 'event', direction: 'in' }],
+        params: [{ name: 'tone', kind: 'number', min: 0, max: 1, default: 0 }],
+        audio: () => {
+          build.clock?.set(build.clock.audio + build.time);
+          // Set once setup has made the clock, before the first wake hands anything over.
+          const clock = () => build.clock!;
+          return {
+            schedule: (_port, events) => deliveries.push(...events.map((event) => ({ event, at: clock().audio, cancelled: false }))),
+            cancel: (_port, events) => {
+              for (const event of events) {
+                const delivery = deliveries.find((d) => d.event === event && !d.cancelled)!;
+                // Never withdraws what may already be playing.
+                expect(delivery.event.time).toBeGreaterThanOrEqual(clock().audio);
+                delivery.cancelled = true;
+              }
+            },
+          };
+        },
+      };
+      const p = (tone: number) => patch([node('m', 'metro', { period: 0.005 }), node('r', 'slow-build', { tone })], [cable('m', 'r')]);
+      const run = setup(p(0), {}, [slowBuild]);
+      build.clock = run.clock;
+      run.wakeEvery(0, 0.5);
+      // The edit at 0.49: windows start at 0.495, 0.52, …. The build moves the clock to 0.51, past 0.495.
+      run.clock.set(0.49);
+      build.time = 0.02;
+      const report = run.scheduler.swap(run.compile(p(1)));
+      build.time = 0;
+      expect(run.clock.audio).toBeCloseTo(0.51, 12);
+      // The first boundary at or after 0.51 + SWAP_MARGIN.
+      expect(SWAP_MARGIN).toBe(0.015);
+      expect(report.time).toBeCloseTo(0.545, 9);
+      expect(report.time).toBeGreaterThanOrEqual(run.clock.audio + SWAP_MARGIN - 1e-12);
+      run.wakeEvery(0.525, 0.8);
+      const stats = run.scheduler.stats;
+      expect(stats).toMatchObject({ lateScheduled: 0, lateImmediate: 0, lateCaughtUp: 0, skipped: 0, stalls: 0 });
+      // Every tick was handed over once, on time: none skipped, none twice (the old instance's from the swap on withdrawn).
+      const live = deliveries.filter((d) => !d.cancelled);
+      expect(live.map((d) => Math.round(d.event.time * 1000))).toEqual(Array.from({ length: Math.round((0.8 + LOOKAHEAD - 0.025) / 0.005) }, (_, k) => k * 5));
+      expect(live.every((d) => d.event.time >= d.at)).toBe(true);
+      expect(deliveries.filter((d) => d.cancelled).every((d) => d.event.time >= report.time)).toBe(true);
     });
 
     it('counts nothing when the clock holds still through schedule()', () => {

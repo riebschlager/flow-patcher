@@ -12,6 +12,7 @@
 // enforces the event caps (limits.ts, ADR 0011) and keeps the per-node
 // warnings they raise. Hot patching (`swap`, ADR 0023) replaces the plan at a
 // window boundary; each window remembers the plan it ran under.
+import { AUTOMATION_RENDER_MARGIN } from './audio/automation';
 import type { AudioContextLike, AudioNodeLike } from './audio/types';
 import { VoicePool } from './audio/voices';
 import { createNodeContext, type BoundContext, type NodeWiring } from './context';
@@ -35,6 +36,14 @@ import { pushable } from './input';
 import { LIMIT_WINDOW, limitWindowOf, NODE_EVENT_LIMIT, PATCH_EVENT_LIMIT, VOICE_LIMIT, WARNING_KINDS, type NodeWarning, type NodeWarningKind } from './limits';
 import type { Patch, PortRef } from './patch';
 import { clonePlain, restoreState } from './state';
+
+/**
+ * How far past the audio clock a swap's boundary must be, in seconds (ADR 0023, #97): the
+ * clock read once the swap has built its audio instances, plus the most the render thread can
+ * be ahead of currentTime, AUTOMATION_RENDER_MARGIN. The rest of the swap, up to handing over
+ * the re-run's first window, then has that long before the boundary can reach the render.
+ */
+export const SWAP_MARGIN = AUTOMATION_RENDER_MARGIN;
 
 export interface PlanNode {
   id: string;
@@ -925,7 +934,9 @@ export class Runtime {
   /**
    * Hot patching (design.md, ADR 0023): `plan` replaces the running plan at
    * the next window boundary. With `timing` and history, that is the first
-   * retained window starting at or after `timing.now`: every window from
+   * retained window starting at or after the audio clock plus SWAP_MARGIN,
+   * the clock read once the new audio instances are built, so the re-run never
+   * starts behind the clock or the render thread (#97): every window from
    * there to the horizon runs again under the new plan, the way a rewind
    * re-runs them, and what removed or changed nodes had scheduled from then on
    * is replaced. Otherwise the new plan takes effect at the horizon, where the
@@ -975,11 +986,30 @@ export class Runtime {
     const ids = new Set(plan.order.map((n) => n.id));
     const removed = prev.plan.order.map((n) => n.id).filter((id) => !ids.has(id));
 
-    // The next window boundary at or after now; else the horizon.
+    // The stage takes effect at the boundary chosen below, once its audio instances are built.
+    const next = this.makeStage(plan, -Infinity, prev, kept);
+    const updated: string[] = [];
+    if (this.audioContext) {
+      for (const node of plan.order) {
+        if (!node.definition.audio) continue;
+        const old = prev.audio.get(node.id);
+        const keep = old && (!rebuild.has(node.id) || (inPlace.has(node.id) && old.update));
+        if (keep) next.audio.set(node.id, old);
+        else next.audio.set(node.id, this.buildAudio(node, next));
+        if (keep && rebuild.has(node.id)) updated.push(node.id);
+      }
+    }
+
+    // The first window boundary far enough ahead of the clock that the re-run from it can't start in
+    // the past (#97); else the horizon. The clock is read again here, after building the instances
+    // (a Reverb renders its impulse), and the boundary is at least SWAP_MARGIN past it: the render
+    // thread can be that far ahead of currentTime, and the rest of the swap (retiring, updates,
+    // rewiring, the re-run's first window) runs before that window's events reach Web Audio.
     const history = this.history;
     let first = -1, time = this.end ?? -Infinity;
     if (timing && history) {
-      const j = history.findIndex((w) => w.t0 >= timing.now);
+      const from = clockAt(timing) + SWAP_MARGIN;
+      const j = history.findIndex((w) => w.t0 >= from);
       if (j >= 0) {
         first = j;
         time = history[j]!.t0;
@@ -991,19 +1021,10 @@ export class Runtime {
       time = prev.from;
       first = history?.findIndex((w) => w.t0 >= time) ?? -1;
     }
+    next.from = time;
 
-    const next = this.makeStage(plan, time, prev, kept);
     let cancelled = 0;
-    const updated: string[] = [];
     if (this.audioContext) {
-      for (const node of plan.order) {
-        if (!node.definition.audio) continue;
-        const old = prev.audio.get(node.id);
-        const keep = old && (!rebuild.has(node.id) || (inPlace.has(node.id) && old.update));
-        if (keep) next.audio.set(node.id, old);
-        else next.audio.set(node.id, this.buildAudio(node, next));
-        if (keep && rebuild.has(node.id)) updated.push(node.id);
-      }
       for (const instance of prev.audio.values()) {
         if (![...next.audio.values()].includes(instance)) cancelled += this.retire(instance, time);
       }

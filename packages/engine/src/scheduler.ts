@@ -395,7 +395,7 @@ export class Scheduler {
 
   /**
    * Hot patching: `plan` (compiled from the edited patch) takes over at the
-   * next window boundary at or after currentTime, re-running the windows
+   * next window boundary at least SWAP_MARGIN past currentTime, re-running the windows
    * already queried from there (`Runtime.swap`, ADR 0023). The recorded log
    * drops what the removed and re-run nodes had logged from then on and takes
    * the re-run's events.

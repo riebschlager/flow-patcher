@@ -1,5 +1,5 @@
 // Hot patching (design.md "Hot patching", ADR 0023): a new plan swaps in at the
-// next window boundary at or after currentTime and re-runs the windows already
+// next window boundary at least SWAP_MARGIN past currentTime and re-runs the windows already
 // queried from there; state carries over by node id; what removed or changed
 // nodes had scheduled from then on is withdrawn; a rewind replays each window
 // under the plan it ran under. The gate check itself (Clock → Euclidean →
@@ -21,6 +21,7 @@ import {
   type Patch,
   type PatchEdit,
   type Plan,
+  SWAP_MARGIN,
 } from '../src';
 
 /** Ticks every `period` seconds, from absolute time. */
@@ -167,15 +168,17 @@ const grid = (period: number, from: number, to: number) => {
 };
 
 describe('hot swap', () => {
-  it('takes effect at the first window boundary at or after now, re-running the windows queried from there', () => {
+  it('takes effect at the first window boundary at or after now + SWAP_MARGIN, re-running the windows queried from there', () => {
     const run = setup(patch([node('m', 'metro', { period: 0.025 }), node('c', 'counter')], [cable('m', 'c')]));
     run.wakeEvery(0, 0.5);
     const report = run.edit(0.49, { op: 'set-param', node: 'm', param: 'period', value: 0.04 });
     run.wakeEvery(0.5, 1.2);
 
-    // Windows end at wake + 120 ms: 0.47, 0.495, …; the first at or after 0.49 starts at 0.495.
-    expect(report.time).toBeCloseTo(0.495, 9);
-    expect(report.windows).toBe(4);
+    // Windows end at wake + 120 ms: 0.47, 0.495, 0.52, …; the first at or after 0.49 + 15 ms starts at 0.52.
+    // 0.495 is ahead of the clock, but not by the render lead (#97).
+    expect(SWAP_MARGIN).toBe(0.015);
+    expect(report.time).toBeCloseTo(0.52, 9);
+    expect(report.windows).toBe(3);
     expect(report.changed).toEqual(['m']);
     expect([...report.affected].sort()).toEqual(['c', 'm']);
     const T = report.time, end = 1.175 + 0.12 - 0.025;
@@ -388,7 +391,8 @@ describe('hot swap', () => {
     // A tick every 10 ms, so one lands exactly on the swap's boundary, 0.47.
     const run = setup(patch([node('m', 'metro', { period: 0.01 }), node('r', 'counter'), node('d', 'counter'), node('u', 'counter')], [cable('m', 'r'), cable('m', 'd'), cable('m', 'u')]));
     run.wakeEvery(0, 0.46);
-    const report = run.edit(0.46, { op: 'remove-node', node: 'r' }, { op: 'add-cable', cable: cable('u', 'd') });
+    // 0.455 + SWAP_MARGIN = 0.47.
+    const report = run.edit(0.455, { op: 'remove-node', node: 'r' }, { op: 'add-cable', cable: cable('u', 'd') });
     const T = report.time;
     expect(T).toBeCloseTo(0.47, 12);
     expect(run.of('m').some((e) => e.time === T)).toBe(true);
@@ -465,9 +469,9 @@ describe('hot swap', () => {
     // n is added at the horizon, 0.5, and runs from there.
     runtime.swap(compile(patch([node('m', 'metro', { period: 0.05 }), node('n', 'counter')], [cable('m', 'n')])));
     for (let k = 5; k < 8; k++) runtime.query(k / 10, (k + 1) / 10);
-    // Now 0.6 is both currentTime and the oldest retained boundary.
+    // Now 0.6 is both the swap's boundary (now + SWAP_MARGIN) and the oldest retained one.
     runtime.retain(0.6);
-    const report = runtime.swap(compile(patch([node('m', 'metro', { period: 0.05 }), node('n', 'counter', { step: 10 })], [cable('m', 'n')])), { now: 0.6 });
+    const report = runtime.swap(compile(patch([node('m', 'metro', { period: 0.05 }), node('n', 'counter', { step: 10 })], [cable('m', 'n')])), { now: 0.6 - SWAP_MARGIN });
     expect(report.time).toBe(0.6);
     expect(report.reset).toEqual([]);
     // n counted 0.5 and 0.55 before the swap, then goes on in tens.
