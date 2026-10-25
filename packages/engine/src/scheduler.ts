@@ -3,8 +3,8 @@
 // Every 25 ms it asks the runtime for the events from its horizon to
 // now + 120 ms (1.25 s while the page is hidden). Windows are contiguous, so
 // each moment is queried once. A wake up to 100 ms past its horizon still
-// queries the stretch it missed, moved to start now so its events keep their
-// spacing; a later wake is a stall and skips the missed windows. The first
+// queries the stretch it missed, moved to start now + 5 ms (the immediate
+// offset, a lead like a tap's) so its events keep their spacing; a later wake is a stall and skips the missed windows. The first
 // running wake starts the patch at 0: if the clock is already past it (the
 // AudioContext started before the wake, as on the first tap), [0, now) is
 // caught up the same way when it is within the limit. Past it, the patch
@@ -120,6 +120,11 @@ export interface SchedulerStats extends RuntimeCounters {
   catchUps: number;
   /** The latest a catch-up wake has been, in ms past the horizon. */
   catchUpMaxMs: number;
+  /** For the event behind `lateCaughtUpMaxMs`: the main thread's wall time, ms on the injected wall clock,
+   *  from the start of the wake that handed it over to that hand-over (its schedule() included), not the
+   *  whole wake. A caught-up event may be late by one clock step plus that (ADRs 0027, 0033); a slow first
+   *  query widens it. 0 until a wake sets the max. */
+  lateCaughtUpWakeMs: number;
   pushes: number;
   /** Pushes that rewound. */
   rewinds: number;
@@ -159,13 +164,15 @@ export class Scheduler {
   private last: { wall: number; audio: number } | null = null;
   /** The next running wake resumes rather than catching up or counting a stall. */
   private fresh = true;
+  /** A wake found the clock suspended before the first running one: the patch starts at a resume (the editor's first tap). */
+  private startsSuspended = false;
   /** Pushes held while the audio clock is suspended. */
   private readonly deferred: (readonly PushTarget[])[] = [];
   /** A live clock read for the runtime's hand-overs (`DeliveryTiming.currentTime`). */
   private readonly audioTime = (): number => this.clock.audioTime();
   private stop: (() => void) | null = null;
   private log: LoggedEvent[] | null;
-  private readonly own = { windows: 0, skipped: 0, stalls: 0, catchUps: 0, catchUpMaxMs: 0, pushes: 0, rewinds: 0, pushQueries: 0, pushMsMax: 0, pushMsTotal: 0, deferredPushes: 0, swaps: 0, pushFallbacks: 0 };
+  private readonly own = { windows: 0, skipped: 0, stalls: 0, catchUps: 0, catchUpMaxMs: 0, lateCaughtUpWakeMs: 0, pushes: 0, rewinds: 0, pushQueries: 0, pushMsMax: 0, pushMsTotal: 0, deferredPushes: 0, swaps: 0, pushFallbacks: 0 };
 
   constructor(runtime: Runtime, options: SchedulerOptions) {
     this.runtime = runtime;
@@ -211,7 +218,7 @@ export class Scheduler {
   /**
    * One wake: query from the horizon to now + lookahead. A wake up to
    * catchUpLimit past the horizon still queries what it missed, moved later
-   * to start now; a later one skips the missed windows. The first running
+   * to start at now + immediateOffset; a later one skips the missed windows. The first running
    * wake treats 0 as its horizon: up to catchUpLimit past it, it catches up
    * [0, now); later, it starts at now without counting a stall. A window
    * never starts before the runtime's horizon, so no stretch is queried twice.
@@ -220,6 +227,7 @@ export class Scheduler {
     if (this.clock.running && !this.clock.running()) {
       // Suspended: not a stall. The first running wake resumes without counting one.
       this.fresh = true;
+      if (this.next === null) this.startsSuspended = true;
       this.last = null;
       return;
     }
@@ -228,6 +236,7 @@ export class Scheduler {
     this.last = { wall, audio: now };
     let t0: number;
     let catchUp: { until: number; shift: number } | undefined;
+    const first = this.next === null;
     if (this.next === null) {
       // The first running wake: nothing has been queried, so the patch starts at 0. If the clock
       // is already past 0 (it started before this wake: the first tap resumed the AudioContext),
@@ -261,19 +270,34 @@ export class Scheduler {
     }
     // Whoever queried the runtime last, never query a stretch twice.
     t0 = Math.max(t0, this.runtime.horizon ?? -Infinity);
-    // What's still missed after that, [t0, now), is caught up: moved to start now.
+    // What's still missed after that, [t0, now), is caught up: moved to start at now + immediateOffset,
+    // the lead a tap's note gets (ADR 0033, #97). Handed over at now with no lead, a clock burst during
+    // the wake's query and schedule() left its first events late by the burst plus that work.
     // (A resume, a stall and a first wake past the limit all begin at now or later, so they
     // never catch up; within the limit, `late` was at most catchUpLimit, and the clamp only
     // shrinks it. So no catch-up is ever longer than catchUpLimit, whoever queried before.)
     if (t0 < now) {
-      catchUp = { until: now, shift: now - t0 };
+      catchUp = { until: now, shift: now - t0 + this.immediateOffset };
       this.own.catchUps++;
-      this.own.catchUpMaxMs = Math.max(this.own.catchUpMaxMs, catchUp.shift * 1000);
+      this.own.catchUpMaxMs = Math.max(this.own.catchUpMaxMs, (now - t0) * 1000);
+    } else if (first && this.startsSuspended && t0 === 0 && now === 0) {
+      // The first wake at a resume that reads exactly 0 catches up [0, 0] the same way, so a t=0 event
+      // gets the lead whatever the clock read at the resume (ADR 0033): `until` is the smallest double
+      // past 0, so only events at 0 move. It isn't counted in catchUps, which counts wakes that were
+      // late; its events count in caughtUp. A run whose clock runs from the start (headless, tests)
+      // has no resume, nothing in flight during its first query, and keeps t=0 events at 0.
+      catchUp = { until: Number.MIN_VALUE, shift: this.immediateOffset };
     }
     const t1 = now + (this.clock.hidden?.() ? this.hiddenLookahead : this.lookahead);
     // An extra wake (a visibility change, a push, a resume) may find the window already queried.
     if (t1 > t0) {
+      const worstBefore = this.runtime.counters.lateCaughtUpMaxMs;
       const events = this.runtime.query(t0, t1, { now, currentTime: this.audioTime, catchUp, path: 'scheduled' });
+      // This wake set a new worst caught-up lateness: keep the main thread's time from the wake's start to
+      // that hand-over, the work the lateness may include (the runtime notes the wall clock when it counts it).
+      if (this.runtime.counters.lateCaughtUpMaxMs > worstBefore && this.runtime.lateCaughtUpWall !== null) {
+        this.own.lateCaughtUpWakeMs = this.runtime.lateCaughtUpWall - wall;
+      }
       this.log?.push(...events);
       this.next = t1;
       this.own.windows++;
@@ -395,7 +419,7 @@ export class Scheduler {
 
   /**
    * Hot patching: `plan` (compiled from the edited patch) takes over at the
-   * next window boundary at or after currentTime, re-running the windows
+   * next window boundary at least SWAP_MARGIN past currentTime, re-running the windows
    * already queried from there (`Runtime.swap`, ADR 0023). The recorded log
    * drops what the removed and re-run nodes had logged from then on and takes
    * the re-run's events.

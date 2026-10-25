@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { LivePatch } from '../packages/editor/src/live';
-import { audioCallback } from './audio-clock';
+import { burstProbeReady, installBurstProbe } from './audio-burst';
+import { audioCallback, stepLog } from './audio-clock';
 
 declare global {
   interface Window {
@@ -21,11 +22,14 @@ test('taps stay on time with the fluid stepping and the renderer drawing', async
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
 
+  await installBurstProbe(page);
   await page.goto('/?patch=tap-splash');
   await expect(page.getByTestId('compile-status')).toHaveText('7 nodes compiled');
   const canvas = page.getByTestId('performance-canvas');
 
   // The first tap starts audio.
+  // The probe must be in the graph before the tap resumes the context, so it sees the resume's bursts.
+  await burstProbeReady(page);
   await canvas.click({ position: { x: 40, y: 40 } });
   await expect(page.getByTestId('audio-state')).toHaveText('live');
   await expect.poll(() => page.evaluate(() => window.flowPatcher!.taps[0]?.note ?? null)).not.toBeNull();
@@ -47,12 +51,13 @@ test('taps stay on time with the fluid stepping and the renderer drawing', async
 
   const taps = await page.evaluate(() => window.flowPatcher!.taps.filter((tap) => !tap.cold));
   const stats = await page.evaluate(() => window.flowPatcher!.frameStats);
-  const { callback, largestStep } = await audioCallback(page);
+  const steps = await audioCallback(page);
+  const { step } = steps;
   const late = taps.map((tap) => tap.note! - tap.down);
   const worst = Math.max(...late);
   const splashes = taps.map((tap) => tap.splash!);
   console.log(
-    `worst tap ${(worst * 1000).toFixed(2)} ms (bound ${(BOUND * 1000).toFixed(0)} ms); audio callback ${(callback * 1000).toFixed(2)} ms (largest clock step ${(largestStep * 1000).toFixed(2)} ms); ` +
+    `worst tap ${(worst * 1000).toFixed(2)} ms (bound ${(BOUND * 1000).toFixed(0)} ms); one step ${(step * 1000).toFixed(2)} ms (${stepLog(steps)}); ` +
       `splash handed after ${Math.max(...splashes.map((s) => s.handed))} frame(s), drawn after ${Math.min(...splashes.map((s) => s.frames))}–${Math.max(...splashes.map((s) => s.frames))}, ` +
       `ms ${Math.min(...splashes.map((s) => s.ms)).toFixed(1)}–${Math.max(...splashes.map((s) => s.ms)).toFixed(1)}; ` +
       `fluid step ${stats.fluid!.stepMs.toFixed(2)} ms, color ${stats.fluid!.colorMs.toFixed(2)} ms, ${stats.fluid!.merged} merged, ${stats.drawn}/${stats.frames} frames drawn`,
@@ -63,7 +68,7 @@ test('taps stay on time with the fluid stepping and the renderer drawing', async
     expect(tap.note).not.toBeNull();
     // push reads the clock again after the handler did, and an audio callback can land between the two reads.
     expect(tap.stamped! - tap.at).toBeGreaterThanOrEqual(OFFSET - 1e-6);
-    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(OFFSET + callback + 1e-6);
+    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(OFFSET + steps.callback + 1e-6);
   }
   expect(worst).toBeLessThanOrEqual(BOUND);
   // ADR 0026: a visible push always rewinds, so none fell back to the horizon.

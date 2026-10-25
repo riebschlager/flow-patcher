@@ -41,8 +41,8 @@ export const MIN_DELAY = 0.001;
 /** How long a Division or Time edit glides, seconds (Flow's delayGlide). *(tune)* */
 export const DELAY_GLIDE = 0.04;
 /**
- * How long after an edit's swap time the glide starts: the most the swap's re-run keeps of the ramps
- * already scheduled (two grid steps plus the render margin, ADR 0031). Starting there, all of the
+ * How long after an edit's swap time the glide starts: the most any re-run keeps of the ramps already
+ * scheduled after the swap time (two grid steps plus the render margin, ADR 0031). Starting there, all of the
  * glide plays; the time holds until then.
  */
 export const GLIDE_LEAD = 2 / AUTOMATION_RATE + AUTOMATION_RENDER_MARGIN;
