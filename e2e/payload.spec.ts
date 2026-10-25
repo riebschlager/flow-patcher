@@ -126,6 +126,10 @@ test('Payload: mouse, touch, pen, wheel and key input give every documented fiel
   }
   await dispatch(page, 'pointerup', { fx: 0.7, fy: 0.4, ...pen, pressure: 0, button: 0, buttons: 0 });
 
+  // The pointer checks below cover what came before here: the clicks after it press and release on one
+  // stamp, which is Click's to check.
+  const pointersEnd = await page.evaluate(() => window.flowPatcher!.clock.currentTime);
+
   // Wheel, plain and with Ctrl (a trackpad pinch).
   await page.mouse.move(box.x + box.width * 0.75, box.y + box.height * 0.25);
   await page.mouse.wheel(30, 100);
@@ -150,16 +154,15 @@ test('Payload: mouse, touch, pen, wheel and key input give every documented fiel
 
   // Pointer sources: every documented field, on the events its rule says.
   for (const source of ['pointer', 'pointer-high-rate', 'pen']) {
-    const events = all[`${source}.all`]!;
+    const events = all[`${source}.all`]!.filter((e) => e.time < pointersEnd);
     expect(events.length, source).toBeGreaterThan(0);
-    // A pointer's first sample since it last lifted: no earlier sample after its latest up or cancel.
-    // (Every synthetic pointer here is pointerId 1, as is the mouse.)
-    // Stamps can tie (an up and the next pointer's down in one render quantum), so a lift at the same time counts.
-    const lifts = events.filter((e) => e.phase === 'up' || e.phase === 'cancel');
-    const first = (e: EngineEvent) => {
-      const lifted = Math.max(-Infinity, ...lifts.filter((o) => o !== e && o.time <= e.time).map((o) => o.time));
-      return !events.some((o) => o !== e && o.time > lifted && o.time < e.time);
-    };
+    // `interval` is left out on a pointer's first sample since it last lifted. Inside a contact (after its
+    // down, up to its up) every sample has one; outside, a hover's first may not. Every synthetic pointer here
+    // is pointerId 1, as is the mouse, so contacts are told apart by type and never overlap.
+    const downs = events.filter((e) => e.phase === 'down');
+    const inContact = (e: EngineEvent) => (e.phase === 'move' || e.phase === 'up') && downs.some((d) =>
+      d.pointerType === e.pointerType && d.time < e.time && !events.some((u) => u.pointerType === e.pointerType && (u.phase === 'up' || u.phase === 'cancel') && u.time >= d.time && u.time < e.time));
+    const first = (e: EngineEvent) => !inContact(e);
     expect(events.filter((e) => has(e, 'interval')).length, `${source}: most samples carry interval`).toBeGreaterThan(events.length / 2);
     for (const e of events) {
       for (const [field, rule] of Object.entries(POINTER_RULES)) {
