@@ -36,6 +36,7 @@ Short records of settled calls. Read the relevant ones before changing anything 
 | [0030](0030-overlays-draw-into-the-renderer.md) | Overlays draw into the Renderer's picture in pure TS through an Overlay field kind; reduced motion is a host service |
 | [0031](0031-audio-automation-and-in-place-edits.md) | Audio instances automate per chunk on a 60 Hz grid, idempotently across re-runs, and take knob edits in `liveParams` in place (amends 0023) |
 | [0032](0032-log-knobs-depth-in-octaves.md) | A number param can be log-scaled: its knob reads the range by ratio, values stay in natural units, and cable depth into it is in octaves |
+| [0033](0033-first-wake-catches-up-from-zero.md) | The first wake catches up from 0 within the catch-up limit, and starts at now past it, never a stall; caught-up events behind the clock count apart from scheduled ones (amends 0017, 0027) |
 
 ## Adding a decision
 Copy the shape of an existing file: number, title, `Status: Accepted · <date>`, then Context (if needed), Decision and Consequences. Keep it under a page. If it replaces an older record, set the old one's status to `Superseded by NNNN`. If it changes only part of an older record, set the old one's status to `Amended by NNNN` and leave its text as written; the new record says what changed.
