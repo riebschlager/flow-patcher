@@ -10,6 +10,7 @@ import {
   type Transport,
 } from '@flow-patcher/engine';
 import {
+  audibleRepeats,
   cappedFeedback,
   clampDelay,
   DEFAULT_DIVISION,
@@ -24,7 +25,7 @@ import {
 } from '../src/delay';
 import { blockLoudness, maxDifference, peak, renderOffline, RENDER_TOLERANCE, type RenderedAudio } from '../../../tools/lib/audio';
 import { expectGoldenClose } from '../../../test-support/golden';
-import { audioSetup, busRms, sine, swapRun, type ContextOptions } from './helpers';
+import { audioSetup, busRms, sine, swapRun, tailRun, type ContextOptions } from './helpers';
 
 const DEFAULTS = { division: DEFAULT_DIVISION, time: 0.4, feedback: 0.36, tone: 3100, mix: 0.35 };
 
@@ -327,6 +328,76 @@ describe('delay', () => {
     expect(largestClick(jumped, ...window)).toBeGreaterThan(0.8);
     // Afterwards, a quarter: a sine delayed by 0.5 s.
     expect(busRms(glided, 0.7, 0.3)).toBeCloseTo(0.5 / Math.SQRT2, 2);
+  });
+
+  it('glides 40 ms from a tempo change, starting at the reading\'s since', () => {
+    // 120 bpm, then 60 bpm from 1 s: a quarter goes from 0.5 s to 1 s.
+    const t = transport(120);
+    retune(t, 1, { beatsPerSecond: 1, stepBeats: 0.25, swing: 0 });
+    const fake = fakeContext();
+    const instance = delay.audio!(audioSetup(delay, fake.context, { params: { division: '1/4' }, values: cable(t) }));
+    instance.automate!(0, 2, -Infinity);
+    for (const { time, value } of fake.delayTime.points) {
+      if (time < 1) expect(value).toBe(0.5);
+      else if (time >= 1 + DELAY_GLIDE) expect(value).toBe(1);
+      else expect(value).toBeCloseTo(0.5 + (0.5 * (time - 1)) / DELAY_GLIDE, 9);
+    }
+    // Two grid points inside the glide: no single 16.7 ms ramp across the whole change.
+    expect(fake.delayTime.points.filter(({ time }) => time > 1 && time < 1 + DELAY_GLIDE)).toHaveLength(2);
+  });
+
+  it('glides through a modulated tempo whose changes come quicker than the glide, never stepping', () => {
+    // A new tempo every 20 ms, between 100 and 140 bpm: each change glides on from where the last one had got.
+    const t = transport(120);
+    for (let i = 1; i <= 50; i++) retune(t, 0.02 * i, { beatsPerSecond: (i % 2 ? 100 : 140) / 60, stepBeats: 0.25, swing: 0 });
+    const fake = fakeContext();
+    const instance = delay.audio!(audioSetup(delay, fake.context, { params: { division: '1/4' }, values: cable(t) }));
+    instance.automate!(0, 1.2, -Infinity);
+    const values = fake.delayTime.points.map((p) => p.value);
+    // Targets are 0.6 s and about 0.43 s; a jump would move the whole 0.17 s in one grid step.
+    for (let i = 1; i < values.length; i++) expect(Math.abs(values[i]! - values[i - 1]!)).toBeLessThan(0.17 * 0.5);
+    for (const v of values) {
+      expect(v).toBeGreaterThan(0.42);
+      expect(v).toBeLessThan(0.61);
+    }
+  });
+
+  it('glides 40 ms when a transport comes or goes, from where the delay was', () => {
+    // No transport until 1 s, then 60 bpm (a quarter is 1 s), gone again from 2 s; free time 0.4 s.
+    const t = transport(60);
+    const values = { transport: (time: number) => (time >= 1 && time < 2 ? readTransport(t, time) : undefined) };
+    const fake = fakeContext();
+    const instance = delay.audio!(audioSetup(delay, fake.context, { params: { division: '1/4', time: 0.4 }, values }));
+    // In chunks, with a re-run over the connect, as the runtime may call it.
+    for (const [t0, t1] of [[0, 0.5], [0.5, 1.2], [0.95, 1.6], [1.6, 3]] as const) instance.automate!(t0, t1, -Infinity);
+    const step = 1 / 60;
+    const at = (time: number) => fake.delayTime.points.find((p) => Math.abs(p.time - time) < 1e-9)!.value;
+    expect(at(59 * step)).toBe(0.4);
+    // The first grid point on the transport holds where the delay was, then 40 ms in a line.
+    expect(at(1)).toBe(0.4);
+    expect(at(1 + step)).toBeCloseTo(0.4 + (0.6 * step) / DELAY_GLIDE, 9);
+    expect(at(1 + 3 * step)).toBe(1);
+    // And back to free time from 2 s.
+    expect(at(2)).toBe(1);
+    expect(at(2 + step)).toBeCloseTo(1 - (0.6 * step) / DELAY_GLIDE, 9);
+    expect(at(2 + 3 * step)).toBe(0.4);
+  });
+
+  it('echoes on after a rebuild: a cable into Feedback mid-echo doesn\'t cut the repeats', async () => {
+    expect(audibleRepeats(FEEDBACK_CAP)).toBe(9);
+    expect(audibleRepeats(0)).toBe(1);
+    expect(audibleRepeats(NaN)).toBe(1);
+    // A burst at 0.05 s, repeating every 0.3 s; at 0.21 s a cable into Feedback rebuilds the node.
+    const { reports, built, audio } = await tailRun(delay, { mix: 1, time: 0.3, feedback: 0.42 }, 'feedback', 1.5);
+    expect(reports[0]!.updated).toEqual([]);
+    expect(built).toBe(2);
+    // The new instance never heard the burst; the old one's repeats at 0.95 s and 1.25 s still sound.
+    expect(peakIn(audio, 0.94, 0.03)).toBeGreaterThan(1e-3);
+    expect(peakIn(audio, 1.24, 0.03)).toBeGreaterThan(1e-4);
+    const fake = fakeContext();
+    const instance = delay.audio!(audioSetup(delay, fake.context, { params: { time: 0.3, feedback: 0.42 } }));
+    instance.automate!(0, 0.4, 0);
+    expect(instance.idleAt!()).toBeCloseTo(0.4 + 9 * 0.3 + DELAY_GLIDE, 9);
   });
 
   it('keeps its instance through the runtime for every knob, Division included', async () => {

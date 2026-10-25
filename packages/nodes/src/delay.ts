@@ -9,19 +9,20 @@
 // - Flow clamped the tempo to 30–300 bpm. Clock goes from 20 bpm at a quarter rate, so here the
 //   time itself is clamped to Flow's 32 s ceiling instead: a division longer than that plays at 32 s.
 // - Flow glided time changes with setTargetAtTime (a 40 ms time constant). ADR 0031 rules that out,
-//   so edits glide linearly over 40 ms on the automation grid (`glideAt`).
+//   so edits, tempo changes and a transport coming or going glide linearly over 40 ms on the grid.
 // - Feedback, tone and mix are knobs, and follow cables; feedback never passes 0.42 (Flow's gesture echo).
 //   Flow sent the echo with a wet level only; here Mix is an equal-power insert mix, as on Reverb.
 import {
   AUTOMATION_MEMORY,
   AUTOMATION_RATE,
   AUTOMATION_RENDER_MARGIN,
+  automationTimes,
   editRamp,
   paramAutomation,
   transportTempo,
   type NodeDefinition,
 } from '@flow-patcher/engine';
-import { mixGains } from './reverb';
+import { mixGains } from './mix';
 
 /** Divisions in beats (a quarter note is one), 1/64 to two bars, as Flow's echo menu. "T" is a triplet, "." dotted. */
 export const DELAY_DIVISIONS: Readonly<Record<string, number>> = {
@@ -57,6 +58,19 @@ export const delaySeconds = (beats: number, beatsPerSecond: number): number => c
 
 /** Feedback as the node plays it: 0 to FEEDBACK_CAP, NaN as 0. */
 export const cappedFeedback = (feedback: number): number => (Number.isNaN(feedback) ? 0 : Math.max(0, Math.min(FEEDBACK_CAP, feedback)));
+
+/** Where a reading is taken to find the tempo a change came from: this long before the change. */
+const BEFORE_CHANGE = 1e-6;
+/** How many tempo changes, each less than DELAY_GLIDE after the one before, a glide looks back through. */
+const MAX_CHAIN = 16;
+/** Repeats until feedback at the cap has fallen 60 dB: 0.42^8 ≈ 0.001. */
+const TAIL_REPEATS = 8;
+
+/** How many repeats sound until they are 60 dB down at `feedback`, the first echo included. */
+export function audibleRepeats(feedback: number): number {
+  const f = cappedFeedback(feedback);
+  return 1 + (f > 0 ? Math.min(TAIL_REPEATS, Math.ceil(Math.log(1e-3) / Math.log(f))) : 0);
+}
 
 /** A value that glides linearly from `from` to `to` over DELAY_GLIDE from `at`. */
 interface Glide {
@@ -139,14 +153,42 @@ export const delay: NodeDefinition = {
     // Fixed for the instance's life: a change to the cables into params builds a new one.
     const cabled = { time: connected('time'), feedback: connected('feedback'), tone: connected('tone'), mix: connected('mix') };
     const beats = glides(divisionBeats(params.division));
-    const free = glides(params.time as number);
-    /** The delay at t: the division at the transport's exact tempo, or the free time with no transport. */
-    const seconds = (t: number): number => {
+    const freeTime = glides(params.time as number);
+    /** The free time at t, used with no transport. */
+    const free = (t: number): number => clampDelay(cabled.time ? param('time', t) : freeTime.at(t));
+    /**
+     * The delay at t on the transport: the division at its exact tempo (ADR 0034), gliding linearly over
+     * DELAY_GLIDE from each tempo change, starting where the delay was just before the change (itself
+     * mid-glide when changes come quicker than that, as a modulated tempo's ticks can). A pure function
+     * of t and the readings, so re-runs and rewinds give the same course. Null with no transport.
+     */
+    const synced = (t: number, depth = 0): number | null => {
       const tempo = transportTempo({ value }, 'transport', t);
-      if (tempo) return delaySeconds(beats.at(t), tempo.beatsPerSecond);
-      return clampDelay(cabled.time ? param('time', t) : free.at(t));
+      if (!tempo) return null;
+      const target = delaySeconds(beats.at(t), tempo.beatsPerSecond);
+      const into = t - tempo.since;
+      if (!(into >= 0 && into < DELAY_GLIDE) || depth >= MAX_CHAIN) return target;
+      const before = tempo.since - BEFORE_CHANGE, previous = transportTempo({ value }, 'transport', before);
+      // The transport's first tempo (a Clock starting) has nothing before it to glide from.
+      if (!previous || !(previous.since < tempo.since)) return target;
+      const from = synced(before, depth + 1) ?? free(before);
+      return from + ((target - from) * into) / DELAY_GLIDE;
     };
-    line.delayTime.value = seconds(audio.currentTime);
+    /** The delay at t from the tempo or the free time, before any switch between the two. */
+    const course = (t: number): { synced: boolean; value: number } => {
+      const on = synced(t);
+      return on === null ? { synced: false, value: free(t) } : { synced: true, value: on };
+    };
+    // Grid points automate has worked out, in time order, and the switches between free time and
+    // the transport (a Transport cable added or removed in a swap that keeps the instance): each
+    // glides from the delay at the grid point before it. A re-run drops both from its t0 on and
+    // works them out again, so the course depends only on the cables each chunk ran under.
+    let history: { time: number; synced: boolean; value: number }[] = [];
+    let switches: { at: number; from: number }[] = [];
+    const scheduled = new Map<number, number>();
+    line.delayTime.value = course(audio.currentTime).value;
+    // The latest time automate covered, and the feedback from then on, for idleAt.
+    let lastT1 = audio.currentTime, lastFeedback = cabled.feedback ? FEEDBACK_CAP : (params.feedback as number);
 
     const edits = {
       feedback: editRamp(feedback.gain, feedback.gain.value),
@@ -165,8 +207,20 @@ export const delay: NodeDefinition = {
       inputs: { in: input },
       outputs: { out },
       automate(t0, t1, clock) {
+        lastT1 = Math.max(lastT1, t1);
+        history = history.filter((h) => h.time < t0 && h.time >= t0 - AUTOMATION_MEMORY);
+        switches = switches.filter((w) => w.at < t0 && w.at >= t0 - AUTOMATION_MEMORY - DELAY_GLIDE);
+        scheduled.clear();
+        for (const t of automationTimes(t0, t1)) {
+          const now = course(t), previous = history.at(-1);
+          if (previous && previous.synced !== now.synced) switches.push({ at: t, from: previous.value });
+          const last = switches.at(-1);
+          const v = last && t - last.at < DELAY_GLIDE ? last.from + ((now.value - last.from) * (t - last.at)) / DELAY_GLIDE : now.value;
+          history.push({ time: t, synced: now.synced, value: v });
+          scheduled.set(t, v);
+        }
         // Always: the tempo on the transport can change whatever the cables into params.
-        automation.time.follow(t0, t1, seconds, clock);
+        automation.time.follow(t0, t1, (t) => scheduled.get(t) ?? course(t).value, clock);
         // A bus has no event channels: modulation is read on channel 0.
         if (cabled.feedback) automation.feedback.follow(t0, t1, (t) => cappedFeedback(param('feedback', t)), clock);
         if (cabled.tone) automation.tone.follow(t0, t1, (t) => param('tone', t), clock);
@@ -176,12 +230,13 @@ export const delay: NodeDefinition = {
         }
         // No re-run reaches further back than paramAutomation remembers.
         beats.forget(t0 - AUTOMATION_MEMORY);
-        free.forget(t0 - AUTOMATION_MEMORY);
+        freeTime.forget(t0 - AUTOMATION_MEMORY);
       },
       update(next, time) {
         // Division and Time: the swap re-runs automate from `time`, and `seconds` reads the glide.
         beats.set(divisionBeats(next.division), time);
-        if (!cabled.time) free.set(next.time as number, time);
+        if (!cabled.time) freeTime.set(next.time as number, time);
+        if (!cabled.feedback) lastFeedback = next.feedback as number;
         // Cabled params follow the re-run's automate, which reads the new base.
         if (!cabled.feedback) edits.feedback.set(cappedFeedback(next.feedback as number), time);
         if (!cabled.tone) edits.tone.set(next.tone as number, time);
@@ -190,6 +245,12 @@ export const delay: NodeDefinition = {
           edits.dry.set(gains.dry, time);
           edits.wet.set(gains.wet, time);
         }
+      },
+      // Retired by a rebuild (a cable change, a seed change), it echoes on until its repeats are 60 dB
+      // down: input reaches it until the last time it covered.
+      idleAt() {
+        const seconds = history.at(-1)?.value ?? line.delayTime.value;
+        return lastT1 + audibleRepeats(lastFeedback) * seconds + DELAY_GLIDE;
       },
       dispose() {
         for (const node of [input, dry, wet, out, line, tone, feedback]) node.disconnect();
