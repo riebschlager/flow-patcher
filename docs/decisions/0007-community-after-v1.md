@@ -1,6 +1,6 @@
 # 0007 · Community comes after v1
 
-Status: Accepted · 2026-10-21
+Status: Superseded by [0036](0036-refocus-after-m2.md) (community parked)
 
 ## Decision
 v1 is local-first: patches live in IndexedDB and move around as `.flowpatch` files. Publishing, browsing, remixing online, moderation and the backend are M5, after v1.

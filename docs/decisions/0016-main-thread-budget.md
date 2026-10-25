@@ -1,6 +1,6 @@
 # 0016 · Keep the main thread free while a patch plays
 
-Status: Accepted · 2026-10-21
+Status: Accepted · 2026-10-21 · Amended by [0036](0036-refocus-after-m2.md) (GPU solver parked; the Worker is the fluid on desktop)
 
 ## Context
 In the M0 spike, Flow's CPU fluid solver (about 8 ms a step) and colorizer ran on the main thread. A tap that arrived during a frame waited for them. That pushed the worst tap-to-sound over the 20 ms gate: 27.4 ms in desktop Chrome and 24.8 ms on the Surface. With the solver and colorizer in a Worker, the worst tap fell to 14.8 ms and 14.6 ms. See [spike-notes.md](../spike-notes.md).

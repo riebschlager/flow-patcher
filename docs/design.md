@@ -1,26 +1,27 @@
 # Flow Patcher — Design Document
 
-Oct 20, 2026 · @Chris Riebschlager
+Oct 20, 2026, refocused Oct 25, 2026 ([ADR 0036](decisions/0036-refocus-after-m2.md)) · @Chris Riebschlager
 
 ## Overview
 
-Flow Patcher is a new browser-based node editor for music and visuals. You wire canvas input events, musical generators, synths, effects and a live fluid simulation into an instrument of your own. It is a new project. The original Flow app stays as it is and supplies the parts: sampled voices, synthesized percussion, the effects and output chain, the fluid solver and renderers, and its music-theory helpers.
+Flow Patcher is a browser-based node editor for music and visuals. You wire generators, slow modulators, scenes, synths, effects, canvas input and a live fluid simulation into an instrument of your own. It started from the original Flow app, which still supplies parts (sampled voices, the effects and output chain, the fluid solver, music-theory helpers), but it is its own instrument now and doesn't try to be Flow.
 
-The pitch: **the canvas is the controller, the patch is the instrument.** Every pointer, touch, key and wheel event on the performance canvas is available as an event source node. Tinkerers decide what each one does. A mousedown can strike a chord, a drag can sweep a filter, a pinch can charge a bloom, and the fluid's own currents can send notes back into the music.
+The pitch: **a patch that plays itself and keeps changing, and that you nudge while it plays.** Generators and scenes give the music a shape over minutes, not just a loop: slow LFOs and drifts move knobs, a Scene node moves the patch from one state to the next by time and rules, and textures (drones, granular clouds, modulated effects) give it depth. You jam with it through a MIDI controller mapped to any knob, by editing the patch while it plays, and through the canvas: a mousedown can strike a chord, a drag can sweep a filter, and the fluid's currents can send notes back into the music.
 
 The nearest relatives are TouchDesigner, cables.gl, Max/MSP, Pure Data, VCV Rack and Bitwig Grid. What sets this one apart: a fluid simulation is part of the graph. Music can push it, and it can feed signals back into the music.
 
 ## Audience and principles
 
-The audience is tinkerers: people who want to plug odd things together, turn knobs and see what happens. They will read port labels and open an inspector. They don't need the zero-setup guidance that the original Flow was built around.
+The audience is Chris: one person jamming alone and building generative systems, on a desktop with a MIDI controller. That makes it a tool for a tinkerer who reads port labels and opens an inspector, with no need for the zero-setup guidance the original Flow was built around. Sharing patches with other players isn't a goal for now ([ADR 0036](decisions/0036-refocus-after-m2.md)).
 
-1. **Everything is patchable.** No behavior is hidden in app code. If the original Flow did something, a tinkerer can rebuild it from nodes and then break it in an interesting way.
+1. **Everything is patchable.** No behavior is hidden in app code. Any behavior can be rebuilt from nodes and then broken in an interesting way; M2 did this for Flow's tool modes.
 2. **Input events are first-class sources.** Canvas events are not a fixed control scheme. They are a palette of event nodes, as raw or as refined as the patch wants.
 3. **Hot patching, no compile step.** Changes to cables and knobs take effect on the next scheduling window, while sound keeps playing. Nothing requires a restart.
 4. **Knobs everywhere.** Every numeric parameter is a knob with a range, a unit and a modulation input. Any parameter can be driven by a cable.
 5. **Nothing silent or invisible is mysterious.** Every cable shows activity (event flashes, signal levels), and any port can be probed.
 6. **Weird is allowed; broken is not.** Strange patches should produce strange results, never crashes, runaway feedback, clipped output or a frozen tab. Safety limits live in the runtime, not in the user's patch.
-7. **Small, composable nodes beat big, smart ones.** Prefer Euclidean + Rotate + Probability over one "drum machine" node. Big nodes can exist later as saved subpatches.
+7. **Small, composable nodes beat big, smart ones.** Prefer Euclidean + Rotate + Probability over one "drum machine" node. Big nodes come from subpatches: wrap a generative system, expose a few macro knobs, and save it to reuse.
+8. **Music develops over time.** A patch should keep changing over minutes: slow modulation, scenes and rules, not only loops. Every generator stays a pure window query, so an evolving patch is still deterministic for its seed.
 
 ## Core concepts
 
@@ -84,7 +85,7 @@ Every browser event that is useful on a performance canvas becomes a source node
 
 The contact sources (Pointer, Pointer (high rate), Pen and Key) also have an All output that carries every event tagged with its phase, for recognizers to read ([ADR 0028](decisions/0028-recognizers-pass-claim-cancel.md)).
 
-Web MIDI in (notes and CCs) ships in v1, behind its own permission. Later sources in the same family, each also behind a permission: Gamepad (buttons and axes, polled each frame), Device motion and orientation (tilt as a controller on phones), and Microphone (level, onset and pitch).
+Web MIDI in (notes and CCs) is built, behind its own permission, and M3 adds MIDI learn on any knob. Parked sources in the same family, each also behind a permission: Gamepad (buttons and axes, polled each frame), Device motion and orientation (tilt as a controller on phones), and Microphone (level, onset and pitch).
 
 ### Event payload
 
@@ -127,12 +128,12 @@ In the original Flow, a pinch shouldn't also paint and a right-drag shouldn't dr
 
 - The canvas sets `touch-action: none` and takes pointer capture on down. It suppresses the context menu only when a patch uses right-click.
 - The first pointerdown also unlocks the AudioContext. That event is delivered normally, so the first touch makes a sound.
-- In Play view the canvas has keyboard focus. In Patch view, keys go to the editor unless the preview canvas is focused. Escape always returns to the editor.
+- Keys go to the editor unless the preview canvas is focused. Escape always returns to the editor.
 - Sources that need permission (MIDI, motion, microphone) ask only when a patch containing them first plays, and show a clear blocked state on the node if denied.
 
 ## Node catalog
 
-The v1 catalog has about 60 small nodes in eight families. Canvas sources and recognizers are listed above; the families below complete it. Nodes marked ★ are ported from Flow's existing code.
+The catalog has small nodes in eight families, each scheduled in a milestone, as needed, or parked. Canvas sources and recognizers are listed above; the families below complete it. Nodes marked ★ are ported from Flow's existing code.
 
 ### Time and rhythm
 
@@ -198,17 +199,17 @@ The v1 catalog has about 60 small nodes in eight families. Canvas sources and re
 
 ## Visual system
 
-Visuals use a fixed set of music-shaped building blocks, centered on one fluid field, not a general shader graph. That keeps v1 buildable and keeps the identity: what you see is the music moving a medium.
+Visuals use a fixed set of music-shaped building blocks, centered on one fluid field, not a general shader graph. That keeps the visuals buildable and keeps the identity: what you see is the music moving a medium.
 
 ### The fluid field
 
-The Fluid node owns Flow's solver, ported to the GPU as WebGL2 shader passes: semi-Lagrangian advection, 20 Gauss-Seidel pressure iterations, vorticity confinement, and the aspect-following grid capped at 35,000 cells on desktop. It outputs a Field. Other nodes write into it or read from it:
+The Fluid node owns Flow's solver, run on the CPU in a Worker (a WebGL2 port is parked): semi-Lagrangian advection, 20 Gauss-Seidel pressure iterations, vorticity confinement, and the aspect-following grid capped at 35,000 cells on desktop. It outputs a Field. Other nodes write into it or read from it:
 
 - **Writers:** Splat (dye + impulse at a point, from any Event with x/y; a tap's splash lands at once, a scheduled one with its sound, see Timing), Force (a continuous push following a Signal pair), Stir (Flow's percussion roll, sweep and eddy impulses), Clear / Fade.
 - **Readers:** Probe (density, speed and curl at a point, as Signals), Region Stats (average density or motion over a zone), Density Onset (fires an Event when local density crosses a threshold). Readers return the previous frame's value; see Feedback, under Timing.
 - **Knobs:** vorticity, dissipation (color persistence), viscosity, grid budget.
 
-A patch has at most one Fluid node. Running the solver on the GPU frees the main thread for the editor and the scheduler. Until the GPU solver lands, and as the fallback on weak devices, the CPU solver and its colorizer run in a Worker that hands back colored pixels ([ADR 0016](decisions/0016-main-thread-budget.md)). The GPU simulation layer is shared, not Fluid-specific, so later field nodes such as a particle system can sit beside the one Fluid node.
+A patch has at most one Fluid node. The GPU port is parked ([ADR 0036](decisions/0036-refocus-after-m2.md)): on desktop the CPU solver in a Worker is fast enough, and the rest of this section describes the design for when it returns. Running the solver on the GPU frees the main thread for the editor and the scheduler. Until the GPU solver lands, and as the fallback on weak devices, the CPU solver and its colorizer run in a Worker that hands back colored pixels ([ADR 0016](decisions/0016-main-thread-budget.md)). The GPU simulation layer is shared, not Fluid-specific, so later field nodes such as a particle system can sit beside the one Fluid node.
 
 ### Overlay and look nodes
 
@@ -229,16 +230,16 @@ Visual nodes read events by timestamp on the frame clock, so a Ripple fed by a n
 
 ### Escape hatch, later
 
-A GLSL Shader node (a fragment shader with the Field, palette and a few Signals as uniforms) is a post-v1 option. It stays local-only until there is a sandboxing story for shared patches.
+A GLSL Shader node (a fragment shader with the Field, palette and a few Signals as uniforms) is a later option (an M6 candidate). It stays local-only until there is a sandboxing story for shared patches.
 
 ## Editor and UX
 
-The editor has two views of the same running patch, with a live preview always showing. Sound never stops when you switch views.
+The editor shows the running patch with a live preview always showing. A second Play view is parked.
 
 The visual language (colors, type, spacing, port shapes, motion and the component set) lives in the design system at [`.claude/skills/flow-patcher-design/`](../.claude/skills/flow-patcher-design/readme.md). Its UI kit (`ui_kits/flow-patcher/index.html`) is a click-through of both views.
 
 - **Patch view:** the node graph fills the window. The performance canvas sits in a resizable preview pane that you can play directly. Like cables.gl, the preview is always live.
-- **Play view:** the canvas goes full-window, and only the knobs you have pinned show, as a small performance strip. This is how a finished instrument is played, and how a shared patch opens for someone who just wants to play it.
+- **Play view (parked):** the canvas goes full-window, and only the knobs you have pinned show, as a small performance strip. This is how a finished instrument is played, and how a shared patch opens for someone who just wants to play it.
 
 ### Working with nodes
 
@@ -247,7 +248,10 @@ The visual language (colors, type, spacing, port shapes, motion and the componen
 - Ports have a hit area larger than their drawn size, larger still for a coarse pointer, so a finger can start a cable.
 - A cable's remove control stays reachable when the cable runs behind a node: it draws above the nodes, and selecting a cable anywhere along its path lets you remove it.
 - Knobs: drag to turn, Shift for fine control, double-click to type a value, right-click to reset. A modulated knob shows its base value and a live ring for the modulated value. A log-scaled knob (cutoff, later delay time) turns by ratio, so every octave gets the same travel; its value still reads and types in its unit.
-- Any knob can be **pinned** to the Play view strip and renamed there.
+- Any knob can be **pinned** to the Play view strip and renamed there (parked with Play view).
+- **MIDI learn:** right-click any knob → Learn, then move a controller's knob or fader. The mapping is saved in the patch and shows on the knob.
+- **Scenes:** capture the current knob values as a scene; recall or morph to it, by hand or from a Scene node.
+- **Macro knobs:** one knob drives several params, each with its own depth; a subpatch exposes its macros as its knobs.
 - Select nodes and collapse them into a subpatch; choose which ports and knobs to expose.
 - Undo/redo covers every edit. Copy and paste works between patches.
 
@@ -260,7 +264,7 @@ The visual language (colors, type, spacing, port shapes, motion and the componen
 
 ### Starting points
 
-The biggest risk for a node tool is the empty canvas. The app opens with a starter patch already playing. A small library of example patches teaches one idea each: "tap to play chords", "drag to sweep a filter", "Euclidean drums that stir the fluid", "the fluid plays itself". The original Flow, rebuilt as a patch, ships as the flagship example.
+The biggest risk for a node tool is the empty canvas. A small set of example patches teaches one idea each: "tap to play chords", "drag to sweep a filter", "a drone that drifts", "scenes that play themselves". Flow's four tool modes, rebuilt in M2, are examples too.
 
 ## Reuse from Flow
 
@@ -279,7 +283,7 @@ About half of Flow's code is worth borrowing. Its pure functions and audio/visua
 | `PercussionSynth` | Drum Voice | Light wrapper |
 | `environment.js` | Atmosphere | Light wrapper |
 | `output.js` | Output node | **Adapt.** Chrome's compressor adds automatic makeup gain, so Flow's limiter overshoots to 1.0–1.3 on hot input and the guard hard-clips. Compensate for the makeup gain or lower the threshold, and replace the hard clip with a soft knee |
-| `fluid.js`, `fluid-viewport.js` | Fluid node | Port the solver to GPU passes; keep the CPU version as the test reference and fallback, run in a Worker; expose splat/force/probe as methods |
+| `fluid.js`, `fluid-viewport.js` | Fluid node | Run the CPU solver in a Worker (done, M1); expose splat/force/probe as methods. A GPU port is parked |
 | `fluid-renderer.js`, `gpu-fluid-renderer.js`, `water-surface.js` | Renderer node | Copy; take palette and energy as inputs |
 | `visible-sound.js`, `orbit-rings.js`, `percussion-visuals.js`, `chord-atmosphere.js`, `dye-text.js` | Halo, Motes, Orbit Rings, Stir, Lighting, Text | Moderate: separate drawing from Flow's state |
 | `gestures.js`, `performance.js` | Recognizer nodes | Moderate: split the mode-based controller into separate recognizers with Pass outputs |
@@ -290,7 +294,7 @@ Flow's regression approach also carries over: bit-exact fluid frames, byte-exact
 
 ## Persistence and sharing
 
-A patch is a small JSON document, usually a few kilobytes. Sharing a patch is the main way people share work. Recordings are optional and cheap, because they record inputs, not audio.
+A patch is a small JSON document, usually a few kilobytes, kept in a local library. Sharing, recordings and export are parked for now ([ADR 0036](decisions/0036-refocus-after-m2.md)); the sections below keep the design for when they return.
 
 ### Patch format
 
@@ -300,7 +304,7 @@ A patch is a small JSON document, usually a few kilobytes. Sharing a patch is th
 - `subpatches{}`: reusable definitions, referenced by id.
 - No code, no samples, no media. Instruments are referenced by name, as Flow's sessions do.
 
-Every node type has its own version number and, from M4 on, a migration function. Old patches load, and unknown node types load as inert placeholders that keep their cables, so nothing is silently dropped.
+Every node type has its own version number and, from the local library in M3 on, a migration function. Old patches load, and unknown node types load as inert placeholders that keep their cables, so nothing is silently dropped.
 
 ### Performance recordings
 
@@ -309,13 +313,13 @@ All randomness is seeded and all generators are pure window queries. So a perfor
 ### Storage and community
 
 - Local first: patches live in IndexedDB, with download/upload as `.flowpatch` files.
-- Community (later): publish a patch with a title, author name and optional recording. Others can play it in Play view, open it in Patch view, and **remix** it (Flow's fork, applied to patches). Remixes credit their parent.
+- Community (parked): publish a patch with a title, author name and optional recording. Others can play it in Play view, open it in Patch view, and **remix** it (Flow's fork, applied to patches). Remixes credit their parent.
 - Flow's text moderation gates, quotas and server-side canonicalization carry over. The server validates every node type and parameter against the catalog and strips unknown fields.
 - Shared patches never contain executable code. A future Shader node would be stripped from public uploads, or rendered only after an explicit warning.
 
 ## Technical architecture
 
-The runtime is a framework-free TypeScript engine that can run with no editor. The editor is a React app that edits a patch document and sends diffs to the engine. Keeping them separate means playback, export and Play view use the exact code the editor drives.
+The runtime is a framework-free TypeScript engine that can run with no editor. The editor is a React app that edits a patch document and sends diffs to the engine. Keeping them separate means headless runs and tests use the exact code the editor drives.
 
 **Runtime architecture: one scheduler drives all sound; visuals read the same events each frame.**
 
@@ -354,7 +358,7 @@ Generated material goes through the scheduler's 120 ms lookahead. Canvas input t
 - **Engine:** plain TS modules. A graph compiler turns the patch into a topologically sorted plan, with delay edges marked. The scheduler runs window queries on the Web Audio clock. A frame loop steps visual nodes.
 - **Node definitions:** one file per node type: ports, parameters (range, unit, default), `query()` or `frame()`, and its migration function. The palette, inspector and server validation are all generated from these definitions.
 - **Audio:** Web Audio, with WebAudioFont for samples. AudioWorklet only for export capture, as in Flow.
-- **Visuals:** the fluid solver on the GPU as WebGL2 shader passes, sharing a context with the display. The CPU solver, used until then and as the fallback, runs in a Worker. Readers (Probe, Region Stats, Density Onset) use an async readback one frame late, so the solver never stalls the main thread.
+- **Visuals:** Flow's CPU fluid solver and colorizer in a Worker; the main thread only draws. Readers return the last finished step's values, so the solver never stalls the main thread. A GPU solver is parked.
 
 ### Hot patching
 
@@ -364,8 +368,8 @@ An edit produces a new plan. The scheduler swaps plans at the next window bounda
 
 | Resource | Limit | Enforced by |
 | --- | --- | --- |
-| Fluid step | GPU step target to be measured. CPU, in a Worker: about 8 ms at 35,000 cells on desktop, about 31 ms with coloring on the Surface; mobile capped at 16,128 cells | Grid budget knob, capped by device class |
-| Main thread | No task over about 4 ms *(tune)* while a patch plays | Fluid work in a Worker or on the GPU; the immediate-path checks run with the Fluid stepping |
+| Fluid step | CPU, in a Worker: about 8 ms at 35,000 cells on desktop | Grid budget knob |
+| Main thread | No task over about 4 ms *(tune)* while a patch plays | Fluid work in a Worker; the immediate-path checks run with the Fluid stepping |
 | Voices | 64 simultaneous, oldest stolen first | Runtime voice pool |
 | Events per 120 ms | 256 per node, 2,048 per patch, on a fixed grid of the audio clock ([ADR 0022](decisions/0022-event-caps-on-a-fixed-grid.md)) | Runtime; excess dropped with a warning on the node |
 | Feedback | Delay feedback at most 0.42; event cycles need a delay edge | Node limits, graph compiler |
@@ -373,43 +377,47 @@ An edit produces a new plan. The scheduler swaps plans at the next window bounda
 
 ## Milestones
 
-There are six milestones, and each one starts only after the previous gate passes. M0 is a throwaway spike that tests whether patching is fun before any engine work begins.
+Each milestone starts only after the previous gate passes. M0 was a throwaway spike that tested whether patching is fun before any engine work began. M0–M2 built and proved the engine and the canvas sources. After M2 the mode patches played but felt flat, so the roadmap turned from rebuilding Flow to music that evolves ([ADR 0036](decisions/0036-refocus-after-m2.md)). From M3 on, gates are feature checklists.
 
-**Roadmap: six milestones, each behind a gate; rebuilding Flow as a patch is the key test.**
+**Roadmap: each milestone pairs structure with sound, so every one ends in a better jam.**
 
 | Milestone | Scope | Gate to pass before the next one |
 | --- | --- | --- |
 | M0 · Spike | Eight node types, one patch, throwaway code: Pointer, Clock, Euclidean, Progression, Chord Tone, Sampled Voice, Output, Fluid with Splat and Renderer | Patching feels fun, and taps sound immediately |
 | M1 · Engine core | Typed ports and channels, graph compiler, window scheduler, hot patching, probes, undo/redo | Live edits never glitch the audio |
 | M2 · Canvas event sources | Every raw source node and payload field, the recognizers with Pass and claim, Zone, Modifier Router | Flow's Paint, Conduct, Space and Orbit rebuilt from recognizers |
-| M3 · Flow as a patch | Port every starred node not built yet with its tests; ship the original Flow as the flagship example patch | The Flow patch feels like Flow |
-| M4 · Play and keep | Play view, pinned knobs, local library, input recordings, WAV and video export | Someone else can open a shared file, play it and remix it |
-| M5 · Community | Publish, browse, play and remix patches, with Flow's moderation gates and quotas | — |
+| M3 · Jam basics | Local library with migrations, MIDI learn on any knob, slow-time modulators (LFO, Random as drift, Ramp), drones and pads | A drifting patch saves, reloads and plays the same; a learned controller mapping survives reload |
+| M4 · Scenes | Knob-snapshot scenes with morphing, a Scene node that advances by time and rules, subpatches and macro knobs, modulated effects, Step Sequencer, Quantize, Humanize | A scenes patch replays deterministically and morphs without glitches |
+| M5 · Texture | Granular, Drum Voice, further sources and effects as jamming shows a need | Dense textures stay within the voice and event budgets |
+| M6 · Look | Cheap visual variety; scope set when it starts | Set with the scope |
 
-M3 is the acceptance test for the whole design: if today's Flow can't be rebuilt from nodes, the node vocabulary is wrong, so fix it before adding Play view or Community. It tests the vocabulary, not compatibility: the patch has to feel like Flow, not match it note for note.
+Parked, not scheduled: GPU fluid, Flow rebuilt as a patch, Play view, phones and tablets, recordings and export, community ([milestones.md](milestones.md#parked)).
 
 ## Risks and open questions
 
-The biggest risk is scope: TouchDesigner and cables.gl took years. The fixed visual vocabulary and the milestone gates are the main defenses.
+The biggest risk is scope: TouchDesigner and cables.gl took years. The fixed visual vocabulary, one target (Chris on desktop) and the milestone gates are the main defenses.
 
 | Risk | Why it matters | Mitigation |
 | --- | --- | --- |
-| Scope creep on visuals | "Any visual" turns into a shader IDE | Fixed set of building blocks in v1; Shader node is post-v1 and local-only |
+| Scope creep on visuals | "Any visual" turns into a shader IDE | Fixed set of building blocks; a Shader node is at most an M6 candidate, local-only |
 | Window queries feel wrong for live input | Taps must feel immediate, not 120 ms late | Zero-width immediate path for input events (Timing). M0 measured a worst tap of 14.6–16.2 ms on the reference devices, and taps felt immediate |
 | Bluetooth output latency | Over Bluetooth, a tap's sound and splash arrive 200+ ms late | Nothing the patch can fix for sound. A tap's own splash skips the output-latency shift and appears under the finger at once, so over Bluetooth it comes before its sound; scheduled splashes stay synced to theirs ([ADR 0020](decisions/0020-tap-splash-skips-latency-shift.md)) |
 | Channel model is awkward | Most cables carry one channel, yet every node pays for N | Single-channel fast path; Merge/Split hidden until needed |
 | Pointer ownership is confusing | Pinch also paints; right-drag also drops notes | Pass outputs with claim + Cancel; example patches that show the pattern |
-| GPU readback stalls or weak mobile GPUs | Reader nodes need field values on the CPU; a synchronous read blocks the frame | Async readback one frame late; CPU solver as fallback on weak devices |
-| Mobile | Node editing on a phone is hard | Phones get Play view only in v1; editing is desktop/tablet |
+| GPU readback stalls (parked with the GPU solver) | Reader nodes would need field values on the CPU; a synchronous read blocks the frame | Async readback one frame late; the CPU solver stays as the fallback |
+| Patches feel flat | M2's mode patches played but didn't develop over time, and the visuals looked samey | Slow time and scenes in M3–M4, textures in M5, cheap visual variety in M6 ([ADR 0036](decisions/0036-refocus-after-m2.md)) |
+| Scene morphs glitch | A morph moves many knobs at once while the patch plays | Morphs are knob edits on the in-place path (ADR 0031), not plan swaps; M4's gate renders them offline |
+| Saved patches break | Once patches are kept in a library, a node change can break them | Migrations and placeholders arrive with the library in M3 |
 
 ### Decisions
 
 - [x] Name: the project is called Flow Patcher.
 - [x] Flow Patcher is independent of Flow: no `.flow` file support and no output parity. Flow's code is borrowed and adapted freely.
 - [x] Flow's tool modes (Paint, Conduct, Space, Orbit) don't ship as library subpatches; they are what people compose from nodes.
-- [x] Web MIDI is in v1.
+- [x] Web MIDI is in (built in M2; MIDI learn in M3).
 - [x] A patch has a single canvas.
-- [x] Community comes after v1.
+- [x] Community is parked ([ADR 0036](decisions/0036-refocus-after-m2.md)).
+- [x] Flow Patcher is Chris's evolving generative instrument, on desktop; rebuilding Flow is no longer the acceptance test ([ADR 0036](decisions/0036-refocus-after-m2.md)).
 - [x] The transport travels on a cable from Clock; there is no patch-wide transport ([ADR 0018](decisions/0018-transport-on-a-cable.md)).
 - [x] Live events rewind stateful nodes and re-query, so results depend only on event times ([ADR 0019](decisions/0019-live-events-rewind.md)).
 - [x] A tap's own splash skips the output-latency shift ([ADR 0020](decisions/0020-tap-splash-skips-latency-shift.md)).

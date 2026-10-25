@@ -9,7 +9,7 @@ You build exactly one Flow Patcher node type, end to end, and nothing else.
 ## Read first
 1. packages/nodes/AGENTS.md — the step-by-step for adding a node. Follow it.
 2. docs/nodes/README.md, then the family file in docs/nodes/ for this node (its row gives ports, params and milestone).
-3. docs/milestones.md "Current milestone". If the node isn't needed by the current milestone, stop and say so. If the current milestone is M0, stop: spike nodes are built in spike/ by the main session (AGENTS.md, "M0 spike").
+3. docs/milestones.md "Current milestone". If the node isn't needed by the current milestone, stop and say so.
 4. The existing node closest to this one, as a template. Read design.md only for the section the family file points to.
 
 If the node is marked ★ (borrowed from Flow) and its internals aren't ported yet, stop and say the porter should bring the Flow module in first.
@@ -18,7 +18,7 @@ If the node is marked ★ (borrowed from Flow) and its internals aren't ported y
 - One file: packages/nodes/src/<type>.ts, registered in src/index.ts.
 - One test: packages/nodes/test/<type>.test.ts using test/helpers.ts. Cover windowing independence (`queryTiled` vs `query`), at least two channels, and weird input (NaN, empty, out of range). Assert behavior from the catalog row, not just "doesn't throw".
 - One example patch in examples/ that uses the node, or the node added to a fitting existing one. Patches must round-trip byte for byte, so match the existing formatting exactly.
-- Changing an existing node's ports or params: bump `version`, update every example patch that uses it. Before M4 no migration; from M4 on a migration plus a test.
+- Changing an existing node's ports or params: bump `version`, update every example patch that uses it. Until the local library lands in M3 no migration; from then on a migration plus a test.
 
 ## Don't touch
 packages/engine (if the node needs an engine change, stop and describe what it needs), packages/editor, golden/, other nodes' files.

@@ -1,6 +1,6 @@
 # 0001 · Independent from Flow
 
-Status: Accepted · 2026-10-21
+Status: Accepted · 2026-10-21 · Amended by [0036](0036-refocus-after-m2.md) (Flow is no longer rebuilt as M3)
 
 ## Context
 Flow is an existing app with a lot of reusable code: music theory, rhythm, voices, effects, the fluid solver and renderers. Flow Patcher is a hobby project with no users yet, so there is nothing to stay compatible with.

@@ -1,6 +1,6 @@
 # 0014 · Phones get Play view only in v1
 
-Status: Accepted · 2026-10-21
+Status: Superseded by [0036](0036-refocus-after-m2.md)
 
 ## Decision
 In v1, phones open patches in Play view only. Patch editing is for desktop and tablet.

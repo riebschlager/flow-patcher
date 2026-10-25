@@ -6,14 +6,14 @@ One file per node family. To build a node, read this file and the file for the n
 | --- | --- | --- |
 | Canvas sources | [canvas-sources.md](canvas-sources.md) | M2 (Pointer in M1) |
 | Gesture recognizers | [gesture-recognizers.md](gesture-recognizers.md) | M2 |
-| Time and rhythm | [time-rhythm.md](time-rhythm.md) | M1 and M3 |
-| Harmony and pitch | [harmony-pitch.md](harmony-pitch.md) | M1 and M3 |
-| Control and logic | [control-logic.md](control-logic.md) | M1, M2, the rest by M3 |
-| Instruments | [instruments.md](instruments.md) | M1 and M3 |
-| Effects and mix | [effects-mix.md](effects-mix.md) | M1, M2 and M3 |
-| Visual: fluid, overlays, look | [visual.md](visual.md) | M1, M2 and M3 |
+| Time and rhythm | [time-rhythm.md](time-rhythm.md) | M1, M2; M4 adds some |
+| Harmony and pitch | [harmony-pitch.md](harmony-pitch.md) | M1, M2; M4 adds some |
+| Control and logic | [control-logic.md](control-logic.md) | M1, M2; M3 and M4 add some |
+| Instruments | [instruments.md](instruments.md) | M1, M2; M3 and M5 add some |
+| Effects and mix | [effects-mix.md](effects-mix.md) | M1, M2; M4 adds some |
+| Visual: fluid, overlays, look | [visual.md](visual.md) | M1, M2; M6 candidates |
 
-**Milestone column in each family file.** M1 means the node is part of the engine-core set. Nodes marked ★ are borrowed from Flow and land in M3, except those an earlier gate needs (Reverb, Delay and Orbit Rings land in M2). Unstarred nodes land in the first milestone whose gate needs them, and M3 finishes any left over (see [milestones.md](../milestones.md)). M0 builds throwaway versions of a few nodes in `spike/`; they don't count.
+**Milestone column in each family file.** M1 means the node is part of the engine-core set. From M3 on, a node lands in the milestone that names it; "As needed" nodes land when a patch needs them, and Parked ones aren't scheduled ([milestones.md](../milestones.md), [ADR 0036](../decisions/0036-refocus-after-m2.md)). M0 builds throwaway versions of a few nodes in `spike/`; they don't count.
 
 **★ and "Flow source".** ★ means the node's internals are borrowed from Flow. The Flow source column names the module from the Reuse-from-Flow table in `design.md`. Where it says *locate*, the table doesn't name a module and you need to find it in Flow first. Borrowed code is ours to adapt ([ADR 0001](../decisions/0001-independent-from-flow.md)).
 
@@ -21,7 +21,7 @@ One file per node family. To build a node, read this file and the file for the n
 
 One file per node type in `packages/nodes`. The palette, inspector and (later) server validation are generated from it.
 
-- **Type id and type version.** Bump the version when params or ports change. Before M4, update example patches instead of writing a migration; from M4 on, add a migration and a test ([ADR 0015](../decisions/0015-migrations-in-m4.md)).
+- **Type id and type version.** Bump the version when params or ports change. Until the local library lands in M3, update example patches instead of writing a migration; from then on, add a migration and a test ([ADR 0036](../decisions/0036-refocus-after-m2.md)).
 - **Ports:** name, port type and direction.
 - **Parameters:** every numeric parameter is a knob with a range, a unit, a default and a modulation input. Menus and toggles are parameters too.
   - **Log-scaled knobs.** A param whose range spans ratios (frequencies, times) sets `scale: 'log'` on its spec, with min > 0: `{ name: 'cutoff', kind: 'number', min: 20, max: 20000, default: 1200, unit: 'Hz', scale: 'log' }`. The knob then gives every octave the same travel, and a cable's depth into it is in octaves: value = base × 2^(Σ depth × signal), clamped. The node changes nothing else: stored values and `param()` stay in the param's unit ([ADR 0032](../decisions/0032-log-knobs-depth-in-octaves.md)). Changing an existing param's scale changes what its cables' depths mean, so bump the version and fix the depths in the example patches.

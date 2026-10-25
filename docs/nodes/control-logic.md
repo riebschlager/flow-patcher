@@ -8,10 +8,12 @@ Routing, conversion and signal shaping: the glue between other families. All new
 | Switch / Select | Routes events to one of 4 outputs, chosen by the Index knob/cable or latched by the Select input (`value` picks the output, no value steps to the next), whichever changed last; a contact stays on the output its down picked | M2 (tool-mode examples) |
 | Merge / Split Channels | Combines or separates per-pointer channels | As needed |
 | Counter | Counts events; wraps at N; outputs count as a Signal | As needed |
-| Random | Seeded random value per event, or a smooth random Signal | As needed |
+| Random | Seeded random value per event, or a smooth random Signal | M3 (slow time) |
 | Sample & Hold | Captures a Signal's value at each event (adapter: Event → Signal) | M1 (adapter offer) |
 | Envelope | Event → ADSR Signal (adapter: Event → Signal) | As needed |
-| LFO | Sine, triangle, saw, square or random; tempo-synced or free | As needed |
+| LFO | Sine, triangle, saw, square or random; tempo-synced or free | M3 (slow time) |
+| Ramp | Rises or falls between two values over a set number of bars or seconds (up to many minutes), started, restarted or reversed by Events; outputs a Signal and an Event at the end | M3 (slow time) |
+| Scene | Chooses the patch's current scene: advances on an Event, after N bars, with a probability, or by weights from one scene to the next; outputs the scene as a Value and an Event on each change. Recalling a scene sets or morphs the knob values saved in it | M4 |
 | Math / Map Range / Curve / Smooth | Arithmetic and shaping for Signals | M2 (mode patches) |
 | Threshold / Change | Signal → Event when a level is crossed or a value changes (adapter: Signal → Event) | M1 (adapter offer) |
 | Get Field | Pulls one payload field out of an event as a Signal | M2 (mode patches) |

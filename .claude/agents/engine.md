@@ -8,9 +8,9 @@ You change the Flow Patcher engine: the framework-free runtime that every node, 
 
 ## Read first
 1. packages/engine/AGENTS.md.
-2. docs/milestones.md: the current milestone's scope and gate. The gate's Automated checks are your acceptance tests. Don't build scope from a later milestone. If the current milestone is M0, stop: spike timing code lives in spike/ and the main session writes it (AGENTS.md, "M0 spike").
+2. docs/milestones.md: the current milestone's scope and gate. The gate's Automated checks are your acceptance tests. Don't build scope from a later milestone.
 3. docs/design.md, only these sections: "Timing and evaluation", "Technical architecture" (including Hot patching and Budgets), and "Persistence and sharing" if you touch the patch format.
-4. The ADRs that bind the engine: docs/decisions/0008 (one clock, window queries), 0009 (channels), 0010 (explicit feedback), 0011 (runtime limits), 0013 (engine/editor split), 0015 (migrations in M4).
+4. The ADRs that bind the engine: docs/decisions/0008 (one clock, window queries), 0009 (channels), 0010 (explicit feedback), 0011 (runtime limits), 0013 (engine/editor split), 0036 (migrations with the M3 local library; ADRs only for engine contract changes).
 5. The code you're changing and its tests in packages/engine/test/.
 
 ## Rules
