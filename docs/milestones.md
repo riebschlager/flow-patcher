@@ -2,7 +2,7 @@
 
 Six milestones. Each one starts only after the previous gate passes. The source is the roadmap in [design.md](design.md#milestones); this file turns each gate into checks an agent can run, plus a human sign-off for the parts no test can judge.
 
-**Current milestone: M2.**
+**Current milestone: M3.**
 
 ## How to use this file
 
@@ -102,16 +102,16 @@ Human
 **Gate: Flow's Paint, Conduct, Space and Orbit rebuilt from recognizers**
 
 Automated
-- [ ] Four example patches, `examples/modes/{paint,conduct,space,orbit}.flowpatch`, use only catalog node types (checked by a test that rejects any node type not in `packages/nodes`).
-- [ ] Each mode patch has scripted input streams and an expected event log, and replay matches it exactly, twice in a row.
-- [ ] **Ownership:** a stream that starts painting and then pinches with a second finger yields no paint events from the claimed channels after the claim, and exactly one Cancel per claimed channel downstream of Pass ([ADR 0028](decisions/0028-recognizers-pass-claim-cancel.md)).
-- [ ] **Payload:** Playwright drives synthetic mouse, touch, pen, wheel and key input; every source node emits every documented field, with `x`, `y` in 0–1 and `y = 0` at the top.
-- [ ] **First touch:** in e2e, the first pointerdown on a fresh page both resumes the AudioContext and produces its note.
-- [ ] **Permissions:** with MIDI denied, the MIDI node shows its blocked state and the rest of the patch plays.
-- [ ] Every new node has a unit test and an example patch.
+- [x] Four example patches, `examples/modes/{paint,conduct,space,orbit}.flowpatch`, use only catalog node types (checked by a test that rejects any node type not in `packages/nodes`).
+- [x] Each mode patch has scripted input streams and an expected event log, and replay matches it exactly, twice in a row.
+- [x] **Ownership:** a stream that starts painting and then pinches with a second finger yields no paint events from the claimed channels after the claim, and exactly one Cancel per claimed channel downstream of Pass ([ADR 0028](decisions/0028-recognizers-pass-claim-cancel.md)).
+- [x] **Payload:** Playwright drives synthetic mouse, touch, pen, wheel and key input; every source node emits every documented field, with `x`, `y` in 0–1 and `y = 0` at the top.
+- [x] **First touch:** in e2e, the first pointerdown on a fresh page both resumes the AudioContext and produces its note.
+- [x] **Permissions:** with MIDI denied, the MIDI node shows its blocked state and the rest of the patch plays.
+- [x] Every new node has a unit test and an example patch.
 
 Human
-- [ ] Chris plays each mode patch on every reference device, and each one does the job of its Flow mode well enough that Chris would play it.
+- [x] Chris plays each mode patch on every reference device, and each one does the job of its Flow mode well enough that Chris would play it.
 
 ---
 

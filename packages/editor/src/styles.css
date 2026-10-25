@@ -26,6 +26,10 @@ html, body, #root { height: 100%; margin: 0; background: var(--fp-surface-canvas
 .preview__canvas:focus { outline: none; }
 .preview:has(.preview__canvas:focus-visible) { box-shadow: var(--fp-shadow-pop), var(--fp-ring-focus); }
 .preview__hint { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; font-family: var(--fp-font-mono); font-size: var(--fp-text-micro); color: var(--fp-text-faint); }
+.preview--full { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; border: 0; border-radius: 0; box-shadow: none; }
+.preview--full .preview__body { flex: 1; min-height: 0; }
+.app--full .app__bar { display: none; }
+.app--full .react-flow { visibility: hidden; }
 .preview__grip { position: absolute; left: 0; bottom: 0; width: var(--fp-space-6); height: var(--fp-space-6); cursor: nesw-resize; touch-action: none; }
 .preview__grip::after { content: ''; position: absolute; left: var(--fp-space-2); bottom: var(--fp-space-2); width: var(--fp-space-3); height: var(--fp-space-3); border-left: 1px solid var(--fp-line-3); border-bottom: 1px solid var(--fp-line-3); }
 @media (pointer: coarse) { .preview__grip { width: var(--fp-space-8); height: var(--fp-space-8); } }

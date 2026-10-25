@@ -56,6 +56,10 @@ function initialPatch(): { doc: Patch; error: string | null } {
   return parsed.ok ? { doc: parsed.patch, error: null } : { doc: emptyPatch(), error: parsed.errors.join('; ') };
 }
 
+/** `?canvas=full`: only the performance canvas, filling the window, to play a patch on a phone or tablet.
+ *  A test harness for the M2 device sessions, not Play view (M4): the editor still runs underneath. */
+const fullCanvas = new URLSearchParams(location.search).get('canvas') === 'full';
+
 interface Status {
   text: string;
   error: boolean;
@@ -408,7 +412,7 @@ function Editor() {
   };
 
   return (
-    <div className="app">
+    <div className={`app${fullCanvas ? ' app--full' : ''}`}>
       <header className="app__bar">
         <span className="app__name">Flow Patcher</span>
         <span className={`app__status${statusNow.error ? ' app__status--error' : ''}`} data-testid="compile-status">{statusNow.text}</span>
@@ -459,7 +463,7 @@ function Editor() {
         </EditorStoreContext.Provider>
         {adapter && <AdapterPrompt from={adapter.from.port.type} to={adapter.to.port.type} options={adapter.options} at={adapter.at} onPick={insertAdapter} onClose={closeAdapter} />}
         {palette && <NodePalette items={items} accepts={palette.end?.port.type} at={palette.at} onPick={insert} onClose={() => setPalette(null)} />}
-        <PreviewPane live={live} />
+        <PreviewPane live={live} full={fullCanvas} />
       </main>
     </div>
   );
