@@ -33,7 +33,7 @@ import { createEditorStore, emptyPatch, type HistoryEntry } from './store';
 const nodeTypes = { patch: PatchNode };
 const edgeTypes = { cable: CableEdge };
 
-const examples = import.meta.glob<string>('../../../examples/*.flowpatch', { query: '?raw', import: 'default', eager: true });
+const examples = import.meta.glob<string>('../../../examples/**/*.flowpatch', { query: '?raw', import: 'default', eager: true });
 
 declare global {
   interface Window {

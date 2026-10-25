@@ -523,3 +523,85 @@ describe('hot swap', () => {
     expect(run.of('t').map((e) => e.time)).toEqual([kept.time]);
   });
 });
+
+// #118: an audio node's setup reads (value, signal, param in audio()) resolve their cables in
+// the plan being swapped in, where a source the running plan lacks already exists. Once the
+// swap is done, a kept instance reads the plan running the chunk, as before.
+describe('audio setup reads across a swap', () => {
+  /** A Clock stand-in: a Transport Value and a Signal, both from its bpm. */
+  const tempo: NodeDefinition = {
+    type: 'tempo', version: 1, label: 'Tempo', category: 'time-rhythm', description: '',
+    ports: [{ name: 'transport', type: 'value', direction: 'out' }, { name: 'lfo', type: 'signal', direction: 'out' }],
+    params: [{ name: 'bpm', kind: 'number', min: 20, max: 300, default: 120 }],
+    query: () => ({}),
+    value: ({ params }) => ({ bpm: params.bpm }),
+    signal: ({ params }) => (params.bpm as number) / 1000,
+  };
+  type Reads = { transport: unknown; mod: number; time: number };
+  /** A Delay stand-in that reads its Transport, a Signal input and a modulated param at setup and per chunk. */
+  function echoType(log: { setup: Reads[]; chunks: [number, unknown][] }): NodeDefinition {
+    return {
+      type: 'echo', version: 1, label: 'Echo', category: 'effects-mix', description: '',
+      ports: [
+        { name: 'transport', type: 'value', direction: 'in' },
+        { name: 'mod', type: 'signal', direction: 'in' },
+        { name: 'out', type: 'audio', direction: 'out' },
+      ],
+      params: [{ name: 'time', kind: 'number', min: 0, max: 1, default: 0.25 }],
+      audio: ({ value, signal, param }) => {
+        log.setup.push({ transport: value('transport', 0), mod: signal('mod', 0), time: param('time', 0) });
+        const out = { connect() {}, disconnect() {} };
+        return { outputs: { out }, automate: (t0) => void log.chunks.push([t0, value('transport', t0)]) };
+      },
+    };
+  }
+  const wired = (bpm: number) => patch(
+    [node('clock', 'tempo', { bpm }), node('echo', 'echo')],
+    [cable('clock', 'echo', 'transport', 'transport'), cable('clock', 'echo', 'lfo', 'mod'), cable('clock', 'echo', 'lfo', 'time')],
+  );
+  function make() {
+    const log = { setup: [] as Reads[], chunks: [] as [number, unknown][] };
+    const definitions = new Map([tempo, echoType(log)].map((d) => [d.type, d]));
+    const compile = (p: Patch): Plan => {
+      const compiled = compilePatch(p, definitions);
+      if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+      return compiled.plan;
+    };
+    return { log, compile };
+  }
+
+  // The real crash path: Delay audio() → transportTempo → value('transport'), cabled from a Clock.
+  it('reads a source only the incoming plan has, as a fresh run of that plan does', () => {
+    const { log, compile } = make();
+    const runtime = new Runtime(compile(patch([node('echo', 'echo')], [])));
+    runtime.attachAudio({} as AudioContextLike);
+    runtime.query(0, 0.1);
+    expect(() => runtime.swap(compile(wired(140)))).not.toThrow();
+    runtime.query(0.1, 0.2);
+
+    const reference = make();
+    const fresh = new Runtime(reference.compile(wired(140)));
+    fresh.attachAudio({} as AudioContextLike);
+    expect(log.setup).toHaveLength(2);
+    expect(log.setup[1]).toEqual(reference.log.setup[0]);
+    expect(log.setup[1]).toMatchObject({ transport: { bpm: 140 }, mod: 0.14 });
+    expect(log.setup[1]!.time).not.toBe(0.25);
+    // The new instance reads the new clock once it runs, too.
+    expect(log.chunks.filter(([t]) => t >= 0.1).every(([, v]) => (v as { bpm: number }).bpm === 140)).toBe(true);
+  });
+
+  it('keeps an instance whose cables did not change, and it reads the plan running each chunk', () => {
+    const { log, compile } = make();
+    const runtime = new Runtime(compile(wired(120)));
+    runtime.attachAudio({} as AudioContextLike);
+    runtime.query(0, 0.1);
+    runtime.swap(compile(wired(150)));
+    runtime.query(0.1, 0.2);
+    expect(log.setup).toHaveLength(1);
+    const before = log.chunks.filter(([t]) => t < 0.1), after = log.chunks.filter(([t]) => t >= 0.1);
+    expect(before.length).toBeGreaterThan(0);
+    expect(after.length).toBeGreaterThan(0);
+    expect(before.every(([, v]) => (v as { bpm: number }).bpm === 120)).toBe(true);
+    expect(after.every(([, v]) => (v as { bpm: number }).bpm === 150)).toBe(true);
+  });
+});
