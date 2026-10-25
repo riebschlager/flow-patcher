@@ -18,7 +18,7 @@ If the node is marked ★ (borrowed from Flow) and its internals aren't ported y
 - One file: packages/nodes/src/<type>.ts, registered in src/index.ts.
 - One test: packages/nodes/test/<type>.test.ts using test/helpers.ts. Cover windowing independence (`queryTiled` vs `query`), at least two channels, and weird input (NaN, empty, out of range). Assert behavior from the catalog row, not just "doesn't throw".
 - One example patch in examples/ that uses the node, or the node added to a fitting existing one. Patches must round-trip byte for byte, so match the existing formatting exactly.
-- Changing an existing node's ports or params: bump `version`, update every example patch that uses it. Before M4 no migration; from M4 on a migration plus a test.
+- Changing an existing node's ports or params: bump `version`, update every example patch that uses it. Until the local library lands in M3 no migration; from then on a migration plus a test.
 
 ## Don't touch
 packages/engine (if the node needs an engine change, stop and describe what it needs), packages/editor, golden/, other nodes' files.

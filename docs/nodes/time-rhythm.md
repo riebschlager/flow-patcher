@@ -6,11 +6,11 @@ Event generators and event transformers. Design: "Timing and evaluation" and "No
 | --- | --- | --- | --- |
 | Clock | BPM, swing and a rate multiplier; emits ticks at a chosen division and a Phase signal, and outputs the beat position and tempo on its Transport port. Ports: Tick (Event, carries the transport's step `index`), Phase (Signal, the even unswung ramp through each step), Transport (Value: a transport reading, the beat with the tempo in effect; readers use `transportBeat` and `transportTempo`). A modulated tempo is sampled at each tick and held until the next | New | M1 |
 | Euclidean ★ | Hits and steps knobs, Rotate; outputs hits on clock ticks | `rhythm.js`: `euclidean`, `rotatePattern` | M1 |
-| Step Sequencer ★ | 16-step grid with off/ghost/hit/accent velocities (Flow's beat studio lane) | `rhythm.js`: grooves, kits, `varyPattern` | M3 |
+| Step Sequencer ★ | 16-step grid with off/ghost/hit/accent velocities (Flow's beat studio lane) | `rhythm.js`: grooves, kits, `varyPattern` | M4 |
 | Probability ★ | Passes each event with chance p, from a separate seeded random stream | *Locate* (likely `ArpEngine` / `RhythmEngine`) | M1 |
-| Quantize ★ | Delays events to the next grid line (quarter to 1/32, triplets) | `quantize.js` | M3 |
+| Quantize ★ | Delays events to the next grid line (quarter to 1/32, triplets) | `quantize.js` | M4 |
 | Delay / Repeat | Shifts events in time; Repeat makes echo trains with decay | New | As needed |
-| Humanize ★ | Timing and velocity jitter | *Locate* (likely `RhythmEngine`) | M3 |
+| Humanize ★ | Timing and velocity jitter | *Locate* (likely `RhythmEngine`) | M4 |
 | Divide / Every N | Passes every Nth event, with an offset | New | As needed |
 | Burst | Turns one event into N events spread over a time span | New | As needed |
 

@@ -8,6 +8,9 @@ Audio → Audio, ending at the single Output. Design: "Node catalog".
 | Delay ★ | Tempo-synced filtered feedback delay, divisions from 1/64 to two bars (Transport input); free Time (0.01–4 s, log) with no transport; Feedback 0–0.42, Tone (200 Hz–20 kHz low-pass, log) and Mix modulatable | `timing.js` (divisions); the delay chain is inline in `music.js` (`AmbientAudio.initialize`, the main and gesture echoes; the 0.42 is the gesture echo's feedback) and `rhythm.js` (`PercussionSynth.connect`) | M2 (Space and Orbit modes) |
 | Filter | Low-pass, high-pass or band-pass; cutoff (log-scaled, 20 Hz–20 kHz) and Q modulatable | New | M2 (Conduct mode) |
 | Pan / Gain / Mixer | Basic routing and levels | New | M2 (Conduct and Orbit modes) |
+| Chorus / Phaser / Flanger | Modulated delay and all-pass effects; rate, depth, feedback and mix modulatable | New | M4 |
+| Saturation | Soft-clip drive with tone and mix | New | M4 |
+| Filter Bank | Several band-pass filters in parallel, tuned to a chord Value or spread by ratio | New | M4 |
 | Output ★ | Limiter (unity gain below −9 dBFS), soft-knee peak guard, master level. Always exactly one per patch | `output.js`, adapted (see Reuse from Flow) | M1 |
 
 ## Rules for this family

@@ -1,6 +1,6 @@
 # 0015 · Patch migrations start in M4
 
-Status: Accepted · 2026-10-21
+Status: Superseded by [0036](0036-refocus-after-m2.md)
 
 ## Context
 The design gives every node type a version number and a migration function, and loads unknown node types as placeholders. With no users and no saved patches worth keeping, writing migrations before files are shared is wasted work.

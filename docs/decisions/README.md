@@ -39,6 +39,7 @@ Short records of settled calls. Read the relevant ones before changing anything 
 | [0033](0033-first-wake-catches-up-from-zero.md) | The first wake catches up from 0 within the catch-up limit, and starts at now past it, never a stall; caught-up events behind the clock count apart from scheduled ones (amends 0017, 0027) |
 | [0034](0034-transport-carries-the-tempo.md) | The Transport cable carries a transport reading, the beat and the tempo in effect, read through `transportBeat` and `transportTempo` (amends 0018) |
 | [0035](0035-retired-audio-chains-ring-out-together.md) | A retired audio instance stays while a retired one upstream feeds it, and its tail counts from that one's disposal; an audio cycle retires together (amends 0023) |
+| [0036](0036-refocus-after-m2.md) | After M2, an evolving generative instrument for Chris on desktop: new milestones, lighter process (supersedes 0014, 0015; parks the GPU solver of 0003 and 0007) |
 
 ## Adding a decision
 Copy the shape of an existing file: number, title, `Status: Accepted · <date>`, then Context (if needed), Decision and Consequences. Keep it under a page. If it replaces an older record, set the old one's status to `Superseded by NNNN`. If it changes only part of an older record, set the old one's status to `Amended by NNNN` and leave its text as written; the new record says what changed.

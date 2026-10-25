@@ -19,7 +19,7 @@ pnpm e2e     # Playwright
 pnpm run-patch <file.json>  # headless engine run, output in out/
 pnpm golden:update          # only when output is meant to change
 pnpm spike                  # M0 spike dev server on :5174, reachable on the LAN
-pnpm dev:lan                # the editor, reachable on the LAN; /?patch=<name>&canvas=full plays a patch full-window on a phone or tablet.
+pnpm dev:lan                # the editor, reachable on the LAN; /?patch=<name>&canvas=full plays a patch full-window.
                             # Plain http on a LAN IP isn't a secure context: no Web MIDI, and no coalesced samples for Pointer (high rate).
 
 ## Rules
@@ -27,7 +27,7 @@ pnpm dev:lan                # the editor, reachable on the LAN; /?patch=<name>&c
 - Generators are pure window queries: query(t0, t1). No Math.random; use the seeded RNG.
 - Every cycle needs a delay edge; Field reads return the previous frame.
 - One file per node type in nodes/. Palette and inspector are generated from it.
-- From M4 on, changing a node's params needs a migration function and a test. Before M4, update the example patches instead.
+- Once the local library lands (M3), changing a node's params needs a migration function and a test. Until then, update the example patches instead.
 - Code borrowed from Flow is ours: adapt it freely, but bring its tests along. No compatibility with Flow is required.
 - Don't change golden files without saying why. Never edit them by hand; `pnpm golden:update` regenerates them. golden/example-events.json holds every example patch's expected event log.
 - vendor/ holds third-party files copied verbatim with their notices. Don't edit them.
@@ -35,13 +35,11 @@ pnpm dev:lan                # the editor, reachable on the LAN; /?patch=<name>&c
 - Editor UI follows the design system: use its `--fp-*` tokens (imported in packages/editor/src/styles.css), not ad-hoc colors or sizes. Port shapes, cable styles and family glyphs live in packages/editor/src/ports.ts.
 - Don't edit files under .claude/skills/flow-patcher-design/ while doing editor work; it's the reference. Its uploads/design.md is a symlink to docs/design.md.
 
-## M0 spike
-While docs/milestones.md says the current milestone is M0, these rules relax the ones above for spike work. The rest still apply: ../flow, golden/ and vendor/ stay untouched, nothing in packages/ imports spike/, and the design skill isn't edited.
-- All work goes in spike/. Don't change packages/, examples/, golden/ or e2e/ for a spike task.
-- Throwaway code: no unit tests, example patches or goldens, and node types need not be one file each. Copying Flow modules from ../flow/public raw is fine; clean porting happens in M3.
-- The main session builds the spike itself. node-builder, porter and engine target packages/ and don't run in M0; the reviewer still checks spike diffs.
-- Log the gate's measurements in the spike (tap-to-sound latency, skipped windows) so they can go into docs/spike-notes.md.
-- `pnpm check` must stay green, but it doesn't cover spike/.
+## Process (from M3, [ADR 0036](docs/decisions/0036-refocus-after-m2.md))
+- The target is desktop Chrome with a MIDI controller. Phones and tablets aren't checked.
+- Gates are feature checklists in docs/milestones.md, plus Chris's sign-off.
+- Write an ADR only when an engine contract changes (timing, scheduling, hot swap, limits, patch format). Other decisions get a line in design.md or the node catalog.
+- Timing e2e checks that flake on CI at the millisecond level get loosened or quarantined, with the reason in the PR. The headless determinism, window-independence, hot-swap and offline-audio tests stay strict.
 
 ## Done means
-Tests pass, a new node has a unit test and an example patch, and the PR says what you checked. In M0: the spike runs with `pnpm spike` and the PR says what you tried in it.
+Tests pass, a new node has a unit test and an example patch, and the PR says what you checked.

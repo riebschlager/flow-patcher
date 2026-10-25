@@ -1,18 +1,18 @@
 # Milestones
 
-Six milestones. Each one starts only after the previous gate passes. The source is the roadmap in [design.md](design.md#milestones); this file turns each gate into checks an agent can run, plus a human sign-off for the parts no test can judge.
+Seven milestones. Each one starts only after the previous gate passes. The source is the roadmap in [design.md](design.md#milestones). M0–M2 are kept as written when they passed. After M2 the project refocused ([ADR 0036](decisions/0036-refocus-after-m2.md)): from M3 on, a gate is a feature checklist with tests, and Chris decides when the instrument is good enough to move on.
 
-**Current milestone: M3.**
+**Current milestone: M3 · Jam basics.**
 
 ## How to use this file
 
 - Work only on the current milestone. If a task needs something from a later milestone, stop and say so instead of building it.
-- A gate passes when every **Automated** check is green in CI and Chris has signed off on every **Human** check. Tick the boxes here in the same PR that passes the gate, and update "Current milestone" above.
+- A gate passes when every check is green in CI and Chris has signed off. Tick the boxes here in the same PR that passes the gate, and update "Current milestone" above.
 - The harness (`pnpm check`, `pnpm e2e`, `pnpm run-patch`, the engine-boundary lint rule and CI) was built ahead of M0, so it exists in every milestone. It doesn't cover `spike/`. See `AGENTS.md`.
 - Thresholds marked *(tune)* are starting points. Change them only with a note in the PR saying why.
 - Flow Patcher is independent of Flow. No check compares against Flow's files or output; borrowed code is tested against golden files generated in this repo.
-- **Reference devices** for every touch or "on device" check: desktop Chrome, Chris's Android phone and Chris's Surface tablet.
-- **Unstarred nodes** (Scale, Burst, LFO, Filter, Simple Synth, Trace and the rest of the catalog without ★) land in the first milestone whose gate needs them. M3 finishes any left over, so the v1 catalog is complete before Play view.
+- **Reference setup:** desktop Chrome on Chris's Mac, with a MIDI controller. M0–M2 also checked an Android phone and a Surface tablet; from M3 on, phones and tablets aren't targets.
+- **Catalog nodes** not listed in a milestone land when a patch needs them. The rest of the catalog, ★ or not, isn't scheduled ([Parked](#parked)).
 
 ---
 
@@ -115,76 +115,83 @@ Human
 
 ---
 
-## M3 · Flow as a patch
+## M3 · Jam basics
 
-**Goal:** the acceptance test for the whole design. If today's Flow can't be rebuilt from nodes, the vocabulary is wrong: fix the vocabulary (and `design.md`) before going on. This tests the vocabulary, not compatibility: the patch has to feel like Flow, not match it.
+**Goal:** open a patch, map a controller to it, and leave it drifting for a long time.
 
 **Scope**
-- Port every ★ node not built yet (M1 and M2 built some, e.g. Euclidean, Output, Reverb, Delay, Orbit Rings) with its Flow tests, following the Reuse-from-Flow table and adapting the code freely: Euclidean, Step Sequencer, Probability, Quantize, Humanize, Progression, Chord Tone, Arpeggio, Sampled Voice, Drum Voice, Atmosphere, Output, Ripple, Droplet, Halo, Motes, Text, Palette, Lighting, Renderer.
-- Fluid on the GPU (WebGL2 passes) with the CPU solver kept as the test reference and fallback; Splat, Force, Stir, Clear/Fade on the GPU; Probe, Region Stats, Density Onset with async readback one frame late.
-- Rewrite `ArpEngine` / `RhythmEngine` logic as pure `query()` nodes.
-- Every unstarred catalog node not built yet, so the v1 catalog is complete.
-- `examples/flow.flowpatch`, the flagship, plus the one-idea examples: "tap to play chords", "drag to sweep a filter", "Euclidean drums that stir the fluid", "the fluid plays itself".
+- **Local library:** save, load, rename and delete patches in IndexedDB; download and upload `.flowpatch` files. Migrations start here: a migration function per node type version, and unknown node types load as inert placeholders that keep their cables. From here on, changing a node's params needs a migration and a test.
+- **MIDI learn:** any knob can learn a MIDI CC (right-click → Learn, then move a control). The mapping is saved in the patch, works whichever node is selected, and shows on the knob. Builds on MIDI In's access and permission handling.
+- **Slow time:** LFO (tempo-synced or free, periods up to many minutes), Random as a seeded smooth drift, and a Ramp that runs over bars or minutes. Pure `query()` nodes, deterministic for a seed and transport.
+- **Drones and pads:** Atmosphere ★, and a sustained source with several detuned oscillators and slow movement (a Drone node, or Simple Synth extended, decided in the issue).
+- **Housekeeping:** #119 (swap build leak), #122 (Pointer same-stamp up+down), Chris's decision on [ADR 0035](decisions/0035-retired-audio-chains-ring-out-together.md); millisecond timing e2e bounds that flake on CI loosened or quarantined, with the headless determinism, hot-swap and offline-audio tests kept as they are.
 
-**Gate: the Flow patch feels like Flow**
-
-Automated
-- [ ] Tests brought in with ported modules pass: bit-exact CPU fluid frames, byte-exact palette renders, offline audio renders, against golden files generated in this repo.
-- [ ] GPU fluid matches the CPU reference within tolerance (tolerance set when first measured, then fixed).
-- [ ] **Budgets:** the Flow patch runs a 5-minute scripted session with ≤ 64 voices, no event-cap warnings, and fluid step time logged against the budget.
-- [ ] `flow.flowpatch` and every example use only catalog node types; every example has a scripted input stream and expected event log that replays exactly.
-- [ ] Every ★ node has a unit test and an example patch.
-
-Human
-- [ ] Chris plays the Flow patch on every reference device and it captures what Flow feels like to play.
-- [ ] Any node or behavior added to make the Flow patch work is a general-purpose node recorded in `design.md`, not a Flow-specific special case.
+**Gate: a drifting patch that's mine to keep**
+- [ ] `pnpm check` and `pnpm e2e` are green in CI.
+- [ ] Library e2e: a patch is saved, the page reloads, the patch opens from the library and its event log over 10 s matches the log before saving. Download → upload gives the same file.
+- [ ] Migrations: a fixture patch at an older node type version migrates and plays; an unknown node type round-trips unchanged with its cables.
+- [ ] MIDI learn: with a mocked MIDI input in e2e, a learned CC moves its knob, and the mapping survives save and reload.
+- [ ] Slow-time nodes are window-independent (the M1 check) and an LFO's phase is continuous across a tempo change.
+- [ ] `examples/drift.flowpatch` uses slow-time modulators on a drone; every new node has a unit test and an example patch.
+- [ ] Chris plays the drift patch with a controller and signs off.
 
 ---
 
-## M4 · Play and keep
+## M4 · Scenes
 
-**Goal:** a finished patch can be played, saved, recorded, exported and handed to someone else.
+**Goal:** a patch moves through states on its own.
 
 **Scope**
-- Play view (full-window canvas, pinned-knob strip, renamed pins); phones get Play view only.
-- The app opens with a starter patch already playing.
-- Local library in IndexedDB; download/upload `.flowpatch` files.
-- Patch migrations: a migration function per node type version, and unknown node types load as inert placeholders that keep their cables. From here on, changing a node's params needs a migration.
-- Input recordings (patch + input streams), with Flow-style note capture as the fallback for MIDI, mic, motion and fluid-feedback paths.
-- WAV and video export, rendered locally in real time.
+- **Scenes:** capture the current knob values as a numbered scene; recall one, or morph to it over a set time. Scenes are saved in the patch. A morph is knob edits on the engine's existing in-place path, not a plan swap.
+- **Scene node:** chooses the scene. Inputs: an Event that advances, and a Select. Rules: advance after N bars, with a probability, or by Markov-style weights from one scene to the next. Outputs the current scene as a Value and an Event on each change, so the patch can react. Seeded and pure, like every generator.
+- **Subpatches and macro knobs:** collapse a selection into a subpatch and choose which ports and knobs it exposes; save it to the library to reuse. A macro knob drives several params, each with its own depth.
+- **Modulated effects:** Chorus, Phaser, Flanger, Saturation and a Filter Bank, every main param modulatable.
+- **Musical ★ nodes:** Step Sequencer, Quantize, Humanize, and Arpeggio checked against the catalog.
 
-**Gate: someone else can open a shared file, play it and remix it**
-
-Automated
-- [ ] **Hand-off e2e:** save a patch → download `.flowpatch` → upload it in a fresh browser profile → it opens in Play view and a scripted input stream produces the expected event log → switch to Patch view, edit, save as new → the original file is unchanged.
-- [ ] **Recording round trip:** record a scripted performance, reload it in a fresh profile, replay → identical event log.
-- [ ] **Fallback:** a patch with a MIDI source records emitted notes, and playback reproduces them.
-- [ ] **Migrations:** fixture patches with an older node type version migrate and play; an unknown node type round-trips unchanged with its cables.
-- [ ] **Export:** a WAV export of a reference patch matches its offline render within a loudness tolerance *(tune)*; a video export has the expected duration and frame count.
-- [ ] **Mobile:** in Playwright mobile emulation, a shared patch opens in Play view with no editor UI.
-
-Human
-- [ ] Someone other than Chris receives a `.flowpatch` file and plays and remixes it without help.
+**Gate: the patch plays itself through scenes**
+- [ ] `pnpm check` and `pnpm e2e` are green in CI.
+- [ ] A Scene node patch replays twice to identical event logs, through at least four scene changes.
+- [ ] A morph between scenes has no silent gap and no peak above the ceiling in an offline render (the M1 offline-audio check, applied to morphs).
+- [ ] A subpatch round-trips through save and load, and through the library into another patch.
+- [ ] Every new node has a unit test and an example patch, including `examples/scenes.flowpatch`.
+- [ ] Chris leaves the scenes patch running for 20 minutes and signs off.
 
 ---
 
-## M5 · Community
+## M5 · Texture
 
-**Goal:** publish, browse, play and remix patches online. Comes after v1.
+**Goal:** the sound gets rich.
 
 **Scope**
-- Backend on Workers + D1/R2, as Flow uses.
-- Publish with title, author name and optional recording; browse; play in Play view; open in Patch view; remix with credit to the parent.
-- Flow's text moderation gates, quotas and server-side canonicalization.
-- Server validates every node type and parameter against the catalog generated from node definitions and strips unknown fields. Shared patches never contain executable code.
+- **Granular:** grain clouds from the sampled instruments, with position, density, grain size, pitch spray and pan spray all modulatable, inside the voice budget.
+- **Drum Voice ★**, and further sources or effects jamming shows a need for (for example a resonator or shimmer), each decided in its own issue.
 
-**Done when** (last milestone, so no gate)
+**Gate: texture within budget**
+- [ ] `pnpm check` and `pnpm e2e` are green in CI.
+- [ ] A dense granular patch runs a 5-minute headless session with ≤ 64 voices and no event-cap warnings, and an offline render stays under the Output ceiling.
+- [ ] Every new node has a unit test and an example patch.
+- [ ] Chris signs off.
 
-Automated
-- [ ] Ported moderation and quota tests pass.
-- [ ] The server rejects unknown node types and out-of-range parameters, and strips unknown fields.
-- [ ] A remix records its parent, and the parent's page lists it.
-- [ ] End-to-end: publish → browse → play → remix → publish the remix, as two different users.
+---
 
-Human
-- [ ] Chris publishes, and someone else finds, plays and remixes the patch.
+## M6 · Look
+
+**Goal:** visuals that don't all look the same, for little effort.
+
+**Scope:** decided when M6 starts. Candidates: Palette ★, a few cheap overlays from the catalog (Ripple, Halo), visuals that show the music's structure (the current scene, voices), or a local-only Shader node.
+
+**Gate:** set with the scope.
+
+---
+
+## Parked
+
+Not on the roadmap. Each can come back as a milestone if jamming shows a need.
+
+- GPU fluid ([ADR 0003](decisions/0003-gpu-fluid-one-node.md)); the CPU solver in a Worker is the fluid on desktop.
+- Flow as a patch: `examples/flow.flowpatch`, and the ★ nodes no milestone above names (Droplet, Motes, Text, Lighting, Stir, the full Renderer).
+- Fluid readers beyond Get Field (Probe, Region Stats, Density Onset) until a patch needs them.
+- Play view and pinned-knob strip, the starter patch on open, phones and tablets.
+- Input recordings, WAV and video export.
+- Community: publish, browse, remix.
+- Live resampling, microphone and camera input.

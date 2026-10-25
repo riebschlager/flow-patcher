@@ -5,9 +5,11 @@ Note → Audio. Design: "Node catalog" and "Reuse from Flow".
 | Node | What it does | Flow source | Milestone |
 | --- | --- | --- | --- |
 | Sampled Voice ★ | Any of Flow's 28 WebAudioFont instruments, with per-note envelope, glide and filter (cutoff log-scaled, [ADR 0032](../decisions/0032-log-knobs-depth-in-octaves.md)) | `AmbientAudio` (voice playback, lazy loading), `arpeggiator.js` (`arpEnvelope`, `arpGlide`), `music.js` instrument table, `vendor/` samples | M1 |
-| Drum Voice ★ | Any of the 20 synthesized percussion voices, including the tuned objects | `PercussionSynth` (light wrapper) | M3 |
-| Atmosphere ★ | The five seeded environment beds (rain, shore, wind, night, hearth) | `environment.js` (light wrapper) | M3 |
+| Drum Voice ★ | Any of the 20 synthesized percussion voices, including the tuned objects | `PercussionSynth` (light wrapper) | M5 |
+| Atmosphere ★ | The five seeded environment beds (rain, shore, wind, night, hearth) | `environment.js` (light wrapper) | M3 (drones) |
 | Simple Synth | Oscillator + filter + envelope, for sounds Flow never had | New | As needed |
+| Drone | A sustained source: several detuned oscillators with slow built-in drift, pitch from a Note or a Value, every main param modulatable (may extend Simple Synth instead; decided in its issue) | New | M3 (drones) |
+| Granular | Grain clouds from a sampled instrument: position, density, grain size, pitch spray and pan spray, all modulatable, within the voice pool | New | M5 |
 
 ## Rules for this family
 

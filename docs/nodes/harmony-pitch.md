@@ -7,7 +7,7 @@ Chords, scales and turning events into notes. Design: "Node catalog".
 | Progression ★ | Parses chord strings (maj9, m9, dim7, sus2…); outputs the current chord as a Value, changing on the beat of its Transport input | `music.js`: `parseChord`, progressions | M1 |
 | Scale | Root and mode; outputs a pitch set | `music.js` scale data | As needed |
 | Chord Tone ★ | Maps a Signal (such as pointer x) to a chord tone across an octave range (Flow's horizontal pitch) | `music.js`: `pitchesForRange`, `pitchForPosition` | M1 |
-| Arpeggio ★ | Up, down, up/down, outside-in or random-without-repeat, over a pool of 1–16 notes | `arpeggiator.js`: `arpNotes`, `patternOrder` | M3 |
+| Arpeggio ★ | Up, down, up/down, outside-in or random-without-repeat, over a pool of 1–16 notes | `arpeggiator.js`: `arpNotes`, `patternOrder` | M4 (check against `arpeggiator.ts`) |
 | Transpose / Octave | Shifts pitch by a fixed amount or a Signal | New | As needed |
 | Snap to Scale | Moves any pitch to the nearest note in a set | New | As needed |
 | Make Note | Event + pitch + velocity + length → Note, every field modulatable | New | M1 |
