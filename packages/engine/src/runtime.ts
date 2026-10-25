@@ -962,7 +962,8 @@ export class Runtime {
    * or version changed or its definition's `keepState` says no; a removed
    * node's state is dropped. Only the added and changed nodes and those
    * downstream of them re-run; the rest keep what they emitted. An audio node
-   * whose type, params, seed or param cables changed gets a new instance, and
+   * whose type, params, seed (unless its definition `ignoresSeed`) or param
+   * cables changed gets a new instance, and
    * the old one, like a removed node's, has its events from the swap on
    * cancelled and is disposed once its sounding notes have finished
    * (`AudioInstance.idleAt`, checked in `retain`), and no retired instance
@@ -987,7 +988,9 @@ export class Runtime {
       if (!sameType) retyped.add(node.id);
       const sameParams = sameType && sameValues(before.params, node.params);
       const links = plan.incoming.get(node.id), linksBefore = prev.plan.incoming.get(node.id);
-      const sameNode = sameType && sameParams && !seedChanged && before.definition === node.definition;
+      // A node that reads no seed (Output) stays as it is across a seed change (ADR 0035).
+      const reseeded = seedChanged && !node.definition.ignoresSeed;
+      const sameNode = sameType && sameParams && !reseeded && before.definition === node.definition;
       if (!sameNode || !sameJson(links, linksBefore)) changed.push(node.id);
       if (sameType && (sameParams || node.definition.keepState?.(before.params, node.params) !== false)) kept.add(node.id);
       else reset.push(node.id);
@@ -996,7 +999,7 @@ export class Runtime {
       // seed and cables into params, the state kept (the instance holds the state object it was
       // built with), and only liveParams changed.
       const live = node.definition.liveParams;
-      if (sameType && !sameParams && !seedChanged && before.definition === node.definition && sameParamLinks && kept.has(node.id) && live
+      if (sameType && !sameParams && !reseeded && before.definition === node.definition && sameParamLinks && kept.has(node.id) && live
         && changedKeys(before.params, node.params).every((key) => live.includes(key))) inPlace.add(node.id);
       if (!sameNode || !sameParamLinks) rebuild.add(node.id);
     }
@@ -1322,7 +1325,7 @@ export class Runtime {
   /**
    * Disposes retired instances that have gone quiet (ADR 0035). Retiring instances keep their
    * connections, so one may still be fed by another retired in the same swap or an earlier one
-   * (a seed change retires every audio node): such a chain rings out together. An instance is
+   * (a seed change retires every audio node but Output): such a chain rings out together. An instance is
    * kept while any retiring instance upstream of it is, and once the last of them is disposed,
    * its tail counts from then: `idleAt(inputsEnd)`, or `inputsEnd` itself without `idleAt`.
    * Instances that feed each other (an audio cycle) go together, once every one of them is idle;

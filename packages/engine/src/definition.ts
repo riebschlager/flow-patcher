@@ -401,6 +401,10 @@ export interface NodeDefinition {
   /** At most one node of this type per patch (Fluid, ADR 0003; Renderer, ADR 0005).
    *  The compiler rejects a second; the editor can grey it out in the palette. */
   unique?: boolean;
+  /** The node reads no seed (ADR 0035): a swap that only changes the patch seed leaves it as it is,
+   *  its audio instance included. Output sets it, so a seed change never puts a second Output
+   *  stage (and limiter) beside the first while the old chain rings out into it. */
+  ignoresSeed?: boolean;
   /** A source behind a browser permission. The editor asks the first time a patch
    *  containing the node plays, and passes the answer to `status` as
    *  `StatusContext.permission`; `blockedStatus` gives the card's blocked state. */

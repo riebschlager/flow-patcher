@@ -9,6 +9,9 @@ export const output: NodeDefinition = {
   ports: [{ name: 'audio', type: 'audio', direction: 'in', label: 'Audio' }],
   // Not modulatable: the master level is a knob, set at setup and ramped on edits.
   params: [{ name: 'level', kind: 'number', min: 0, max: 1, default: DEFAULT_MASTER_LEVEL, label: 'Level', modulatable: false }],
+  // The limiter reads no seed: a seed change keeps this stage, so the old chain rings out into it
+  // and only one limiter guards the peak (ADRs 0011, 0035).
+  ignoresSeed: true,
   // A level edit ramps the master gain in place, so the limiter keeps running (ADR 0031).
   liveParams: ['level'],
   audio({ audio, params }) {

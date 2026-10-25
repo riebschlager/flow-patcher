@@ -50,7 +50,7 @@ describe('output', () => {
     expect(ramping).toBeGreaterThan(after * 1.05);
   });
 
-  it('keeps its instance when a swap edits level through the runtime, and rebuilds for a seed change', async () => {
+  it('keeps its instance when a swap edits level through the runtime, and across a seed change (ADR 0035)', async () => {
     let built = 0;
     const counted: NodeDefinition = { ...output, audio: (ctx) => (built++, output.audio!(ctx)) };
     const definitions = new Map([['output', counted]]);
@@ -78,8 +78,10 @@ describe('output', () => {
     expect(level!.updated).toEqual(['out']);
     expect(level!.changed).toEqual(['out']);
     expect(level!.cancelled).toBe(0);
+    // Output reads no seed (ignoresSeed): a seed change leaves it as it is.
     expect(seed!.updated).toEqual([]);
-    // One instance from attachAudio, none for the level edit, one for the seed change.
-    expect(built).toBe(2);
+    expect(seed!.changed).toEqual([]);
+    // One instance from attachAudio, none for the level edit or the seed change.
+    expect(built).toBe(1);
   });
 });

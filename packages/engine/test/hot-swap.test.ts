@@ -138,7 +138,9 @@ function audioTypes(clock: ManualClock, log: AudioLog): NodeDefinition[] {
     },
   };
   // Records which node each instance was built for.
-  return [voice, sink, fx].map((d) => ({
+  /** An Output stand-in: a sink that reads no seed, so a seed change keeps it (ADR 0035). */
+  const out: NodeDefinition = { ...sink, type: 'out', ignoresSeed: true };
+  return [voice, sink, fx, out].map((d) => ({
     ...d,
     audio: (ctx) => {
       log.owners.set(log.built + 1, ctx.nodeId);
@@ -177,7 +179,7 @@ function setup(initial: Patch) {
     current = applyPatchEdits(current, edits);
     return scheduler.swap(compile(current));
   };
-  /** Changes the patch's seed at clock time `at`, which rebuilds every audio node. */
+  /** Changes the patch's seed at clock time `at`, which rebuilds every audio node whose definition doesn't `ignoresSeed`. */
   const reseed = (at: number, seed: number) => {
     clock.set(at);
     current = { ...current, seed };
@@ -562,7 +564,7 @@ describe('hot swap', () => {
 });
 
 // #115, ADR 0035: retiring instances keep their connections, so a chain retired in one swap (a seed
-// change rebuilds every audio node) rings out together: an instance stays while a retired one
+// change rebuilds every audio node but Output) rings out together: an instance stays while a retired one
 // upstream feeds it, and its tail counts from that one's disposal.
 describe('retired audio chains', () => {
   const WAKE = 0.025, EPS = 1e-9;
@@ -598,6 +600,31 @@ describe('retired audio chains', () => {
     expect(s).toBe(b);
     // The new chain plays on.
     for (const id of ['v', 'a', 'b', 's']) expect(run.disposedAt(id, 1)).toBeNull();
+  });
+
+  it('keeps one Output across a seed change, and the old chain rings out into it until its tail ends', () => {
+    const run = setup(patch(
+      [node('m', 'metro', { period: 0.05 }), node('v', 'voice'), node('a', 'fx', { tail: 0.5 }), node('o', 'out')],
+      [cable('m', 'v'), cable('v', 'a'), cable('a', 'o')],
+    ));
+    run.wakeEvery(0, 0.5);
+    const swap = run.reseed(0.49, 2);
+    expect(swap.changed).toEqual(['m', 'v', 'a']);
+    run.wakeEvery(0.5, 2);
+
+    // Exactly one Output instance, never disposed.
+    const outputs = [...run.audio.owners].filter(([, owner]) => owner === 'o').map(([instance]) => instance);
+    expect(outputs).toHaveLength(1);
+    expect(run.disposedAt('o')).toBeNull();
+    // The old effect stays connected to it (never disconnected by a rewire) until it is disposed a tail
+    // after the old voice; the new one is connected once beside it.
+    const [o] = outputs, [oldA, newA] = [...run.audio.owners].filter(([, owner]) => owner === 'a').map(([instance]) => instance);
+    expect(run.audio.wires.filter((w) => w.endsWith(`→s${o}`) || w.startsWith(`f${oldA}`) || w.startsWith(`f${newA}`)))
+      .toEqual([`f${oldA}→s${o}`, `f${newA}→s${o}`]);
+    const v = run.disposedAt('v')!, a = run.disposedAt('a')!;
+    expect(a).toBeGreaterThanOrEqual(v + 0.5 - EPS);
+    expect(a).toBeLessThan(v + 0.5 + WAKE + EPS);
+    expect(run.disposedAt('a', 1)).toBeNull();
   });
 
   it('retires an audio cycle together, once every instance in it is idle, and never holds it forever', () => {

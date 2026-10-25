@@ -167,8 +167,8 @@ describe('offline audio with live edits', () => {
   });
 });
 
-// #115, ADR 0035: a seed change rebuilds every audio node, Output included. The old chain rings out
-// together: each retired instance stays while a retired one upstream still feeds it.
+// #115, ADR 0035: a seed change rebuilds every audio node but Output, which reads no seed. The old
+// chain rings out together into it: each retired instance stays while a retired one upstream still feeds it.
 describe('a seed change mid-echo', () => {
   const ECHO_SECONDS = 5;
   /** One note at 0 (the next tick is at 8 s) into Delay (0.5 s, feedback 0.42) → Reverb (Decay 1, Mix 0.35) → Output. */
@@ -195,13 +195,15 @@ describe('a seed change mid-echo', () => {
     return parsed.patch;
   }
 
-  it('lets the old Delay → Reverb → Output echo on past +1.2 s, sample for sample as with no change', async () => {
-    // Records when each node's instances are disposed, per audio context (a live run may start over).
+  it('lets the old Delay → Reverb echo on into the one Output past +1.2 s, sample for sample as with no change', async () => {
+    // Records which nodes' instances are built and when they are disposed, per audio context (a live run may start over).
+    const builds = new Map<unknown, string[]>();
     const disposals = new Map<unknown, { node: string; at: number }[]>();
     const registry = new Map([...nodeRegistry].map(([type, definition]) => [type, !definition.audio ? definition : {
       ...definition,
       audio: (ctx) => {
         const inner = definition.audio!(ctx);
+        builds.set(ctx.audio, [...(builds.get(ctx.audio) ?? []), ctx.nodeId]);
         return { ...inner, dispose: () => (disposals.set(ctx.audio, [...(disposals.get(ctx.audio) ?? []), { node: ctx.nodeId, at: ctx.audio.currentTime }]), inner.dispose?.()) };
       },
     } satisfies NodeDefinition]));
@@ -213,7 +215,8 @@ describe('a seed change mid-echo', () => {
         const compiled = compilePatch({ ...echoPatch(1), seed: 2 }, registry);
         if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
         const report = run.scheduler.swap(compiled.plan);
-        expect(report.changed).toEqual(['clock', 'note', 'synth', 'delay', 'reverb', 'out']);
+        // Every node but Output, which reads no seed.
+        expect(report.changed).toEqual(['clock', 'note', 'synth', 'delay', 'reverb']);
       },
     };
     const options = { seconds: ECHO_SECONDS, fps: 0, live: true };
@@ -226,7 +229,8 @@ describe('a seed change mid-echo', () => {
     const loudness = blockLoudness(audio, 0.1);
     for (const t of [1.5, 2, 2.5, 3]) expect(loudness[Math.round(t * 10)]!).toBeGreaterThan(1e-3);
     // Before the run ends (which disposes everything), only the old synth has gone, once the swap
-    // took effect: Delay echoes until ~5.3 s, Reverb and Output after it.
+    // took effect: Delay echoes until ~5.3 s, Reverb after it, both into the one Output.
+    expect(builds.get(context)!.filter((id) => id === 'out')).toHaveLength(1);
     const early = disposals.get(context)!.filter((d) => d.at < ECHO_SECONDS - 0.1);
     expect(early.map((d) => d.node)).toEqual(['synth']);
     expect(early[0]!.at).toBeGreaterThan(0.6);
