@@ -2,7 +2,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { compilePatch, CUSTOM_PRESET, INPUT_EVENT_TYPES, parseInputStream, parsePatch, PATCH_FORMAT, PATCH_VERSION, pushable, serializeInputStream, serializePatch, type Patch } from '@flow-patcher/engine';
+import { compilePatch, CUSTOM_PRESET, INPUT_EVENT_TYPES, paramSpecError, parseInputStream, parsePatch, PATCH_FORMAT, PATCH_VERSION, pushable, serializeInputStream, serializePatch, type Patch } from '@flow-patcher/engine';
 import { nodeDefinitions, nodeRegistry } from '../src';
 import { expectCatalogTypes, nonCatalogNodes } from '../../../test-support/catalog';
 import { ROOT } from '../../../test-support/golden';
@@ -51,6 +51,7 @@ describe('node catalog', () => {
         const paramNames = definition.params.map((p) => p.name);
         expect(new Set(paramNames).size).toBe(paramNames.length);
         for (const param of definition.params) {
+          expect(paramSpecError(param), param.name).toBeNull();
           if (param.kind === 'number') {
             expect(param.min).toBeLessThan(param.max);
             expect(param.default).toBeGreaterThanOrEqual(param.min);

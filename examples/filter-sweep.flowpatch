@@ -61,7 +61,7 @@
     {
       "id": "filter",
       "type": "filter",
-      "typeVersion": 1,
+      "typeVersion": 2,
       "params": {
         "cutoff": 300,
         "mode": "lowpass",
@@ -125,7 +125,7 @@
         "node": "filter",
         "port": "cutoff"
       },
-      "depth": 2400
+      "depth": 3.17
     },
     {
       "from": {

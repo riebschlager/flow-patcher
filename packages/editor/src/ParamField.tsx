@@ -3,11 +3,11 @@
 // fine, double-click to type, right-click to reset, cable in to modulate.
 import { createContext, useContext, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { CUSTOM_PRESET, isModulatable, presetFor, resolveParam, type NumberParamSpec, type ParamSpec, type ParamValue, type PatchEdit, type TextParamSpec } from '@flow-patcher/engine';
+import { CUSTOM_PRESET, isModulatable, knobPosition, presetFor, resolveParam, type NumberParamSpec, type ParamSpec, type ParamValue, type PatchEdit, type TextParamSpec } from '@flow-patcher/engine';
 import { paramHandle } from './patch-graph';
 import { PORT_SIZE } from './ports';
-import { snapTo, startDrag } from './drag-edit';
-import { formatParam, keyedValue, parseTyped } from './param-format';
+import { startDrag } from './drag-edit';
+import { formatParam, keyedParam, parseParam, parseTyped, turnBy } from './param-format';
 import type { EditorStore } from './store';
 import type { LivePatch } from './live';
 
@@ -19,8 +19,8 @@ export const LivePatchContext = createContext<LivePatch | null>(null);
 /** Pixels of drag that cross a field's whole range is its width; Shift makes it this many times finer. */
 const FINE = 5;
 
-/** Where a value sits in a number param's range, 0–1. */
-const ratio = (spec: NumberParamSpec, v: number) => (spec.max > spec.min ? (v - spec.min) / (spec.max - spec.min) : 0);
+/** Where a value sits on a number param's knob, 0–1: by ratio on a log-scaled param (ADR 0032). */
+const ratio = (spec: NumberParamSpec, v: number) => knobPosition(spec, v);
 
 interface RowProps<S extends ParamSpec> {
   node: string;
@@ -97,7 +97,8 @@ function NumberField({ node, spec, value, modulated }: RowProps<NumberParamSpec>
     const width = event.currentTarget.getBoundingClientRect().width || 1;
     startDrag(store, event.nativeEvent, {
       from: base,
-      valueAt: (dx, fine) => snapTo(base + (dx / (fine ? width * FINE : width)) * (spec.max - spec.min), spec.min, spec.max, spec.step),
+      // A field's width crosses the knob's whole travel: the range, or its octaves on a log-scaled param.
+      valueAt: (dx, fine) => turnBy(spec, base, dx / (fine ? width * FINE : width)),
       edits: (v) => setParam(node, spec, v),
     });
   };
@@ -107,14 +108,15 @@ function NumberField({ node, spec, value, modulated }: RowProps<NumberParamSpec>
     return (
       <div className="param-field param-field--editing nodrag nopan" data-testid="param-field">
         <span className="param-field__label">{label}</span>
-        <TypedNumber className="param-field__input" label={label} initial={base} onCommit={(typed) => apply(resolveParam(spec, typed))} onDone={(byKey) => setTyping(byKey ? 'refocus' : false)} />
+        <TypedNumber className="param-field__input" label={label} initial={base} parse={(text) => parseParam(spec, text)} onCommit={(typed) => apply(resolveParam(spec, typed))} onDone={(byKey) => setTyping(byKey ? 'refocus' : false)} />
       </div>
     );
   }
   return (
     <div
       ref={field}
-      className="param-field param-field--number nodrag nopan"
+      // nokey: React Flow's selection pane would take a Shift press (a fine drag) for a selection box.
+      className="param-field param-field--number nodrag nopan nokey"
       data-testid="param-field"
       data-value={base}
       role="slider"
@@ -127,7 +129,7 @@ function NumberField({ node, spec, value, modulated }: RowProps<NumberParamSpec>
       onPointerDown={onPointerDown}
       onKeyDown={(event) => {
         if (event.key === 'Enter') return setTyping(true);
-        const next = keyedValue(event.key, event.shiftKey, base, spec.min, spec.max, spec.step);
+        const next = keyedParam(spec, event.key, event.shiftKey, base);
         if (next === undefined) return;
         event.preventDefault();
         event.stopPropagation();
@@ -151,10 +153,12 @@ function NumberField({ node, spec, value, modulated }: RowProps<NumberParamSpec>
  * A number typed in place: Enter or leaving the field commits it, Escape throws it away. It commits once, and only
  * when the text changed, so opening it and leaving it as it was doesn't round the value.
  */
-export function TypedNumber({ className, label, initial, onCommit, onDone }: {
+export function TypedNumber({ className, label, initial, parse = parseTyped, onCommit, onDone }: {
   className: string;
   label: string;
   initial: number;
+  /** Reads the text; a leading number by default. A param's field reads its unit's prefix too (`parseParam`). */
+  parse?: (text: string) => number;
   onCommit: (value: number) => void;
   /** `byKey` when Enter or Escape ended it, so focus can go back to the control it came from. */
   onDone: (byKey: boolean) => void;
@@ -163,7 +167,7 @@ export function TypedNumber({ className, label, initial, onCommit, onDone }: {
   const finish = (text: string | null, byKey: boolean) => {
     if (done.current) return;
     done.current = true;
-    const typed = text === null || text.trim() === String(initial) ? NaN : parseTyped(text);
+    const typed = text === null || text.trim() === String(initial) ? NaN : parse(text);
     if (Number.isFinite(typed)) onCommit(typed);
     onDone(byKey);
   };

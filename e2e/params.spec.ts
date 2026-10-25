@@ -102,6 +102,8 @@ test('a knob turned while playing hot-swaps, and the whole drag is one undo step
   await page.keyboard.down('Shift');
   await dragBy(page, hits, 60);
   await page.keyboard.up('Shift');
+  // It moved at all: React Flow's selection pane used to take the Shift press for a selection box (#104).
+  await expect.poll(async () => Number(await hits.getAttribute('data-value'))).toBeGreaterThan(5);
   expect(Number(await hits.getAttribute('data-value'))).toBeLessThan(turned);
   await hits.dblclick();
   await page.keyboard.press('ControlOrMeta+a');
@@ -259,6 +261,117 @@ test('a param cable\'s depth chip: drag, type, right-click to reset, each one un
     await expect(chip).toHaveAttribute('data-depth', depth);
   }
   await expect(undo(page)).toBeDisabled();
+  expect(errors).toEqual([]);
+});
+
+test('a log-scaled knob turns by ratio, types and reads in Hz, and its cable depth reads in octaves (ADR 0032)', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/?patch=filter-sweep');
+  await expect(page.getByTestId('compile-status')).toHaveText('6 nodes compiled');
+  const cutoff = field(page, 'filter', 'cutoff');
+  await expect(cutoff).toHaveAttribute('data-value', '300');
+  await expect(cutoff.locator('.param-field__value')).toHaveText('300 Hz');
+  // 20 Hz–20 kHz is a factor of 1000 across the field: the fill sits at log(300 / 20) / log(1000) of it, 39 %.
+  const width = (await cutoff.boundingBox())!.width;
+  const fill = (await cutoff.locator('.param-field__fill').boundingBox())!.width;
+  expect(fill / width).toBeCloseTo(Math.log(15) / Math.log(1000), 2);
+
+  // Two equal drags give equal ratios, not equal differences: each multiplies by 1000^(dx / width).
+  const dx = 40, factor = 1000 ** (dx / width);
+  const value = async () => Number(await cutoff.getAttribute('data-value'));
+  await dragBy(page, cutoff, dx);
+  await expect.poll(value).not.toBe(300);
+  const first = await value();
+  await dragBy(page, cutoff, dx);
+  await expect.poll(value).not.toBe(first);
+  const second = await value();
+  // Snapped to three significant figures, so within 1 %.
+  expect(first / 300).toBeCloseTo(factor, 1);
+  expect(Math.abs(first / 300 / factor - 1)).toBeLessThan(0.01);
+  expect(Math.abs(second / first / factor - 1)).toBeLessThan(0.01);
+  // A linear knob would have added the same Hz twice: (dx / width) × 19,980 Hz each time.
+  expect(second - first).toBeGreaterThan((first - 300) * 1.3);
+  // Shift is five times finer, by ratio too.
+  await page.keyboard.down('Shift');
+  await dragBy(page, cutoff, -dx);
+  await page.keyboard.up('Shift');
+  await expect.poll(value).not.toBe(second);
+  expect(Math.abs(second / (await value()) / factor ** 0.2 - 1)).toBeLessThan(0.01);
+
+  // Typing stays in Hz: the field opens on the stored number, and takes Hz or kHz.
+  const stored = await value();
+  await cutoff.dblclick();
+  const input = page.locator('.react-flow__node[data-id="filter"] .param-row[data-param="cutoff"] input');
+  await expect(input).toHaveValue(String(stored));
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.type('440');
+  await page.keyboard.press('Enter');
+  await expect(cutoff).toHaveAttribute('data-value', '440');
+  await expect(cutoff.locator('.param-field__value')).toHaveText('440 Hz');
+  await cutoff.dblclick();
+  await expect(input).toHaveValue('440');
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.type('1.2 kHz');
+  await page.keyboard.press('Enter');
+  await expect(cutoff).toHaveAttribute('data-value', '1200');
+  await expect(cutoff.locator('.param-field__value')).toHaveText('1.2 kHz');
+  await expect(cutoff).toHaveAttribute('aria-valuetext', '1.2 kHz');
+
+  // With the node selected, Backspace or Delete on a focused knob leaves the node alone: the field is `nokey`, so React
+  // Flow treats it as an input (#104).
+  await page.locator('.react-flow__node[data-id="filter"] .patch-node__title').click();
+  await expect(page.locator('.react-flow__node[data-id="filter"]')).toHaveClass(/selected/);
+  await cutoff.focus();
+  // Still selected with the knob focused, so the delete key is armed.
+  await expect(page.locator('.react-flow__node[data-id="filter"]')).toHaveClass(/selected/);
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Delete');
+  // Two animation frames: xyflow's delete runs in an effect after the key.
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  await expect(page.locator('.react-flow__node[data-id="filter"]')).toHaveCount(1);
+  await expect(page.locator('.react-flow__node[data-id="filter"]')).toHaveClass(/selected/);
+  await expect(page.getByTestId('compile-status')).toHaveText('6 nodes compiled');
+  await expect(cutoff).toHaveAttribute('data-value', '1200');
+
+  // The modulated value's band runs from the knob to the value's place on the same log travel.
+  await startAudio(page);
+  const band = cutoff.getByTestId('mod-band');
+  await expect.poll(async () => Number(await cutoff.getAttribute('data-mod-value'))).toBeGreaterThan(1200);
+  const placed = await cutoff.evaluate((el) => {
+    const box = el.getBoundingClientRect(), b = el.querySelector('[data-testid="mod-band"]')!.getBoundingClientRect();
+    return { now: Number(el.getAttribute('data-mod-value')), left: (b.left - box.left) / box.width, right: (b.right - box.left) / box.width };
+  });
+  const at = (hz: number) => Math.log(hz / 20) / Math.log(1000);
+  expect(placed.left).toBeCloseTo(at(1200), 2);
+  // The band is redrawn every frame while the sweep moves, so its end can lag the attribute by a frame.
+  expect(Math.abs(placed.right - at(placed.now))).toBeLessThan(0.03);
+  await expect(band).toHaveAttribute('data-side', 'above');
+
+  // The depth chip on the sweep's cable reads octaves, reaches ±log2(1000), and types in octaves.
+  const id = 'sweep.phase→filter.cutoff';
+  const hover = await visiblePointOn(page, edge(page, id), id);
+  await page.mouse.move(hover.x, hover.y);
+  const chip = page.getByTestId('depth-chip');
+  await expect(chip).toHaveAttribute('data-depth', '3.17');
+  await expect(chip).toHaveText(/\+3\.17 oct/);
+  expect(Number(await chip.getAttribute('aria-valuemax'))).toBeCloseTo(Math.log2(1000), 6);
+  // For the PR: the Filter with its log-scaled cutoff, the modulation band and the depth chip in octaves.
+  const node = (await page.locator('.react-flow__node[data-id="filter"]').boundingBox())!, chipBox = (await chip.boundingBox())!;
+  const left = Math.min(node.x, chipBox.x) - 24, top = node.y - 24;
+  await page.screenshot({ path: 'test-results/log-knob.png', clip: { x: left, y: top, width: Math.max(node.x + node.width, chipBox.x + chipBox.width) + 24 - left, height: Math.max(node.y + node.height, chipBox.y + chipBox.height) + 24 - top } });
+  await chip.dblclick();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.type('-1.5');
+  await page.keyboard.press('Enter');
+  await page.mouse.move(hover.x, hover.y);
+  await expect(chip).toHaveAttribute('data-depth', '-1.5');
+  await expect(chip).toHaveText(/−1\.50 oct/);
+  // Keys step in octaves: Shift a hundredth, plain a tenth.
+  await chip.focus();
+  await page.keyboard.press('Shift+ArrowDown');
+  await expect(chip).toHaveAttribute('data-depth', '-1.51');
+  await page.keyboard.press('ArrowUp');
+  await expect(chip).toHaveAttribute('data-depth', '-1.41');
   expect(errors).toEqual([]);
 });
 
