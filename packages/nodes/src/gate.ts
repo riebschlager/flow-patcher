@@ -12,7 +12,7 @@ import type { NodeDefinition } from '@flow-patcher/engine';
  *   pointer). Several cables are summed, and a non-finite cable counts as 0.
  * - **Open on, Gate unwired:** passes every event.
  *
- * To pass while a signal is below a level instead, negate it with Math
+ * To pass while a signal is at or below a level instead, negate it with Math
  * (Multiply, Constant −1) and set Level to the negated level.
  *
  * Stateless and read only at event times, so the result doesn't depend on the
