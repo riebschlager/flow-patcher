@@ -566,6 +566,7 @@ describe('audio setup reads across a swap', () => {
     return { log, compile };
   }
 
+  // The real crash path: Delay audio() → transportTempo → value('transport'), cabled from a Clock.
   it('reads a source only the incoming plan has, as a fresh run of that plan does', () => {
     const { log, compile } = make();
     const runtime = new Runtime(compile(patch([node('echo', 'echo')], [])));

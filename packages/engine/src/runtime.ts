@@ -992,6 +992,7 @@ export class Runtime {
     if (this.audioContext) {
       // Setup reads (value/signal/param in audio()) resolve cables in the plan being built:
       // its sources may not exist in the one still running (#118).
+      const was = this.active;
       this.active = next;
       try {
         for (const node of plan.order) {
@@ -1003,7 +1004,7 @@ export class Runtime {
           if (keep && rebuild.has(node.id)) updated.push(node.id);
         }
       } finally {
-        this.active = this.stage;
+        this.active = was;
       }
       for (const instance of prev.audio.values()) {
         if (![...next.audio.values()].includes(instance)) cancelled += this.retire(instance, time);
