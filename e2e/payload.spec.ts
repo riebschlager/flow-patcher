@@ -14,7 +14,10 @@ declare global {
 
 // M2 gate, Payload: synthetic mouse, touch, pen, wheel and key input on the canvas; every source node
 // emits every documented field, with x and y in 0–1 and y = 0 at the top. The pointer fields come from
-// the payload table in docs/nodes/canvas-sources.md, so a field added there needs a rule here.
+// the payload table in docs/nodes/canvas-sources.md, so a field added to the table needs a rule here; the
+// Click, Wheel, Key and Pen lists below are written out from their paragraphs. Covered elsewhere: Touch extras'
+// Gesture (Safari only; touch.spec), Canvas's events (canvas.spec), MIDI (midi.spec), hover enter and leave
+// (pointer.spec, pen.spec) and field values (pen.spec, touch.spec).
 
 /** The payload table's field names, in the doc's order. */
 function documentedFields(): string[] {
@@ -31,7 +34,7 @@ const POINTER_RULES: Record<string, 'always' | 'after first' | 'samples only'> =
   shift: 'always', alt: 'always', ctrl: 'always', meta: 'always', age: 'always',
   // Only on Pointer (high rate)'s moves (getCoalescedEvents() samples).
   coalesced: 'samples only',
-  // Left out on a pointer's first sample since it last lifted (or ever).
+  // Left out on a pointer's first sample, and its first since each up, cancel or leave.
   interval: 'after first',
 };
 const PEN_FIELDS = ['tiltX', 'tiltY', 'twist', 'tangentialPressure', 'altitudeAngle', 'azimuthAngle', 'barrel'];
@@ -105,8 +108,10 @@ test('Payload: mouse, touch, pen, wheel and key input give every documented fiel
   }
   await page.keyboard.up('Shift');
   await page.mouse.up();
+  // Each contact here is pointerId 1, so keep one's end and the next one's down on different stamps (#122).
+  await page.waitForTimeout(30);
 
-  // Touch, with a contact size.
+  // Touch, with a contact size; then a second touch that's cancelled.
   const touch = { pointerType: 'touch', width: 20, height: 24 };
   await dispatch(page, 'pointerdown', { fx: 0.2, fy: 0.5, ...touch, pressure: 0.4, button: 0, buttons: 1 });
   for (let i = 1; i <= 5; i++) {
@@ -116,6 +121,13 @@ test('Payload: mouse, touch, pen, wheel and key input give every documented fiel
   await expect.poll(() => signal(page, 'touch-extras', 'width')).toBe(20);
   expect(await signal(page, 'touch-extras', 'height')).toBe(24);
   await dispatch(page, 'pointerup', { fx: 0.3, fy: 0.5, ...touch, pressure: 0, button: 0, buttons: 0 });
+  await page.waitForTimeout(30);
+  await dispatch(page, 'pointerdown', { fx: 0.4, fy: 0.6, ...touch, pressure: 0.4, button: 0, buttons: 1 });
+  await page.waitForTimeout(20);
+  await dispatch(page, 'pointermove', { fx: 0.42, fy: 0.6, ...touch, pressure: 0.4, buttons: 1 });
+  await page.waitForTimeout(20);
+  await dispatch(page, 'pointercancel', { fx: 0.42, fy: 0.6, ...touch, pressure: 0, buttons: 0 });
+  await page.waitForTimeout(30);
 
   // Pen, tilted and twisted.
   const pen = { pointerType: 'pen', tiltX: 20, tiltY: -10, twist: 30, tangentialPressure: 0.2 };
@@ -127,7 +139,8 @@ test('Payload: mouse, touch, pen, wheel and key input give every documented fiel
   await dispatch(page, 'pointerup', { fx: 0.7, fy: 0.4, ...pen, pressure: 0, button: 0, buttons: 0 });
 
   // The pointer checks below cover what came before here: the clicks after it press and release on one
-  // stamp, which is Click's to check.
+  // stamp, which is Click's to check. The pen's up is stamped 5 ms ahead of the clock, so wait it out.
+  await page.waitForTimeout(30);
   const pointersEnd = await page.evaluate(() => window.flowPatcher!.clock.currentTime);
 
   // Wheel, plain and with Ctrl (a trackpad pinch).
@@ -156,11 +169,12 @@ test('Payload: mouse, touch, pen, wheel and key input give every documented fiel
   for (const source of ['pointer', 'pointer-high-rate', 'pen']) {
     const events = all[`${source}.all`]!.filter((e) => e.time < pointersEnd);
     expect(events.length, source).toBeGreaterThan(0);
-    // `interval` is left out on a pointer's first sample since it last lifted. Inside a contact (after its
-    // down, up to its up) every sample has one; outside, a hover's first may not. Every synthetic pointer here
-    // is pointerId 1, as is the mouse, so contacts are told apart by type and never overlap.
+    // `interval` is left out on a pointer's first sample, and its first since each up, cancel or leave. Inside
+    // a contact (after its down, up to its up or cancel) every sample has one; the downs are checked exactly
+    // below. Every synthetic pointer here is pointerId 1, as is the mouse, so contacts are told apart by type
+    // and never overlap.
     const downs = events.filter((e) => e.phase === 'down');
-    const inContact = (e: EngineEvent) => (e.phase === 'move' || e.phase === 'up') && downs.some((d) =>
+    const inContact = (e: EngineEvent) => (e.phase === 'move' || e.phase === 'up' || e.phase === 'cancel') && downs.some((d) =>
       d.pointerType === e.pointerType && d.time < e.time && !events.some((u) => u.pointerType === e.pointerType && (u.phase === 'up' || u.phase === 'cancel') && u.time >= d.time && u.time < e.time));
     const first = (e: EngineEvent) => !inContact(e);
     expect(events.filter((e) => has(e, 'interval')).length, `${source}: most samples carry interval`).toBeGreaterThan(events.length / 2);
@@ -175,18 +189,29 @@ test('Payload: mouse, touch, pen, wheel and key input give every documented fiel
       expect(e.x, `${source} x`).toBeLessThanOrEqual(1);
       expect(e.y, `${source} y`).toBeGreaterThanOrEqual(0);
       expect(e.y, `${source} y`).toBeLessThanOrEqual(1);
-      // Pen fields on pens' events only; Pen completes them, with the barrel.
+      // Pen fields on pens' events only; Pen completes them, with the barrel. Chromium (the CI browser) has
+      // altitudeAngle and azimuthAngle, which the host passes on where the browser has them.
       for (const field of PEN_FIELDS) {
         const onPen = e.pointerType === 'pen' && (source === 'pen' || field !== 'barrel');
         expect(has(e, field), `${source} ${e.pointerType}: ${field}`).toBe(onPen);
       }
     }
   }
+  // `interval` on the downs, exactly. The mouse's press follows its hover move, so it has one; each touch's
+  // and the pen's down follow the previous pointer's up or cancel on pointerId 1, so they don't.
+  for (const source of ['pointer', 'pointer-high-rate', 'pen']) {
+    const downs = all[`${source}.all`]!.filter((e) => e.phase === 'down' && e.time < pointersEnd);
+    for (const d of downs) expect(has(d, 'interval'), `${source} ${d.pointerType} down: interval`).toBe(d.pointerType === 'mouse');
+    // Every contact's end was checked: an up per pointer type, and the touch's cancel.
+    const ends = all[`${source}.all`]!.filter((e) => e.time < pointersEnd && (e.phase === 'up' || e.phase === 'cancel')).map((e) => `${e.pointerType} ${e.phase}`);
+    const expected = source === 'pen' ? ['pen up'] : ['mouse up', 'touch up', 'touch cancel', 'pen up'];
+    expect(ends.sort(), source).toEqual(expect.arrayContaining(expected));
+  }
   // Each kind of pointer reached Pointer, and only pens reached Pen.
   expect(new Set(all['pointer.all']!.map((e) => e.pointerType))).toEqual(new Set(['mouse', 'touch', 'pen']));
   expect(new Set(all['pen.all']!.map((e) => e.pointerType))).toEqual(new Set(['pen']));
   // y = 0 at the top: the press on the top row of pixels, the release on the bottom row.
-  const mouse = all['pointer.all']!.filter((e) => e.pointerType === 'mouse' && e.time > 0);
+  const mouse = all['pointer.all']!.filter((e) => e.pointerType === 'mouse');
   const press = mouse.find((e) => e.phase === 'down' && (e.y as number) < 0.5)!;
   expect(press.y).toBeLessThan(0.01);
   expect(mouse.find((e) => e.phase === 'up' && e.time > press.time)!.y).toBeGreaterThan(0.99);
@@ -198,7 +223,10 @@ test('Payload: mouse, touch, pen, wheel and key input give every documented fiel
   for (const port of ['click', 'double', 'right', 'middle']) {
     const events = all[`click.${port}`]!;
     expect(events.length, `click.${port}`).toBeGreaterThan(0);
-    for (const e of events) for (const field of ['time', 'channel', 'x', 'y', 'pointerType', 'button', 'buttons', ...MODIFIERS]) expect(has(e, field), `click.${port}: ${field}`).toBe(true);
+    for (const e of events) {
+      for (const field of ['time', 'channel', 'x', 'y', 'pointerType', 'button', 'buttons', ...MODIFIERS]) expect(has(e, field), `click.${port}: ${field}`).toBe(true);
+      for (const v of [e.x, e.y] as number[]) expect(v >= 0 && v <= 1, `click.${port} x, y in 0–1`).toBe(true);
+    }
   }
   expect(all['click.right']![0]!.button).toBe(2);
   expect(all['click.middle']![0]!.button).toBe(1);
@@ -208,6 +236,7 @@ test('Payload: mouse, touch, pen, wheel and key input give every documented fiel
     const [e] = all[`wheel.${port}`]!;
     expect(e, `wheel.${port}`).toBeDefined();
     for (const field of ['time', 'channel', 'x', 'y', 'deltaX', 'deltaY', ...MODIFIERS]) expect(has(e!, field), `wheel.${port}: ${field}`).toBe(true);
+    for (const v of [e!.x, e!.y] as number[]) expect(v >= 0 && v <= 1, `wheel.${port} x, y in 0–1`).toBe(true);
     expect(e!.x).toBeCloseTo(0.75, 1);
     expect(e!.y).toBeCloseTo(0.25, 1);
   }
@@ -216,8 +245,13 @@ test('Payload: mouse, touch, pen, wheel and key input give every documented fiel
 
   // Key: key, code, repeat, modifiers and age, with All tagging the phase.
   for (const port of ['down', 'up', 'all']) {
+    expect(all[`key.${port}`]!.length, `key.${port}`).toBeGreaterThan(0);
     for (const e of all[`key.${port}`]!) for (const field of ['time', 'channel', 'key', 'code', 'repeat', 'age', ...MODIFIERS]) expect(has(e, field), `key.${port}: ${field}`).toBe(true);
   }
+  expect(new Set(all['key.all']!.map((e) => e.phase))).toEqual(new Set(['down', 'up']));
+  // A key's channel is fixed by its code: KeyA 1, KeyB 2.
+  expect(all['key.down']!.find((e) => e.code === 'KeyA')!.channel).toBe(1);
+  expect(all['key.down']!.find((e) => e.code === 'KeyB')!.channel).toBe(2);
   expect(all['key.down']!.map((e) => e.code)).toEqual(expect.arrayContaining(['KeyA', 'KeyB']));
   expect(all['key.down']!.find((e) => e.code === 'KeyB')!.shift).toBe(true);
 

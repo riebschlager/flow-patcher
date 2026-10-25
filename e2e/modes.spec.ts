@@ -199,7 +199,7 @@ test('Orbit: circling starts an orbit and drives echoes and resonance above a st
   expect(errors).toEqual([]);
 });
 
-test('?canvas=full: a mode fills a phone-sized window and plays from a touch', async ({ page }) => {
+test('?canvas=full: a mode fills a phone-sized window and plays from a press', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
