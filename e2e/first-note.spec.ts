@@ -80,12 +80,12 @@ test('the first tap starts audio, and the t=0 Clock note sounds at once, before 
   const stats = await page.evaluate(() => window.flowPatcher!.stats);
   const tap = await page.evaluate(() => window.flowPatcher!.taps[0]!);
   // One clock step: the callback (baseLatency) or the largest step seen, whichever is longer (ADR 0027).
-  const { callback, largestStep } = await audioCallback(page);
+  const { callback, largestStep, runStep } = await audioCallback(page);
   const step = Math.max(callback, largestStep);
   const ms = (s: number) => (s * 1000).toFixed(2);
   console.log(`[first note] first wake at ${ms(stats.firstWake!)} ms; starts ${seen.map((s) => `${Math.round(s.hz)} Hz at ${ms(s.when)} (called at ${ms(s.at)})`).join(', ')}; ` +
     `catch-ups ${stats.catchUps} (worst ${stats.catchUpMaxMs.toFixed(2)} ms), caught up ${stats.caughtUp}, ` +
-    `late ${stats.lateCaughtUp} caught up (worst ${stats.lateCaughtUpMaxMs.toFixed(2)} ms), ${stats.lateScheduled} scheduled, ${stats.lateImmediate} immediate; stalls ${stats.stalls}; one step ${ms(step)} ms`);
+    `late ${stats.lateCaughtUp} caught up (worst ${stats.lateCaughtUpMaxMs.toFixed(2)} ms), ${stats.lateScheduled} scheduled, ${stats.lateImmediate} immediate; stalls ${stats.stalls}; one step ${ms(step)} ms (largest step over the run ${ms(runStep)} ms, logged only)`);
 
   // A startup slower than the catch-up limit starts the patch at the first wake and drops the t=0 tick by design.
   expect(stats.firstWake!, `first wake ${ms(stats.firstWake!)} ms past 0, beyond the ${ms(CATCH_UP_LIMIT)} ms catch-up limit; t=0 dropped by design (ADR 0033)`)

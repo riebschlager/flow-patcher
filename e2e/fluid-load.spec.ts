@@ -47,12 +47,12 @@ test('taps stay on time with the fluid stepping and the renderer drawing', async
 
   const taps = await page.evaluate(() => window.flowPatcher!.taps.filter((tap) => !tap.cold));
   const stats = await page.evaluate(() => window.flowPatcher!.frameStats);
-  const { callback, largestStep } = await audioCallback(page);
+  const { callback, largestStep, runStep } = await audioCallback(page);
   const late = taps.map((tap) => tap.note! - tap.down);
   const worst = Math.max(...late);
   const splashes = taps.map((tap) => tap.splash!);
   console.log(
-    `worst tap ${(worst * 1000).toFixed(2)} ms (bound ${(BOUND * 1000).toFixed(0)} ms); audio callback ${(callback * 1000).toFixed(2)} ms (largest clock step ${(largestStep * 1000).toFixed(2)} ms); ` +
+    `worst tap ${(worst * 1000).toFixed(2)} ms (bound ${(BOUND * 1000).toFixed(0)} ms); audio callback ${(callback * 1000).toFixed(2)} ms (largest clock step ${(largestStep * 1000).toFixed(2)} ms, ${(runStep * 1000).toFixed(2)} ms over the run); ` +
       `splash handed after ${Math.max(...splashes.map((s) => s.handed))} frame(s), drawn after ${Math.min(...splashes.map((s) => s.frames))}–${Math.max(...splashes.map((s) => s.frames))}, ` +
       `ms ${Math.min(...splashes.map((s) => s.ms)).toFixed(1)}–${Math.max(...splashes.map((s) => s.ms)).toFixed(1)}; ` +
       `fluid step ${stats.fluid!.stepMs.toFixed(2)} ms, color ${stats.fluid!.colorMs.toFixed(2)} ms, ${stats.fluid!.merged} merged, ${stats.drawn}/${stats.frames} frames drawn`,

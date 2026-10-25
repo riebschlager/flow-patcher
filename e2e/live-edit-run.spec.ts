@@ -146,13 +146,13 @@ test('scripted edits on the playing demo hand no scheduled event late, and no ta
   const final = await stats(page);
   const audio = await page.evaluate(() => ({ starts: window.starts!, late: window.lateStarts! }));
   // One clock step: the callback (baseLatency) or the largest step seen, whichever is longer.
-  const { callback, largestStep } = await audioCallback(page);
+  const { callback, largestStep, runStep } = await audioCallback(page);
   const step = Math.max(callback, largestStep);
   // After hand-over, start() sees only the microseconds before the voice calls it; the runtime's clamp is the real lateness.
   const worstLate = Math.max(0, ...audio.late.map((s) => s.currentTime - s.when));
   console.log(
     `${edits} edits, ${final.swaps - first.swaps} swaps, ${final.pushes} pushes; ${final.delivered - first.delivered} events delivered, ${audio.starts} start() calls; ` +
-      `late: ${final.lateScheduled} scheduled, ${final.lateImmediate} immediate (worst ${final.lateImmediateMaxMs.toFixed(2)} ms), ${final.lateCaughtUp} caught up (worst ${final.lateCaughtUpMaxMs.toFixed(2)} ms), ${audio.late.length} start() (worst ${(worstLate * 1000).toFixed(2)} ms); one step ${(step * 1000).toFixed(2)} ms; ${final.skipped} windows skipped, ${final.pushFallbacks} push fallbacks`,
+      `late: ${final.lateScheduled} scheduled, ${final.lateImmediate} immediate (worst ${final.lateImmediateMaxMs.toFixed(2)} ms), ${final.lateCaughtUp} caught up (worst ${final.lateCaughtUpMaxMs.toFixed(2)} ms), ${audio.late.length} start() (worst ${(worstLate * 1000).toFixed(2)} ms); one step ${(step * 1000).toFixed(2)} ms (largest step over the run ${(runStep * 1000).toFixed(2)} ms, logged only); ${final.skipped} windows skipped, ${final.pushFallbacks} push fallbacks`,
   );
   expect(edits).toBe(ROUNDS * 9);
   expect(final.swaps - first.swaps).toBeGreaterThanOrEqual(edits);

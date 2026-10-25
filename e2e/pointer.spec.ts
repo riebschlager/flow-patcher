@@ -36,11 +36,11 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
     await page.waitForTimeout(37);
   }
   const taps = await page.evaluate(() => window.flowPatcher!.taps.filter((tap) => !tap.cold));
-  const { callback, largestStep, sampledStep } = await audioCallback(page);
+  const { callback, largestStep, runStep } = await audioCallback(page);
   // #97: why a warm tap's note sometimes lands past ±2 ms on CI. Logged before the checks, so a failing run has it.
   const baseLatency = await page.evaluate(() => window.flowPatcher!.clock.baseLatency);
   const msOf = (s: number | null) => (s === null ? 'null' : (s * 1000).toFixed(2));
-  console.log(`[tap timing] baseLatency ${msOf(baseLatency)} ms, callback ${msOf(callback)} ms, largest step ${msOf(largestStep)} ms over the run (${msOf(sampledStep)} ms in a 200 ms sample after it)`);
+  console.log(`[tap timing] baseLatency ${msOf(baseLatency)} ms, callback ${msOf(callback)} ms, largest step ${msOf(largestStep)} ms in a 200 ms sample, ${msOf(runStep)} ms over the run (logged only)`);
   for (const tap of taps) {
     // From the push's own clock read (stamp less the offset): past the offset at start(), the note is late.
     // That holds while no push falls back to the horizon (pushFallbacks is checked to be 0 below).
