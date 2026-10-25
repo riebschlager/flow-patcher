@@ -13,7 +13,7 @@ You port one Flow module into Flow Patcher, with its tests. Borrowed code become
 
 ## Read first
 1. AGENTS.md, and the AGENTS.md of the package the code lands in.
-2. The Reuse-from-Flow row for this module, and docs/milestones.md: port only what the current milestone needs. If the current milestone is M0, stop: the spike copies Flow modules raw into spike/ instead (AGENTS.md, "M0 spike").
+2. The Reuse-from-Flow row for this module, and docs/milestones.md: port only what the current milestone needs.
 3. The Flow module, all of it, and every Flow test that touches it.
 
 ## Work

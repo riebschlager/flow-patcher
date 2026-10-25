@@ -2,6 +2,8 @@
 
 Oct 21, 2026 · @Chris Riebschlager
 
+*Historical record of the initial setup. Milestones, the migration rule and the process changed after M2; AGENTS.md and [ADR 0036](decisions/0036-refocus-after-m2.md) are current.*
+
 Set up the repo so agents can check their own work: tests and golden renders first, a short CLAUDE.md, a few focused subagents, and one milestone at a time. This guide assumes Claude Code and follows the Flow Patcher design doc.
 
 ## Step 1 — Put the design in the repo

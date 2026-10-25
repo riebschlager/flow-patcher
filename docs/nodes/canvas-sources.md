@@ -14,7 +14,7 @@ Raw source nodes turn browser events on the performance canvas into events and s
 | Canvas | resize, focus, blur, visibilitychange | Size signals and Focus/Blur/Hidden/Visible events, so patches can fade or pause cleanly | M2 |
 | MIDI In | Web MIDI note and CC messages | Note at each note-on, with a **Length** knob for its duration; Note On and Note Off events with pitch and velocity; a CC signal for one CC number; all per MIDI channel (channel = MIDI channel + 1) and filtered by a **Channel** menu (All, 1–16); a raw MIDI output with every channel message, which the Channel menu doesn't filter | M2 ([ADR 0004](../decisions/0004-web-midi-in-v1.md)) |
 
-Later, each behind a permission and not in v1: Gamepad (buttons and axes, polled each frame), Device motion and orientation, Microphone (level, onset, pitch).
+Parked, each behind a permission: Gamepad (buttons and axes, polled each frame), Device motion and orientation, Microphone (level, onset, pitch).
 
 ## Event payload
 
@@ -58,7 +58,7 @@ Every pointer event (Pointer, Pointer (high rate), Pen and Touch extras' sizes) 
   - The canvas sets `touch-action: none` and takes pointer capture on down.
   - The context menu is suppressed only when a patch uses right-click.
   - The first pointerdown also unlocks the AudioContext and is still delivered, so it makes a sound. So does a keydown on the focused canvas (not a repeat, Escape, Tab or a lone modifier): a key press is a user gesture.
-- **Focus.** In Play view the canvas has keyboard focus. In Patch view, keys go to the editor unless the preview canvas is focused. Escape always returns to the editor.
+- **Focus.** Keys go to the editor unless the preview canvas is focused. Escape always returns to the editor.
 - **Keys.** The host pushes each keydown and keyup on the focused canvas as `{ key, code, repeat, shift, alt, ctrl, meta }`, with no `channel`: the code is the key's id. Escape is never sent. Key's events stay with the canvas (keydown doesn't reach the editor's shortcuts); keyup still bubbles, since React Flow tracks held keys from it. With a Key in the patch, keydown's page default is prevented, apart from Tab, the function keys (F1–F24) and Ctrl or Meta shortcuts. While audio isn't running, auto-repeats are dropped and the rest are held, like a pointerdown.
   - **Channels.** A key's channel is fixed by its `code`, not by press order, so live and replay agree: its place in Key's `KEY_CODES` list from 1 (KeyA–KeyZ 1–26, Digit0–Digit9 27–36, then punctuation, Space 51, editing keys, modifiers, navigation, F1–F24 and the numpad). The list is append-only. A code it doesn't list gets a hash of it in 1000–9999.
   - **Repeats** reach Down with `repeat: true` and never All, Note or Held. A keyup for a key that isn't down is dropped; a keydown (not a repeat) on a key already down ends it with an Up first. At one stamp (pushes held for the audio start share one), a key's keydowns and keyups alternate from its state there, so a tap and a re-press before audio starts leave it down. Down and Up carry `age`, seconds since the key's keydown.

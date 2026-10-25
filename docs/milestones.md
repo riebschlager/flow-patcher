@@ -57,7 +57,7 @@ Human
 4. **Scheduler:** 25 ms wake, 120 ms lookahead, 1.25 s when the tab is hidden; a wake up to 100 ms past its horizon catches up, keeping its events' spacing, and longer stalls skip missed windows; immediate path for input events at `currentTime + 5 ms` ([ADR 0017](decisions/0017-immediate-offset-and-catch-up.md), [0027](decisions/0027-immediate-notes-within-one-clock-step.md)).
 5. **Hot patching:** plan swap at the next window boundary; node state kept when the id survives; future events from removed or changed nodes cancelled; sounding notes finish their release.
 6. **Runtime limits:** 256 events per node and 2,048 per patch per window, excess dropped with a warning on the node; seeded RNG, no `Math.random` in engine or nodes.
-7. **Patch format v1:** load/save. Patches record the format version and each node's type version from the start, but migrations and placeholders wait for M4. Until then, a breaking node change updates the example patches and fixtures instead.
+7. **Patch format v1:** load/save. Patches record the format version and each node's type version from the start, but migrations and placeholders wait for M4 (now M3, [ADR 0036](decisions/0036-refocus-after-m2.md)). Until then, a breaking node change updates the example patches and fixtures instead.
 8. **Editor:** typed port colors, connection rules, adapter offer on incompatible cables, knobs with modulation rings, text params with preset menus, port hit areas larger than drawn, a cable remove control that stays reachable behind nodes, probes (hover value, pinned history), undo/redo on document diffs.
 9. **Nodes:** the M0 set rebuilt properly (Fluid on the CPU solver in a Worker for now, with its colorizer, per [ADR 0016](decisions/0016-main-thread-budget.md)), plus Delay Edge, Probability, Make Note, and Sample & Hold and Threshold/Change so the adapter offer has one adapter in each direction. The Milestone column in `docs/nodes/` lists them. Other nodes follow the unstarred-node rule above.
 
@@ -128,11 +128,12 @@ Human
 
 **Gate: a drifting patch that's mine to keep**
 - [ ] `pnpm check` and `pnpm e2e` are green in CI.
-- [ ] Library e2e: a patch is saved, the page reloads, the patch opens from the library and its event log over 10 s matches the log before saving. Download → upload gives the same file.
+- [ ] Library e2e: a patch is saved, the page reloads, the patch opens from the library and its event log over 10 s matches the log before saving. Download → upload gives a byte-identical file.
 - [ ] Migrations: a fixture patch at an older node type version migrates and plays; an unknown node type round-trips unchanged with its cables.
-- [ ] MIDI learn: with a mocked MIDI input in e2e, a learned CC moves its knob, and the mapping survives save and reload.
+- [ ] MIDI learn: with a mocked MIDI input in e2e, a learned CC moves its knob whichever node is selected, and the mapping survives save and reload.
 - [ ] Slow-time nodes are window-independent (the M1 check) and an LFO's phase is continuous across a tempo change.
 - [ ] `examples/drift.flowpatch` uses slow-time modulators on a drone; every new node has a unit test and an example patch.
+- [ ] #119 and #122 closed; ADR 0035 Accepted or withdrawn; any quarantined or loosened e2e checks listed with reasons in the PR that changes them.
 - [ ] Chris plays the drift patch with a controller and signs off.
 
 ---
@@ -146,13 +147,15 @@ Human
 - **Scene node:** chooses the scene. Inputs: an Event that advances, and a Select. Rules: advance after N bars, with a probability, or by Markov-style weights from one scene to the next. Outputs the current scene as a Value and an Event on each change, so the patch can react. Seeded and pure, like every generator.
 - **Subpatches and macro knobs:** collapse a selection into a subpatch and choose which ports and knobs it exposes; save it to the library to reuse. A macro knob drives several params, each with its own depth.
 - **Modulated effects:** Chorus, Phaser, Flanger, Saturation and a Filter Bank, every main param modulatable.
-- **Musical ★ nodes:** Step Sequencer, Quantize, Humanize, and Arpeggio checked against the catalog.
+- **Musical ★ nodes:** Step Sequencer, Quantize, Humanize, and Arpeggio (port `arpNotes` and `patternOrder`; the envelope and glide helpers already live in `packages/nodes/src/arpeggiator.ts`).
 
 **Gate: the patch plays itself through scenes**
 - [ ] `pnpm check` and `pnpm e2e` are green in CI.
 - [ ] A Scene node patch replays twice to identical event logs, through at least four scene changes.
 - [ ] A morph between scenes has no silent gap and no peak above the ceiling in an offline render (the M1 offline-audio check, applied to morphs).
-- [ ] A subpatch round-trips through save and load, and through the library into another patch.
+- [ ] Scenes survive save → reload, and recalling one sets the same knob values as before.
+- [ ] A subpatch round-trips through save and load, and through the library into another patch, with its exposed macros.
+- [ ] A macro knob moves each target param by its own depth (unit test).
 - [ ] Every new node has a unit test and an example patch, including `examples/scenes.flowpatch`.
 - [ ] Chris leaves the scenes patch running for 20 minutes and signs off.
 
@@ -168,7 +171,7 @@ Human
 
 **Gate: texture within budget**
 - [ ] `pnpm check` and `pnpm e2e` are green in CI.
-- [ ] A dense granular patch runs a 5-minute headless session with ≤ 64 voices and no event-cap warnings, and an offline render stays under the Output ceiling.
+- [ ] A granular patch at ≥ 200 grains per second *(tune)* runs a 5-minute headless session with no voice steals and no event-cap warnings, and its offline render meets the M1 output-guard bound (under 0.1 % of samples at the ceiling).
 - [ ] Every new node has a unit test and an example patch.
 - [ ] Chris signs off.
 
@@ -180,7 +183,7 @@ Human
 
 **Scope:** decided when M6 starts. Candidates: Palette ★, a few cheap overlays from the catalog (Ripple, Halo), visuals that show the music's structure (the current scene, voices), or a local-only Shader node.
 
-**Gate:** set with the scope.
+**Gate:** written when M6 starts, before any M6 work.
 
 ---
 

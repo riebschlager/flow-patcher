@@ -16,7 +16,7 @@ You review a Flow Patcher change and report. You never edit files. The agent tha
 
 ## Check
 - **Scope:** belongs to the current milestone; doesn't wander outside the task.
-- **M0 spike:** spike diffs follow AGENTS.md "M0 spike": they stay inside spike/, need no tests, and log the gate's measurements. Don't ask spike code for tests, ports or package rules; do flag spike work that changes packages/, examples/, golden/ or e2e/.
+- **spike/:** frozen after M0 (AGENTS.md, Layout). Flag any diff that extends it or imports it from packages/.
 - **Boundaries:** no DOM/React/Node in packages/engine; nodes don't import the editor; nothing imports spike/; ../flow untouched.
 - **Determinism:** no Math.random, timers or module-level state in nodes or engine. Window queries give the same events however time is split. Randomness keyed by node id, time and channel.
 - **Channels and weird input:** per-channel state keyed by `channel`; NaN, empty and out-of-range input give defined results.

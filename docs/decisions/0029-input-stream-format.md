@@ -1,6 +1,6 @@
 # 0029 · Input streams record canvas events, and any patch can replay them
 
-Status: Accepted · 2026-10-23 · Amended 2026-10-24 (pointerleave and the hover-end marker, #101)
+Status: Accepted · 2026-10-23 · Amended 2026-10-24 (pointerleave and the hover-end marker, #101) · Amended by [0036](0036-refocus-after-m2.md) (recordings and Play view parked; the format stays for replay tests)
 
 ## Context
 Replays need recorded input: M2's mode patches replay scripted input, and M4's performance recordings are the patch plus its input event streams (design.md "Performance recordings"). Today's `examples/<name>.inputs.json` lists pushes addressed to node ids and ports (`{ node, port, event }`). A file like that only replays through a patch with the same node ids, and it records what the patch did with the input, not what the player did.

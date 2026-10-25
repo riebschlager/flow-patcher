@@ -1,6 +1,6 @@
 # 0003 · GPU fluid, one Fluid node per patch
 
-Status: Amended by [0036](0036-refocus-after-m2.md) (GPU solver parked)
+Status: Accepted · 2026-10-21 · Amended by [0036](0036-refocus-after-m2.md) (GPU solver parked)
 
 ## Context
 Flow's fluid solver runs on the CPU, at about 8 ms per step at 35,000 cells. Flow Patcher also needs the main thread for the editor and the scheduler.
