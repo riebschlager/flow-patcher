@@ -234,11 +234,17 @@ export interface AudioInstance {
    *  has started yet: each is at or after the live event that caused it. */
   cancel?(port: string, events: readonly EngineEvent[]): void;
   /** Audio-clock time from which nothing this instance scheduled still sounds:
-   *  its last voice's release end. When an edit removes or rebuilds the node,
-   *  the runtime disposes the old instance only once currentTime reaches this,
-   *  so sounding notes finish their release (design.md, Hot patching). Without
-   *  it, the old instance is disposed as soon as the new plan takes effect. */
-  idleAt?(): number;
+   *  its last voice's release end, or an effect's tail. When an edit removes or
+   *  rebuilds the node, the runtime disposes the old instance only once
+   *  currentTime reaches this, so sounding notes finish their release and tails
+   *  ring out (design.md, Hot patching). Without it, the old instance is
+   *  disposed as soon as the new plan takes effect and nothing retired feeds it.
+   *
+   *  `inputsEndAt`: the time up to which its Audio inputs may still carry sound,
+   *  when another retired instance fed them (ADR 0035), else -Infinity. A node
+   *  with a tail counts it from there too, as from the last chunk it covered.
+   *  A node with no Audio input can ignore it. */
+  idleAt?(inputsEndAt?: number): number;
   /**
    * Called once per chunk the runtime runs while emitting, for every node with
    * an audio instance, at the node's place in plan order (ADR 0031): after its
@@ -395,6 +401,11 @@ export interface NodeDefinition {
   /** At most one node of this type per patch (Fluid, ADR 0003; Renderer, ADR 0005).
    *  The compiler rejects a second; the editor can grey it out in the palette. */
   unique?: boolean;
+  /** The node reads no seed (ADR 0035): a swap that only changes the patch seed leaves it as it is,
+   *  its audio instance included. Output sets it, so a seed change never puts a second Output
+   *  stage (and limiter) beside the first while the old chain rings out into it.
+   *  Only for nodes whose output doesn't depend on `seed` anywhere (audio setup or queries): a node that reads it would keep old randomness. */
+  ignoresSeed?: boolean;
   /** A source behind a browser permission. The editor asks the first time a patch
    *  containing the node plays, and passes the answer to `status` as
    *  `StatusContext.permission`; `blockedStatus` gives the card's blocked state. */

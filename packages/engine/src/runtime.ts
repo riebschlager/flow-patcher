@@ -621,11 +621,14 @@ interface Stage {
   gone: Set<string>;
 }
 
-/** An audio instance a swap removed or rebuilt, kept until its notes have finished. */
+/** An audio instance a swap removed or rebuilt, kept until its notes and its tail have finished. */
 interface Retiring {
   instance: AudioInstance;
   /** When the swap took effect: deliveries before it may still reach the instance. */
   from: number;
+  /** When the last retiring instance upstream of it was disposed: its Audio inputs may carry
+   *  sound until then (`idleAt`'s argument). -Infinity while none was. */
+  inputsEnd: number;
 }
 
 export class Runtime {
@@ -959,10 +962,12 @@ export class Runtime {
    * or version changed or its definition's `keepState` says no; a removed
    * node's state is dropped. Only the added and changed nodes and those
    * downstream of them re-run; the rest keep what they emitted. An audio node
-   * whose type, params, seed or param cables changed gets a new instance, and
+   * whose type, params, seed (unless its definition `ignoresSeed`) or param
+   * cables changed gets a new instance, and
    * the old one, like a removed node's, has its events from the swap on
    * cancelled and is disposed once its sounding notes have finished
-   * (`AudioInstance.idleAt`, checked in `retain`). The exception (ADR 0031):
+   * (`AudioInstance.idleAt`, checked in `retain`), and no retired instance
+   * upstream still feeds it (ADR 0035). The exception (ADR 0031):
    * when only params in the definition's `liveParams` changed, the node keeps
    * its state, and the instance has `update`, it keeps the instance and calls `update` with the
    * new params at the swap time (never before the clock). Audio cables are rewired
@@ -983,7 +988,9 @@ export class Runtime {
       if (!sameType) retyped.add(node.id);
       const sameParams = sameType && sameValues(before.params, node.params);
       const links = plan.incoming.get(node.id), linksBefore = prev.plan.incoming.get(node.id);
-      const sameNode = sameType && sameParams && !seedChanged && before.definition === node.definition;
+      // A node that reads no seed (Output) stays as it is across a seed change (ADR 0035).
+      const reseeded = seedChanged && !node.definition.ignoresSeed;
+      const sameNode = sameType && sameParams && !reseeded && before.definition === node.definition;
       if (!sameNode || !sameJson(links, linksBefore)) changed.push(node.id);
       if (sameType && (sameParams || node.definition.keepState?.(before.params, node.params) !== false)) kept.add(node.id);
       else reset.push(node.id);
@@ -992,7 +999,7 @@ export class Runtime {
       // seed and cables into params, the state kept (the instance holds the state object it was
       // built with), and only liveParams changed.
       const live = node.definition.liveParams;
-      if (sameType && !sameParams && !seedChanged && before.definition === node.definition && sameParamLinks && kept.has(node.id) && live
+      if (sameType && !sameParams && !reseeded && before.definition === node.definition && sameParamLinks && kept.has(node.id) && live
         && changedKeys(before.params, node.params).every((key) => live.includes(key))) inPlace.add(node.id);
       if (!sameNode || !sameParamLinks) rebuild.add(node.id);
     }
@@ -1311,19 +1318,58 @@ export class Runtime {
         withdrawn += late.length;
       } else this.counters.uncancelled += late.length;
     }
-    this.retiring.push({ instance, from: time });
+    this.retiring.push({ instance, from: time, inputsEnd: -Infinity });
     return withdrawn;
   }
 
+  /**
+   * Disposes retired instances that have gone quiet (ADR 0035). Retiring instances keep their
+   * connections, so one may still be fed by another retired in the same swap or an earlier one
+   * (a seed change retires every audio node but Output): such a chain rings out together. An instance is
+   * kept while any retiring instance upstream of it is, and once the last of them is disposed,
+   * its tail counts from then: `idleAt(inputsEnd)`, or `inputsEnd` itself without `idleAt`.
+   * Instances that feed each other (an audio cycle) go together, once every one of them is idle;
+   * what their loop would add past that is cut.
+   */
   private disposeRetired(now: number): void {
     if (!this.retiring.length) return;
-    this.retiring = this.retiring.filter(({ instance, from }) => {
-      if (now < from || now < (instance.idleAt?.() ?? -Infinity)) return true;
-      instance.dispose?.();
-      for (const out of Object.values(instance.outputs ?? {})) this.connections.delete(out);
-      this.sent.delete(instance);
-      return false;
+    const entries = this.retiring;
+    // Who feeds whom among retiring instances, by their frozen connections.
+    const inputOf = new Map<AudioNodeLike, number>();
+    entries.forEach(({ instance }, i) => {
+      for (const input of Object.values(instance.inputs ?? {})) inputOf.set(input, i);
     });
+    const feeds = entries.map(({ instance }, i) => {
+      const to = new Set<number>();
+      for (const out of Object.values(instance.outputs ?? {})) {
+        for (const into of this.connections.get(out) ?? []) {
+          const j = inputOf.get(into);
+          if (j !== undefined && j !== i) to.add(j);
+        }
+      }
+      return [...to];
+    });
+    const reach = feeds.map((_, i) => reachable(feeds, i));
+    const disposed = new Set<number>();
+    // Upstream groups before downstream ones, so a chain can end in one call.
+    for (const group of feedbackGroups(feeds)) {
+      const members = new Set(group);
+      if (entries.some((_, j) => !members.has(j) && !disposed.has(j) && reach[j]!.has(group[0]!))) continue;
+      const idle = Math.max(...group.map((i) => {
+        const { instance, from, inputsEnd } = entries[i]!;
+        return Math.max(from, instance.idleAt ? instance.idleAt(inputsEnd) : inputsEnd);
+      }));
+      if (now < idle) continue;
+      for (const i of group) {
+        const { instance } = entries[i]!;
+        instance.dispose?.();
+        for (const out of Object.values(instance.outputs ?? {})) this.connections.delete(out);
+        this.sent.delete(instance);
+        disposed.add(i);
+      }
+      for (const i of group) for (const j of reach[i]!) if (!members.has(j)) entries[j]!.inputsEnd = Math.max(entries[j]!.inputsEnd, now);
+    }
+    if (disposed.size) this.retiring = entries.filter((_, i) => !disposed.has(i));
   }
 
   /**
@@ -2146,6 +2192,50 @@ export class Runtime {
 interface Tap {
   time: number;
   reach: ReadonlySet<string>;
+}
+
+/** The nodes reachable from `start` along `edges` (index → indices it feeds), `start` itself only through a cycle. */
+function reachable(edges: readonly (readonly number[])[], start: number): Set<number> {
+  const seen = new Set<number>();
+  const stack = [...edges[start]!];
+  while (stack.length) {
+    const i = stack.pop()!;
+    if (seen.has(i)) continue;
+    seen.add(i);
+    stack.push(...edges[i]!);
+  }
+  return seen;
+}
+
+/**
+ * The strongly connected components of a graph (index → indices it feeds), each in index order,
+ * upstream components before the ones they feed (Tarjan's algorithm, whose output is reversed).
+ */
+function feedbackGroups(edges: readonly (readonly number[])[]): number[][] {
+  const index = new Map<number, number>(), low = new Map<number, number>(), onStack = new Set<number>();
+  const stack: number[] = [], groups: number[][] = [];
+  const visit = (v: number) => {
+    index.set(v, index.size);
+    low.set(v, index.get(v)!);
+    stack.push(v);
+    onStack.add(v);
+    for (const w of edges[v]!) {
+      if (!index.has(w)) {
+        visit(w);
+        low.set(v, Math.min(low.get(v)!, low.get(w)!));
+      } else if (onStack.has(w)) low.set(v, Math.min(low.get(v)!, index.get(w)!));
+    }
+    if (low.get(v) !== index.get(v)) return;
+    const group: number[] = [];
+    for (let w = -1; w !== v;) {
+      w = stack.pop()!;
+      onStack.delete(w);
+      group.push(w);
+    }
+    groups.push(group.sort((a, b) => a - b));
+  };
+  for (let v = 0; v < edges.length; v++) if (!index.has(v)) visit(v);
+  return groups.reverse();
 }
 
 /** How many chunks `forChunks` splits a window `width` seconds wide into, for a plan's `maxWindow`. */
