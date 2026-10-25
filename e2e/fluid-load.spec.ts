@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { LivePatch } from '../packages/editor/src/live';
-import { installBurstProbe } from './audio-burst';
+import { burstProbeReady, installBurstProbe } from './audio-burst';
 import { audioCallback, stepLog } from './audio-clock';
 
 declare global {
@@ -28,6 +28,8 @@ test('taps stay on time with the fluid stepping and the renderer drawing', async
   const canvas = page.getByTestId('performance-canvas');
 
   // The first tap starts audio.
+  // The probe must be in the graph before the tap resumes the context, so it sees the resume's bursts.
+  await burstProbeReady(page);
   await canvas.click({ position: { x: 40, y: 40 } });
   await expect(page.getByTestId('audio-state')).toHaveText('live');
   await expect.poll(() => page.evaluate(() => window.flowPatcher!.taps[0]?.note ?? null)).not.toBeNull();
@@ -66,7 +68,7 @@ test('taps stay on time with the fluid stepping and the renderer drawing', async
     expect(tap.note).not.toBeNull();
     // push reads the clock again after the handler did, and an audio callback can land between the two reads.
     expect(tap.stamped! - tap.at).toBeGreaterThanOrEqual(OFFSET - 1e-6);
-    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(OFFSET + step + 1e-6);
+    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(OFFSET + steps.callback + 1e-6);
   }
   expect(worst).toBeLessThanOrEqual(BOUND);
   // ADR 0026: a visible push always rewinds, so none fell back to the horizon.

@@ -120,9 +120,10 @@ export interface SchedulerStats extends RuntimeCounters {
   catchUps: number;
   /** The latest a catch-up wake has been, in ms past the horizon. */
   catchUpMaxMs: number;
-  /** Wall time, ms, of the wake's query (its schedule() calls included) that handed over the event behind
-   *  `lateCaughtUpMaxMs`, on the injected wall clock: a caught-up event may be late by one clock step plus
-   *  that, as a tap's note by one step plus its re-run (ADRs 0027, 0033). 0 until a wake sets the max. */
+  /** For the event behind `lateCaughtUpMaxMs`: the main thread's wall time, ms on the injected wall clock,
+   *  from the start of the wake that handed it over to that hand-over (its schedule() included), not the
+   *  whole wake. A caught-up event may be late by one clock step plus that (ADRs 0027, 0033); a slow first
+   *  query widens it. 0 until a wake sets the max. */
   lateCaughtUpWakeMs: number;
   pushes: number;
   /** Pushes that rewound. */
@@ -290,10 +291,13 @@ export class Scheduler {
     const t1 = now + (this.clock.hidden?.() ? this.hiddenLookahead : this.lookahead);
     // An extra wake (a visibility change, a push, a resume) may find the window already queried.
     if (t1 > t0) {
-      const worstBefore = this.runtime.counters.lateCaughtUpMaxMs, queryStart = this.clock.wallTime();
+      const worstBefore = this.runtime.counters.lateCaughtUpMaxMs;
       const events = this.runtime.query(t0, t1, { now, currentTime: this.audioTime, catchUp, path: 'scheduled' });
-      // This wake set a new worst caught-up lateness: keep how long it ran, the work that lateness may include.
-      if (this.runtime.counters.lateCaughtUpMaxMs > worstBefore) this.own.lateCaughtUpWakeMs = this.clock.wallTime() - queryStart;
+      // This wake set a new worst caught-up lateness: keep the main thread's time from the wake's start to
+      // that hand-over, the work the lateness may include (the runtime notes the wall clock when it counts it).
+      if (this.runtime.counters.lateCaughtUpMaxMs > worstBefore && this.runtime.lateCaughtUpWall !== null) {
+        this.own.lateCaughtUpWakeMs = this.runtime.lateCaughtUpWall - wall;
+      }
       this.log?.push(...events);
       this.next = t1;
       this.own.windows++;

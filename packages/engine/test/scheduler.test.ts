@@ -1388,6 +1388,17 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     expect(deliveredAt(reference)[0]).toEqual([0, 0, 0]);
   });
 
+  it('plays events in (0, 5 ms) before the t=0 event a resume at exactly 0 moved to 5 ms: a one-off order inversion', () => {
+    const run = setup(metroPatch(0.002));
+    coldStart(run, 0);
+    const early = run.live().filter((d) => (d.event.index as number) <= 3).map((d) => [d.event.index, Math.round(d.event.time * 1e9) / 1e9]);
+    // Only the event at exactly 0 is caught up; 2 and 4 ms keep their times and sound before it, 6 ms after it.
+    expect(early).toEqual([[0, IMMEDIATE_OFFSET], [1, 0.002], [2, 0.004], [3, 0.006]]);
+    expect(run.scheduler.stats).toMatchObject({ caughtUp: 1, catchUps: 0, lateScheduled: 0, lateCaughtUp: 0 });
+    // The log keeps generated order and times.
+    expect(run.scheduler.events().slice(0, 4).map((e) => e.index)).toEqual([0, 1, 2, 3]);
+  });
+
   it('catches up from 0 up to the catch-up limit; past it, starts at now without a stall', () => {
     // At the limit: [0, 0.1) moved to start at 0.1 + the offset, spacing kept.
     const atLimit = setup(metroPatch(0.025));
@@ -1504,9 +1515,10 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(8 - IMMEDIATE_OFFSET * 1000, 9);
   });
 
-  it('records the wall time of the wake that set lateCaughtUpMaxMs, its query and schedule() included', () => {
-    // Each window's first event is caught up; the query moves the audio clock by `move` and the wall clock by `wallMs`.
-    let clock: ManualClock | null = null, move = 0, wallMs = 0;
+  it('records the main thread\'s time from the wake\'s start to the hand-over that set lateCaughtUpMaxMs, not the whole wake', () => {
+    // Each window's first event is caught up; the query moves the audio clock by `move` and the wall clock by
+    // `wallMs`. A second chunk of work, after the hand-over, moves the wall clock by `after` (the rest of the wake).
+    let clock: ManualClock | null = null, move = 0, wallMs = 0, after = 0;
     const edge: NodeDefinition = {
       ...metro, type: 'edge', params: [],
       query: ({ t0 }) => {
@@ -1520,23 +1532,31 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     };
     const run = setup(patch([node('e', 'edge'), node('r', 'recorder')], [cable('e', 'r')]), {}, [edge]);
     clock = run.clock;
+    // Work after the hand-over: the wake's held pushes run after its query, and snapshots and later chunks after
+    // the first hand-over; a 50 ms one here, after the query returns, must not count.
+    const query = run.runtime.query.bind(run.runtime);
+    run.runtime.query = (t0, t1, timing) => {
+      const events = query(t0, t1, timing);
+      run.clock.wall += after;
+      return events;
+    };
     run.wakeAt(0, 0.025);
     expect(run.scheduler.stats.lateCaughtUpWakeMs).toBe(0);
     // A catch-up wake whose query runs 12 ms of wall time while the clock steps 9 ms: 4 ms late, past the lead.
     run.clock.set(run.scheduler.horizon! + 0.05);
-    [move, wallMs] = [0.009, 12];
+    [move, wallMs, after] = [0.009, 12, 50];
     run.scheduler.wake();
     expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(4, 6);
     expect(run.scheduler.stats.lateCaughtUpWakeMs).toBe(12);
-    // A later, less late catch-up (7 ms step, 30 ms wall) doesn't replace the duration kept with the worst.
+    // A later, less late catch-up (7 ms step, 30 ms wall) doesn't replace the time kept with the worst.
     run.clock.set(run.scheduler.horizon! + 0.05);
-    [move, wallMs] = [0.007, 30];
+    [move, wallMs, after] = [0.007, 30, 0];
     run.scheduler.wake();
     expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(4, 6);
     expect(run.scheduler.stats.lateCaughtUpWakeMs).toBe(12);
     // A worse one (14 ms step, 3 ms wall) sets both.
     run.clock.set(run.scheduler.horizon! + 0.05);
-    [move, wallMs] = [0.014, 3];
+    [move, wallMs, after] = [0.014, 3, 50];
     run.scheduler.wake();
     expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(9, 6);
     expect(run.scheduler.stats.lateCaughtUpWakeMs).toBe(3);

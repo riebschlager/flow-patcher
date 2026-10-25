@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { IMMEDIATE_OFFSET } from '../packages/engine/src/scheduler';
 import type { LivePatch } from '../packages/editor/src/live';
-import { installBurstProbe } from './audio-burst';
+import { burstProbeReady, installBurstProbe } from './audio-burst';
 import { audioCallback, stepLog } from './audio-clock';
 
 declare global {
@@ -28,6 +28,8 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
   for (let i = 0; i < 400; i++) await page.mouse.move(box.x + 10 + (i % 200), box.y + 10 + (i % 7) * 10);
 
   // The first tap starts audio, and still sounds once it has.
+  // The probe must be in the graph before the tap resumes the context, so it sees the resume's bursts.
+  await burstProbeReady(page);
   await canvas.click({ position: { x: 40, y: 40 } });
   await expect(page.getByTestId('audio-state')).toHaveText('live');
   await expect.poll(() => page.evaluate(() => window.flowPatcher!.taps[0]?.note ?? null)).not.toBeNull();
@@ -60,7 +62,7 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
     // push reads currentTime again after the handler did, and an audio callback can land between the
     // two reads. The +5 ms is the lower bound here; the gate's ±2 ms is then measured from push's read.
     expect(tap.stamped! - tap.at).toBeGreaterThanOrEqual(0.005 - 1e-6);
-    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(0.005 + step + 1e-6);
+    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(0.005 + steps.callback + 1e-6);
     expect(tap.note).not.toBeNull();
     expect(Math.abs(tap.note! - tap.stamped!)).toBeLessThanOrEqual(0.002);
   }

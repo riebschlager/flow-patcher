@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 /** What the burst probe has seen so far (ADR 0027). */
 export interface BurstProbe {
@@ -11,7 +11,11 @@ export interface BurstProbe {
   /** The largest burst's quanta × 128 frames, in seconds: how far currentTime can jump at once. */
   step: number;
   sampleRate: number;
+  /** The worklet module loaded and the node is in the graph. It runs once the context does. */
+  ready: boolean;
 }
+
+const NO_PROBE = Boolean(process.env.FP_NO_BURST_PROBE);
 
 declare global {
   interface Window {
@@ -60,6 +64,8 @@ registerProcessor('fp-burst-probe', class extends AudioWorkletProcessor {
  * before `page.goto`.
  */
 export async function installBurstProbe(page: Page): Promise<void> {
+  // FP_NO_BURST_PROBE=1 runs without it, to compare (ADR 0027: the worklet can change Chromium's render path).
+  if (NO_PROBE) return;
   await page.addInitScript((source: string) => {
     const Base = window.AudioContext;
     const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
@@ -67,7 +73,7 @@ export async function installBurstProbe(page: Page): Promise<void> {
       constructor(options?: AudioContextOptions) {
         super(options);
         const context = this as AudioContext;
-        const probe: BurstProbe = (window.fpBurstProbe = { largest: 0, calls: 0, clock: 'Date', step: 0, sampleRate: context.sampleRate });
+        const probe: BurstProbe = (window.fpBurstProbe = { largest: 0, calls: 0, clock: 'Date', step: 0, sampleRate: context.sampleRate, ready: false });
         void context.audioWorklet.addModule(url).then(() => {
           const node = new AudioWorkletNode(context, 'fp-burst-probe', { numberOfInputs: 0, numberOfOutputs: 1 });
           const silent = context.createGain();
@@ -76,8 +82,16 @@ export async function installBurstProbe(page: Page): Promise<void> {
           node.port.onmessage = ({ data }: MessageEvent<{ largest: number; calls: number; clock: 'performance' | 'Date' }>) => {
             Object.assign(probe, data, { step: (data.largest * 128) / context.sampleRate });
           };
+          probe.ready = true;
         });
       }
     } as typeof AudioContext;
   }, WORKLET);
+}
+
+/** Waits until the probe is in the graph, so it sees the resume: call it before the first tap. Its process()
+ *  calls start only once the tap resumes the context; audioCallback checks that they did. */
+export async function burstProbeReady(page: Page): Promise<void> {
+  if (NO_PROBE) return;
+  await expect.poll(() => page.evaluate(() => window.fpBurstProbe?.ready ?? false), { message: 'the burst probe never loaded' }).toBe(true);
 }

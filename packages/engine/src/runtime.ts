@@ -664,6 +664,9 @@ export class Runtime {
   private readonly sent = new Map<AudioInstance, Map<string, Sent[]>>();
   private end: number | null = null;
   private wallTime: (() => number) | null = null;
+  /** The wall clock (keepHistory's) when the hand-over that set `counters.lateCaughtUpMaxMs` was counted,
+   *  just after its schedule() returned; null without a wall clock or before one (#97). */
+  lateCaughtUpWall: number | null = null;
   /** Each node's cap counts per limit window (by `limitWindowOf`). Only windows
    *  a query or rewind can still reach are held. */
   private readonly counts = new Map<string, Map<number, LimitCount>>();
@@ -1732,7 +1735,10 @@ export class Runtime {
       const ms = Number.isFinite(time) ? (clock - time) * 1000 : 0;
       if (caught || (timing.path !== 'immediate' && time <= timing.now)) {
         counters.lateCaughtUp++;
-        counters.lateCaughtUpMaxMs = Math.max(counters.lateCaughtUpMaxMs, ms);
+        if (ms > counters.lateCaughtUpMaxMs) {
+          counters.lateCaughtUpMaxMs = ms;
+          this.lateCaughtUpWall = this.wallTime?.() ?? null;
+        }
       } else if (timing.path === 'immediate') {
         counters.lateImmediate++;
         counters.lateImmediateMaxMs = Math.max(counters.lateImmediateMaxMs, ms);

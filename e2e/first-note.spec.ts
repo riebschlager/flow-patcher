@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { CATCH_UP_LIMIT, IMMEDIATE_OFFSET } from '../packages/engine/src/scheduler';
 import type { LivePatch } from '../packages/editor/src/live';
-import { installBurstProbe } from './audio-burst';
+import { burstProbeReady, installBurstProbe } from './audio-burst';
 import { audioCallback, stepLog } from './audio-clock';
 
 /** One oscillator start(): its `when`, currentTime when it was called, and the oscillator's frequency then. */
@@ -72,6 +72,8 @@ test('the first tap starts audio, and the t=0 Clock note sounds at once, before 
   await expect(page.getByTestId('audio-state')).toHaveText('tap to start');
   expect(await page.evaluate(() => window.flowPatcher!.stats.windows)).toBe(0);
 
+  // The probe must be in the graph before the tap resumes the context, so it sees the resume's bursts.
+  await burstProbeReady(page);
   await page.getByTestId('performance-canvas').click({ position: { x: 40, y: 40 } });
   await expect(page.getByTestId('audio-state')).toHaveText('live');
   // The tap's note, and the first running wake (when the resume let the scheduler query).
@@ -88,7 +90,7 @@ test('the first tap starts audio, and the t=0 Clock note sounds at once, before 
   const ms = (s: number) => (s * 1000).toFixed(2);
   console.log(`[first note] first wake at ${ms(stats.firstWake!)} ms; starts ${seen.map((s) => `${Math.round(s.hz)} Hz at ${ms(s.when)} (called at ${ms(s.at)})`).join(', ')}; ` +
     `catch-ups ${stats.catchUps} (worst ${stats.catchUpMaxMs.toFixed(2)} ms), caught up ${stats.caughtUp}, ` +
-    `late ${stats.lateCaughtUp} caught up (worst ${stats.lateCaughtUpMaxMs.toFixed(2)} ms, its wake ran ${stats.lateCaughtUpWakeMs.toFixed(2)} ms), ${stats.lateScheduled} scheduled, ${stats.lateImmediate} immediate; stalls ${stats.stalls}; one step ${ms(step)} ms: ${stepLog(steps)}`);
+    `late ${stats.lateCaughtUp} caught up (worst ${stats.lateCaughtUpMaxMs.toFixed(2)} ms, main thread ${stats.lateCaughtUpWakeMs.toFixed(2)} ms from its wake to its hand-over), ${stats.lateScheduled} scheduled, ${stats.lateImmediate} immediate; stalls ${stats.stalls}; one step ${ms(step)} ms: ${stepLog(steps)}`);
 
   // A startup slower than the catch-up limit starts the patch at the first wake and drops the t=0 tick by design.
   expect(stats.firstWake!, `first wake ${ms(stats.firstWake!)} ms past 0, beyond the ${ms(CATCH_UP_LIMIT)} ms catch-up limit; t=0 dropped by design (ADR 0033)`)
@@ -97,13 +99,14 @@ test('the first tap starts audio, and the t=0 Clock note sounds at once, before 
   const tapNote = seen.find((s) => Math.abs(s.hz - TAP_HZ) < 1);
   // The t=0 tick, caught up: the first wake moved it to its own clock reading plus the 5 ms lead (ADR 0033), not
   // 1 s later, also when that reading is exactly 0 (a catch-up of [0, 0]). A clock burst during that wake longer
-  // than the lead can leave it behind currentTime, by up to a step (the runtime moves it to the clock at hand-over
-  // and counts it in lateCaughtUp; Web Audio plays it at once).
+  // than the lead can leave it behind currentTime (the runtime moves it to the clock at hand-over and counts it in
+  // lateCaughtUp; Web Audio plays it at once). How far it moved is that lateness, so it has the same bound: one step
+  // plus the main thread's time from its wake's start to its hand-over (ADR 0033).
   expect(clockNote, 'the t=0 Clock note was never started').toBeDefined();
   expect(stats.caughtUp).toBeGreaterThanOrEqual(1);
   const lead = IMMEDIATE_OFFSET;
   expect(clockNote!.when).toBeGreaterThanOrEqual(stats.firstWake! + lead - 1e-9);
-  expect(clockNote!.when - (stats.firstWake! + lead)).toBeLessThanOrEqual(step + 1e-6);
+  expect(clockNote!.when - (stats.firstWake! + lead)).toBeLessThanOrEqual(step + stats.lateCaughtUpWakeMs / 1000 + 1e-6);
   expect(clockNote!.at - clockNote!.when).toBeLessThanOrEqual(step + 1e-6);
   expect(seen.indexOf(clockNote!)).toBeLessThan(seen.indexOf(tapNote!));
   // The tap, held while audio was stopped, is stamped currentTime + 5 ms by the same wake, after the catch-up.
@@ -115,7 +118,7 @@ test('the first tap starts audio, and the t=0 Clock note sounds at once, before 
   // At least the pointerdown was held (the context may already run by the pointerup, under load).
   expect(stats.deferredPushes).toBeGreaterThanOrEqual(1);
   expect(stats.lateScheduled).toBe(0);
-  // A caught-up event may be late by one step plus its own wake's query and schedule() (ADRs 0027, 0033).
+  // A caught-up event may be late by one step plus the main thread's time from its wake's start to its hand-over (ADRs 0027, 0033).
   expect(stats.lateCaughtUpMaxMs).toBeLessThanOrEqual(step * 1000 + stats.lateCaughtUpWakeMs + 1e-3);
 
   // And it keeps time from there: the next tick at 1 s. That holds because the first wake was within the
