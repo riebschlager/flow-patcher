@@ -7,6 +7,9 @@ interface Contact {
   sx: number;
   sy: number;
   started: boolean;
+  /** Where the last Start or Move was emitted: Spacing is measured from here. */
+  lx: number;
+  ly: number;
 }
 
 /**
@@ -19,16 +22,24 @@ interface Contact {
  * move. Every later move emits Move, and its up emits End. A cancel ends the drag with no End.
  * A contact that never gets that far is left alone: Pass carries all of it.
  *
+ * Spacing (canvas units, straight line, read at each move) is a per-distance throttle on Move,
+ * like brush spacing. Above 0, a move emits Move only once the contact is at least Spacing from
+ * where the last Start or Move was emitted, and that point becomes the new reference. A jump past
+ * several Spacings gives one Move at the new point, not one per Spacing crossed; gaps are at
+ * least Spacing. It replaces Flow's time-throttled painting (performance.js `launch`, a note
+ * every 160 ms or so): notes per canvas distance, so density still rises with speed and doesn't
+ * depend on the device's move rate. At 0 (or NaN, or below) every move emits Move.
+ *
  * Start, Move and End carry the In event's payload (without `phase`) plus `startX`, `startY`
  * (the down's position), `deltaX`, `deltaY` and `distance` (from the down, straight line) and
  * `duration` (seconds since the down). (`dx` and `dy` stay the source's motion per second.)
  */
 export const drag: NodeDefinition = {
   type: 'drag',
-  version: 1,
+  version: 2,
   label: 'Drag',
   category: 'gesture-recognizers',
-  description: 'A contact dragged past a minimum distance: claims it, with Start, Move and End events carrying the start point, delta, distance and duration.',
+  description: 'A contact dragged past a minimum distance: claims it, with Start, Move and End events carrying the start point, delta, distance and duration; Spacing spaces Moves out by distance, like brush spacing.',
   ports: [
     IN_PORT,
     ...PASS_PORTS,
@@ -38,6 +49,7 @@ export const drag: NodeDefinition = {
   ],
   params: [
     { name: 'minDistance', kind: 'number', min: 0, max: 1, default: 0.025, label: 'Minimum distance' },
+    { name: 'spacing', kind: 'number', min: 0, max: 0.5, default: 0, label: 'Spacing' },
     claimParam(true),
   ],
   query(ctx) {
@@ -46,7 +58,8 @@ export const drag: NodeDefinition = {
       event(event, phase, out) {
         const { channel, time } = event;
         if (phase === 'down') {
-          contacts[channel] = { downAt: time, sx: num(event.x, 0), sy: num(event.y, 0), started: false };
+          const sx = num(event.x, 0), sy = num(event.y, 0);
+          contacts[channel] = { downAt: time, sx, sy, started: false, lx: sx, ly: sy };
           return;
         }
         const contact = contacts[channel];
@@ -65,9 +78,16 @@ export const drag: NodeDefinition = {
           delete contacts[channel];
           return;
         }
-        if (contact.started) out.emit('move', fields(), true);
-        else if (Math.hypot(x - contact.sx, y - contact.sy) >= ctx.param('minDistance', time, channel)) {
+        if (contact.started) {
+          const spacing = num(ctx.param('spacing', time, channel), 0);
+          if (spacing > 0 && Math.hypot(x - contact.lx, y - contact.ly) < spacing) return;
+          contact.lx = x;
+          contact.ly = y;
+          out.emit('move', fields(), true);
+        } else if (Math.hypot(x - contact.sx, y - contact.sy) >= ctx.param('minDistance', time, channel)) {
           contact.started = true;
+          contact.lx = x;
+          contact.ly = y;
           out.claim(channel);
           out.emit('start', fields());
         }

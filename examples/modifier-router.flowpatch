@@ -31,7 +31,7 @@
     {
       "id": "conductDrag",
       "type": "drag",
-      "typeVersion": 1,
+      "typeVersion": 2,
       "params": {
         "claim": false,
         "minDistance": 0.025
@@ -44,7 +44,7 @@
     {
       "id": "spaceDrag",
       "type": "drag",
-      "typeVersion": 1,
+      "typeVersion": 2,
       "params": {
         "claim": false,
         "minDistance": 0.025
