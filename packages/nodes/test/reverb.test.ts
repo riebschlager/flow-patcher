@@ -8,6 +8,7 @@ import { audioSetup, busRms, sine, swapRun, type ContextOptions } from './helper
 const SINE = 0.5 / Math.SQRT2;
 const RATE = 48000;
 const DEFAULTS = { decay: 3, damping: 0.6, predelay: 0, variant: 0 };
+const KEY = { seed: 1, nodeId: 'n' };
 
 /** A 10 ms burst of a 440 Hz sine at 0.5, from `at`. */
 function burst(context: AudioContextLike, at: number): AudioNodeLike {
@@ -71,17 +72,19 @@ function largestStep(audio: RenderedAudio, t: number, width: number): number {
 }
 
 describe('reverbImpulse', () => {
-  it('is deterministic: the same options give the same samples, and a Variant gives other noise of the same shape', () => {
-    const a = reverbImpulse(RATE, DEFAULTS), b = reverbImpulse(RATE, DEFAULTS), other = reverbImpulse(RATE, { ...DEFAULTS, variant: 1 });
+  it('is deterministic: the same seed, node and options give the same samples; another seed, node or Variant other noise', () => {
+    const a = reverbImpulse(RATE, KEY, DEFAULTS), b = reverbImpulse(RATE, { ...KEY }, { ...DEFAULTS });
     expect(a).toEqual(b);
-    expect(other[0]!.length).toBe(a[0]!.length);
-    expect(other[0]).not.toEqual(a[0]);
+    for (const other of [reverbImpulse(RATE, KEY, { ...DEFAULTS, variant: 1 }), reverbImpulse(RATE, { ...KEY, seed: 2 }, DEFAULTS), reverbImpulse(RATE, { ...KEY, nodeId: 'm' }, DEFAULTS)]) {
+      expect(other[0]!.length).toBe(a[0]!.length);
+      expect(other[0]).not.toEqual(a[0]);
+    }
     // Two independent streams, so a mono input comes back wide.
     expect(a[1]).not.toEqual(a[0]);
   });
 
   it('runs Predelay + Decay, starting silent, fading in over 20 ms and falling to nothing', () => {
-    const [left] = reverbImpulse(RATE, { ...DEFAULTS, decay: 2, predelay: 0.1 });
+    const [left] = reverbImpulse(RATE, KEY, { ...DEFAULTS, decay: 2, predelay: 0.1 });
     expect(left!.length).toBe(Math.round(2.1 * RATE));
     expect(left!.subarray(0, 0.1 * RATE).every((v) => v === 0)).toBe(true);
     const rms = (from: number, to: number) => Math.sqrt(left!.subarray(Math.round(from * RATE), Math.round(to * RATE)).reduce((s, v) => s + v * v, 0) / ((to - from) * RATE));
@@ -94,7 +97,7 @@ describe('reverbImpulse', () => {
 
   it('scales to unit energy times (1 − a) / (1 + a), so low tones keep their level at any Decay', () => {
     for (const [decay, damping] of [[0.3, 0], [3, 0.6], [8, 0.95]] as const) {
-      for (const channel of reverbImpulse(RATE, { ...DEFAULTS, decay, damping })) {
+      for (const channel of reverbImpulse(RATE, KEY, { ...DEFAULTS, decay, damping })) {
         const energy = channel.reduce((s, v) => s + v * v, 0);
         expect(energy).toBeCloseTo((1 - damping) / (1 + damping), 4);
       }
@@ -102,12 +105,12 @@ describe('reverbImpulse', () => {
   });
 
   it('gives a defined impulse for bad options: clamped to the ranges, NaN takes the default', () => {
-    expect(reverbImpulse(RATE, { decay: NaN, damping: NaN, predelay: NaN, variant: NaN })).toEqual(reverbImpulse(RATE, DEFAULTS));
-    expect(reverbImpulse(RATE, { decay: 100, damping: 5, predelay: -1, variant: 0 })).toEqual(reverbImpulse(RATE, { decay: 8, damping: 0.95, predelay: 0, variant: 0 }));
-    expect(reverbImpulse(RATE, { ...DEFAULTS, decay: 0 })[0]!.length).toBe(Math.round(0.3 * RATE));
+    expect(reverbImpulse(RATE, KEY, { decay: NaN, damping: NaN, predelay: NaN, variant: NaN })).toEqual(reverbImpulse(RATE, KEY, DEFAULTS));
+    expect(reverbImpulse(RATE, KEY, { decay: 100, damping: 5, predelay: -1, variant: 0 })).toEqual(reverbImpulse(RATE, KEY, { decay: 8, damping: 0.95, predelay: 0, variant: 0 }));
+    expect(reverbImpulse(RATE, KEY, { ...DEFAULTS, decay: 0 })[0]!.length).toBe(Math.round(0.3 * RATE));
     // A bad sample rate falls back to 48 kHz.
-    expect(reverbImpulse(NaN, DEFAULTS)).toEqual(reverbImpulse(RATE, DEFAULTS));
-    for (const channel of reverbImpulse(RATE, { decay: Infinity, damping: -Infinity, predelay: Infinity, variant: 1e12 })) expect(channel.every(Number.isFinite)).toBe(true);
+    expect(reverbImpulse(NaN, KEY, DEFAULTS)).toEqual(reverbImpulse(RATE, KEY, DEFAULTS));
+    for (const channel of reverbImpulse(RATE, KEY, { decay: Infinity, damping: -Infinity, predelay: Infinity, variant: 1e12 })) expect(channel.every(Number.isFinite)).toBe(true);
   });
 });
 
@@ -121,6 +124,14 @@ describe('reverb', () => {
     expect(mixGains(1.4)).toEqual(mixGains(1));
     expect(mixGains(-0.1)).toEqual(mixGains(0));
     expect(mixGains(NaN)).toEqual(mixGains(0));
+  });
+
+  it('keys its impulse by the patch seed and its node id: the same pair renders the same tail, another pair another', async () => {
+    const render = (seed: number, nodeId: string) => renderOffline(1, (context) => build(context, (c) => burst(c, 0.1), { params: { mix: 1, decay: 0.5 }, seed, nodeId }));
+    const [a, again, otherSeed, otherNode] = await Promise.all([render(7, 'room'), render(7, 'room'), render(8, 'room'), render(7, 'hall')]);
+    expect(maxDifference(a, again)).toBe(0);
+    expect(maxDifference(a, otherSeed)).toBeGreaterThan(1e-3);
+    expect(maxDifference(a, otherNode)).toBeGreaterThan(1e-3);
   });
 
   it('passes the input untouched at mix 0', async () => {

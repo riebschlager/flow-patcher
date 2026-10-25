@@ -3,7 +3,8 @@
 // under a (1 − t / length)^2.8 fade with a short fade-in, one stream per channel.
 //
 // Changes from Flow:
-// - Deterministic: the noise comes from `createRng`, keyed by the Variant knob, never Math.random.
+// - Deterministic: the noise comes from `rngAt(seed, nodeId, 'impulse', variant, channel)`, never
+//   Math.random, so each Reverb in a patch has its own impulse and Variant picks another.
 // - Flow's impulse was fixed at 5 s and a 0.6 pole. Decay (its length), Damping (the pole) and
 //   Predelay (leading silence) are knobs, and the 900-sample fade-in is 20 ms, so the shape is the
 //   same at any sample rate.
@@ -14,11 +15,9 @@
 // - Flow fed the reverb as a send with a separate dry level. Here it is an insert with one Mix
 //   knob, equal-power, so a half mix doesn't dip.
 import {
-  createRng,
   editRamp,
-  hashString,
-  mix32,
   paramAutomation,
+  rngAt,
   type AudioContextLike,
   type ConvolverNodeLike,
   type EditRamp,
@@ -49,6 +48,12 @@ export interface ImpulseOptions {
   variant: number;
 }
 
+/** Whose impulse: the patch seed and the node id key its noise. */
+export interface ImpulseKey {
+  seed: number;
+  nodeId: string;
+}
+
 const clamp = (v: number, [lo, hi]: readonly [number, number], fallback: number) => (Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback);
 
 /**
@@ -56,10 +61,10 @@ const clamp = (v: number, [lo, hi]: readonly [number, number], fallback: number)
  * so a mono input comes back wide). Each is scaled so its expected power gain at low frequencies
  * is 1: unit energy (white noise in, white noise out at the same level) times (1 − a) / (1 + a) for
  * the damping pole a, whose low-pass gathers the energy below its corner. A pure function of its
- * arguments: the same options and sample rate give the same samples. Out-of-range options are
+ * arguments: the same key, options and sample rate give the same samples. Out-of-range options are
  * clamped, NaN takes the default.
  */
-export function reverbImpulse(sampleRate: number, options: ImpulseOptions, channels = 2): Float32Array[] {
+export function reverbImpulse(sampleRate: number, { seed, nodeId }: ImpulseKey, options: ImpulseOptions, channels = 2): Float32Array[] {
   const rate = Number.isFinite(sampleRate) && sampleRate > 0 ? sampleRate : 48000;
   const decay = clamp(options.decay, REVERB_LIMITS.decay, 3);
   const damping = clamp(options.damping, REVERB_LIMITS.damping, 0.6);
@@ -69,7 +74,7 @@ export function reverbImpulse(sampleRate: number, options: ImpulseOptions, chann
   const out: Float32Array[] = [];
   for (let ch = 0; ch < channels; ch++) {
     const data = new Float32Array(lead + tail);
-    const rng = createRng(mix32(mix32(hashString('reverb'), variant >>> 0), ch));
+    const rng = rngAt(seed, nodeId, 'impulse', variant, ch);
     let prev = 0, energy = 0;
     for (let i = 0; i < tail; i++) {
       prev = prev * damping + (rng.next() * 2 - 1) * (1 - damping);
@@ -115,8 +120,8 @@ interface Slot {
   evicted: boolean;
 }
 
-function buildSlot(audio: AudioContextLike, input: GainNodeLike, wet: GainNodeLike, options: ImpulseOptions, level: number): Slot {
-  const data = reverbImpulse(audio.sampleRate, options);
+function buildSlot(audio: AudioContextLike, key: ImpulseKey, input: GainNodeLike, wet: GainNodeLike, options: ImpulseOptions, level: number): Slot {
+  const data = reverbImpulse(audio.sampleRate, key, options);
   const buffer = audio.createBuffer(data.length, data[0]!.length, audio.sampleRate);
   data.forEach((channel, i) => buffer.getChannelData(i).set(channel));
   const send = audio.createGain(), convolver = audio.createConvolver(), ret = audio.createGain();
@@ -158,7 +163,8 @@ export const reverb: NodeDefinition = {
   ],
   // Every knob changes in place: Mix ramps, the rest crossfade to a new impulse (ADR 0031).
   liveParams: ['decay', 'damping', 'predelay', 'mix', 'variant'],
-  audio({ audio, params, param, connected }) {
+  audio({ audio, params, param, connected, seed, nodeId }) {
+    const key: ImpulseKey = { seed, nodeId };
     const input = audio.createGain(), dry = audio.createGain(), wet = audio.createGain(), out = audio.createGain();
     const start = mixGains(params.mix as number);
     dry.gain.value = start.dry;
@@ -168,7 +174,7 @@ export const reverb: NodeDefinition = {
     wet.connect(out);
     let impulse = impulseOf(params);
     // The playing impulse is last; earlier ones ring out their tails and are dropped once silent.
-    const slots: Slot[] = [buildSlot(audio, input, wet, impulse, 1)];
+    const slots: Slot[] = [buildSlot(audio, key, input, wet, impulse, 1)];
     const prune = () => {
       for (let i = slots.length - 2; i >= 0; i--) {
         if (slots[i]!.silentAt <= audio.currentTime) disposeSlot(slots.splice(i, 1)[0]!);
@@ -204,7 +210,7 @@ export const reverb: NodeDefinition = {
         const playing = slots.at(-1)!;
         playing.sendRamp.set(0, time);
         playing.silentAt = time + IMPULSE_CROSSFADE + playing.length;
-        slots.push(buildSlot(audio, input, wet, impulse, 0));
+        slots.push(buildSlot(audio, key, input, wet, impulse, 0));
         slots.at(-1)!.sendRamp.set(1, time);
         // Too many tails (a knob dragged through many values): the oldest fade out on their return.
         const ringing = slots.filter((slot) => !slot.evicted);
