@@ -20,12 +20,15 @@ interface Contact {
  * Per channel: once a contact's move takes it at least Minimum distance (canvas units,
  * straight line) from its down, Drag claims the channel (ADR 0028) and emits Start at that
  * move. Every later move emits Move, and its up emits End. A cancel ends the drag with no End.
- * Spacing (canvas units, straight line, read at each move) turns Move into brush spacing: above 0,
- * a move emits Move only once the contact is at least Spacing from where the last Start or Move
- * was emitted, and that point becomes the new reference. So Moves come per distance, not per
- * device event: a faster stroke gives more of them per second, the same number per length
- * (Flow's painting, performance.js `launch`). At 0 (or NaN, or below) every move emits Move.
  * A contact that never gets that far is left alone: Pass carries all of it.
+ *
+ * Spacing (canvas units, straight line, read at each move) is a per-distance throttle on Move,
+ * like brush spacing. Above 0, a move emits Move only once the contact is at least Spacing from
+ * where the last Start or Move was emitted, and that point becomes the new reference. A jump past
+ * several Spacings gives one Move at the new point, not one per Spacing crossed; gaps are at
+ * least Spacing. It replaces Flow's time-throttled painting (performance.js `launch`, a note
+ * every 160 ms or so): notes per canvas distance, so density still rises with speed and doesn't
+ * depend on the device's move rate. At 0 (or NaN, or below) every move emits Move.
  *
  * Start, Move and End carry the In event's payload (without `phase`) plus `startX`, `startY`
  * (the down's position), `deltaX`, `deltaY` and `distance` (from the down, straight line) and
@@ -55,7 +58,8 @@ export const drag: NodeDefinition = {
       event(event, phase, out) {
         const { channel, time } = event;
         if (phase === 'down') {
-          contacts[channel] = { downAt: time, sx: num(event.x, 0), sy: num(event.y, 0), started: false, lx: 0, ly: 0 };
+          const sx = num(event.x, 0), sy = num(event.y, 0);
+          contacts[channel] = { downAt: time, sx, sy, started: false, lx: sx, ly: sy };
           return;
         }
         const contact = contacts[channel];

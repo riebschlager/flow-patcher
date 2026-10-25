@@ -114,6 +114,15 @@ describe('drag', () => {
       expect(run(drag, uneven, { params }).move?.map((e) => e.x)).toEqual([0.3, 0.36]);
     });
 
+    it('gives one Move for a jump past several Spacings, at the new point, which becomes the reference', () => {
+      // Start at 0.24, then one jump of 0.16 (4 Spacings): one Move at 0.40, not four.
+      // 0.43 is short of 0.40 + 0.04, so it's dropped; 0.45 is past it.
+      const jump = [ev(0, 1, 'down', 0.2, 0.5), ev(0.01, 1, 'move', 0.24, 0.5), ev(0.02, 1, 'move', 0.4, 0.5), ev(0.03, 1, 'move', 0.43, 0.5), ev(0.04, 1, 'move', 0.45, 0.5), ev(0.05, 1, 'up', 0.45, 0.5)];
+      const out = expectWindowIndependent(drag, jump, { params });
+      expect(out.start?.map((e) => e.x)).toEqual([0.24]);
+      expect(out.move?.map((e) => `${e.time} ${e.x}`)).toEqual(['0.02 0.4', '0.04 0.45']);
+    });
+
     it('keeps channels independent and windowing-independent', () => {
       const both = merge(slow, fast);
       const out = expectWindowIndependent(drag, both, { params });
