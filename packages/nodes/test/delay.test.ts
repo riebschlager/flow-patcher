@@ -398,6 +398,9 @@ describe('delay', () => {
     const instance = delay.audio!(audioSetup(delay, fake.context, { params: { time: 0.3, feedback: 0.42 } }));
     instance.automate!(0, 0.4, 0);
     expect(instance.idleAt!()).toBeCloseTo(0.4 + 9 * 0.3 + DELAY_GLIDE, 9);
+    // Fed by a retired upstream until 1.5 s (ADR 0035), the repeats count from there; an earlier end changes nothing.
+    expect(instance.idleAt!(1.5)).toBeCloseTo(1.5 + 9 * 0.3 + DELAY_GLIDE, 9);
+    expect(instance.idleAt!(0.2)).toBeCloseTo(0.4 + 9 * 0.3 + DELAY_GLIDE, 9);
   });
 
   it('keeps its instance through the runtime for every knob, Division included', async () => {

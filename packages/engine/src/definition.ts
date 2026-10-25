@@ -234,11 +234,17 @@ export interface AudioInstance {
    *  has started yet: each is at or after the live event that caused it. */
   cancel?(port: string, events: readonly EngineEvent[]): void;
   /** Audio-clock time from which nothing this instance scheduled still sounds:
-   *  its last voice's release end. When an edit removes or rebuilds the node,
-   *  the runtime disposes the old instance only once currentTime reaches this,
-   *  so sounding notes finish their release (design.md, Hot patching). Without
-   *  it, the old instance is disposed as soon as the new plan takes effect. */
-  idleAt?(): number;
+   *  its last voice's release end, or an effect's tail. When an edit removes or
+   *  rebuilds the node, the runtime disposes the old instance only once
+   *  currentTime reaches this, so sounding notes finish their release and tails
+   *  ring out (design.md, Hot patching). Without it, the old instance is
+   *  disposed as soon as the new plan takes effect and nothing retired feeds it.
+   *
+   *  `inputsEndAt`: the time up to which its Audio inputs may still carry sound,
+   *  when another retired instance fed them (ADR 0035), else -Infinity. A node
+   *  with a tail counts it from there too, as from the last chunk it covered.
+   *  A node with no Audio input can ignore it. */
+  idleAt?(inputsEndAt?: number): number;
   /**
    * Called once per chunk the runtime runs while emitting, for every node with
    * an audio instance, at the node's place in plan order (ADR 0031): after its

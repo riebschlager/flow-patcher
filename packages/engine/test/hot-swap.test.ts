@@ -73,6 +73,8 @@ interface AudioLog {
   deliveries: { instance: number; event: EngineEvent; at: number; cancelledAt: number | null }[];
   disposed: { instance: number; at: number }[];
   built: number;
+  /** Each instance's node id, by instance number. */
+  owners: Map<number, string>;
 }
 /** A voice that "sounds" each event for RING seconds after its time; `tone` only matters for rebuilds. */
 const RING = 0.1;
@@ -118,7 +120,30 @@ function audioTypes(clock: ManualClock, log: AudioLog): NodeDefinition[] {
       return { inputs: { in: fake(`s${instance}`) }, dispose: () => void log.disposed.push({ instance, at: clock.audio }) };
     },
   };
-  return [voice, sink];
+  /** An effect whose tail lasts `tail` seconds after its input ends. It has no automate, so with
+   *  nothing retired upstream it counts from -Infinity: only `inputsEndAt` holds it (ADR 0035). */
+  const fx: NodeDefinition = {
+    type: 'fx', version: 1, label: 'Fx', category: 'effects-mix', description: '',
+    ports: [{ name: 'in', type: 'audio', direction: 'in' }, { name: 'out', type: 'audio', direction: 'out' }],
+    params: [{ name: 'tail', kind: 'number', min: 0, max: 2, default: 0.5 }],
+    audio: ({ params }) => {
+      const instance = ++log.built;
+      return {
+        inputs: { in: fake(`f${instance}in`) },
+        outputs: { out: fake(`f${instance}`) },
+        idleAt: (inputsEndAt = -Infinity) => inputsEndAt + (params.tail as number),
+        dispose: () => void log.disposed.push({ instance, at: clock.audio }),
+      };
+    },
+  };
+  // Records which node each instance was built for.
+  return [voice, sink, fx].map((d) => ({
+    ...d,
+    audio: (ctx) => {
+      log.owners.set(log.built + 1, ctx.nodeId);
+      return d.audio!(ctx);
+    },
+  }));
 }
 
 const node = (id: string, type: string, params = {}) => ({ id, type, typeVersion: 1, params, position: { x: 0, y: 0 } });
@@ -127,7 +152,7 @@ const patch = (nodes: Patch['nodes'], cables: Patch['cables']): Patch => ({ form
 
 function setup(initial: Patch) {
   const clock = new ManualClock();
-  const audio: AudioLog = { wires: [], deliveries: [], disposed: [], built: 0 };
+  const audio: AudioLog = { wires: [], deliveries: [], disposed: [], built: 0, owners: new Map() };
   const definitions = new Map([metro, dense, tap, counter, resetter, delay, ...audioTypes(clock, audio)].map((d) => [d.type, d]));
   const compile = (p: Patch): Plan => {
     const compiled = compilePatch(p, definitions);
@@ -151,12 +176,24 @@ function setup(initial: Patch) {
     current = applyPatchEdits(current, edits);
     return scheduler.swap(compile(current));
   };
+  /** Changes the patch's seed at clock time `at`, which rebuilds every audio node. */
+  const reseed = (at: number, seed: number) => {
+    clock.set(at);
+    current = { ...current, seed };
+    return scheduler.swap(compile(current));
+  };
+  /** When the `nth` instance built for `nodeId` (0: the first) was disposed; null while it lives. */
+  const disposedAt = (nodeId: string, nth = 0) => {
+    const instance = [...audio.owners].filter(([, owner]) => owner === nodeId)[nth]?.[0];
+    if (instance === undefined) throw new Error(`no instance ${nth} of ${nodeId}`);
+    return audio.disposed.find((d) => d.instance === instance)?.at ?? null;
+  };
   const push = (at: number, nodeId: string) => {
     clock.set(at);
     return scheduler.push(nodeId, 'out', { channel: 0 })!;
   };
   const of = (id: string, events = scheduler.events()) => events.filter((e) => e.node === id);
-  return { clock, runtime, scheduler, audio, wakeEvery, edit, push, of };
+  return { clock, runtime, scheduler, audio, wakeEvery, edit, reseed, disposedAt, push, of };
 }
 
 const times = (events: readonly LoggedEvent[]) => events.map((e) => Math.round(e.time * 1e9) / 1e9);
@@ -517,6 +554,87 @@ describe('hot swap', () => {
     // The tap before the swap stays, the one at 0.5 went with its node; the metro that took the id
     // starts at the swap, so its first tick is at 1.
     expect(run.of('t').map((e) => e.time)).toEqual([kept.time]);
+  });
+});
+
+// #115, ADR 0035: retiring instances keep their connections, so a chain retired in one swap (a seed
+// change rebuilds every audio node) rings out together: an instance stays while a retired one
+// upstream feeds it, and its tail counts from that one's disposal.
+describe('retired audio chains', () => {
+  const WAKE = 0.025, EPS = 1e-9;
+  /** The first instance built for `nodeId`. */
+  const firstOf = (run: ReturnType<typeof setup>, nodeId: string) => [...run.audio.owners].find(([, owner]) => owner === nodeId)![0];
+  /** When the old voice's last kept note has rung out. */
+  const voiceIdle = (run: ReturnType<typeof setup>) => {
+    const instance = firstOf(run, 'v');
+    return Math.max(...run.audio.deliveries.filter((d) => d.instance === instance && d.cancelledAt === null).map((d) => d.event.time + RING));
+  };
+
+  it('keeps each retired effect while a retired instance upstream feeds it, then rings its tail from there, down a chain', () => {
+    const run = setup(patch(
+      [node('m', 'metro', { period: 0.05 }), node('v', 'voice'), node('a', 'fx', { tail: 0.5 }), node('b', 'fx', { tail: 0.3 }), node('s', 'sink')],
+      [cable('m', 'v'), cable('v', 'a'), cable('a', 'b'), cable('b', 's')],
+    ));
+    run.wakeEvery(0, 0.5);
+    const swap = run.reseed(0.49, 2);
+    expect(swap.changed).toEqual(['m', 'v', 'a', 'b', 's']);
+    run.wakeEvery(0.5, 2);
+
+    const v = run.disposedAt('v')!, a = run.disposedAt('a')!, b = run.disposedAt('b')!, s = run.disposedAt('s')!;
+    // The voice goes at the first wake past its notes, as before.
+    const idle = Math.max(swap.time, voiceIdle(run));
+    expect(v).toBeGreaterThanOrEqual(idle - EPS);
+    expect(v).toBeLessThan(idle + WAKE + EPS);
+    // Each effect at the first wake a tail past the one feeding it; alone, it would go with the voice.
+    expect(a).toBeGreaterThanOrEqual(v + 0.5 - EPS);
+    expect(a).toBeLessThan(v + 0.5 + WAKE + EPS);
+    expect(b).toBeGreaterThanOrEqual(a + 0.3 - EPS);
+    expect(b).toBeLessThan(a + 0.3 + WAKE + EPS);
+    // The sink has no tail: it goes in the same wake as the effect feeding it, not at the swap.
+    expect(s).toBe(b);
+    // The new chain plays on.
+    for (const id of ['v', 'a', 'b', 's']) expect(run.disposedAt(id, 1)).toBeNull();
+  });
+
+  it('retires an audio cycle together, once every instance in it is idle, and never holds it forever', () => {
+    // a → b → a is an audio feedback loop; b also feeds the sink.
+    const run = setup(patch(
+      [node('m', 'metro', { period: 0.05 }), node('v', 'voice'), node('a', 'fx', { tail: 0.2 }), node('b', 'fx', { tail: 0.6 }), node('s', 'sink')],
+      [cable('m', 'v'), cable('v', 'a'), cable('a', 'b'), cable('b', 'a'), cable('b', 's')],
+    ));
+    run.wakeEvery(0, 0.5);
+    run.reseed(0.49, 2);
+    run.wakeEvery(0.5, 2);
+
+    const v = run.disposedAt('v')!, a = run.disposedAt('a')!, b = run.disposedAt('b')!, s = run.disposedAt('s')!;
+    // a alone would go 0.2 s after the voice, cutting b's way back into it: the loop goes at its longest tail.
+    expect(a).toBe(b);
+    expect(b).toBeGreaterThanOrEqual(v + 0.6 - EPS);
+    expect(b).toBeLessThan(v + 0.6 + WAKE + EPS);
+    expect(s).toBe(b);
+  });
+
+  it('holds an effect retired in a later swap while an instance an earlier swap retired still feeds it', () => {
+    const run = setup(patch(
+      [node('m', 'metro', { period: 0.05 }), node('v', 'voice'), node('a', 'fx', { tail: 0.5 }), node('s', 'sink')],
+      [cable('m', 'v'), cable('v', 'a'), cable('a', 's')],
+    ));
+    run.wakeEvery(0, 0.5);
+    // The voice is rebuilt; the old one rings into the effect, which the new one now feeds too.
+    run.edit(0.49, { op: 'set-param', node: 'v', param: 'tone', value: 0.9 });
+    // Before the old voice is done, the effect is rebuilt as well; the new voice moves to the new effect.
+    run.wakeEvery(0.5, 0.525);
+    const second = run.edit(0.52, { op: 'set-param', node: 'a', param: 'tail', value: 0.4 });
+    expect(second.changed).toEqual(['a']);
+    run.wakeEvery(0.525, 2);
+
+    const v = run.disposedAt('v')!, a = run.disposedAt('a')!;
+    expect(v).toBeGreaterThan(second.time);
+    // The old effect keeps its own tail (0.5 s), from the old voice's disposal.
+    expect(a).toBeGreaterThanOrEqual(v + 0.5 - EPS);
+    expect(a).toBeLessThan(v + 0.5 + WAKE + EPS);
+    expect(run.disposedAt('a', 1)).toBeNull();
+    expect(run.disposedAt('s')).toBeNull();
   });
 });
 

@@ -1,6 +1,6 @@
 # 0023 · A hot swap re-runs the lookahead from the next window boundary
 
-Status: Accepted · 2026-10-22 · Amended by [0031](0031-audio-automation-and-in-place-edits.md) (audio instances automate per chunk; knob edits in `liveParams` update the instance in place)
+Status: Accepted · 2026-10-22 · Amended by [0031](0031-audio-automation-and-in-place-edits.md) (audio instances automate per chunk; knob edits in `liveParams` update the instance in place), [0035](0035-retired-audio-chains-ring-out-together.md) (a retired instance stays while a retired one upstream feeds it, and its tail counts from that one's disposal)
 
 ## Context
 design.md (Hot patching) says the scheduler swaps plans "at the next window boundary", that state survives by node id, and that future events from removed or changed nodes are cancelled. It doesn't say which boundary: the scheduler has already queried up to 120 ms ahead (1.25 s hidden), so the next unqueried boundary is the horizon, and a swap there would have nothing future to cancel and up to a lookahead of edit latency. ADR 0021 adds that a knob change takes effect at t0 of the first window under the new plan, including when a rewind (ADR 0019) replays across the swap. #22 had to settle these.

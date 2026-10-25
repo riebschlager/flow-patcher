@@ -233,9 +233,10 @@ export const reverb: NodeDefinition = {
         settle(time);
       },
       // Retired by a rebuild (a cable into Mix, a seed change), it rings until its longest tail is
-      // over: input reaches it until the last time it covered, and a crossfade may still be running.
-      idleAt() {
-        return lastT1 + IMPULSE_CROSSFADE + Math.max(...slots.map((slot) => (slot.evicted ? 0 : slot.length)));
+      // over: input reaches it until the last time it covered, or until a retired upstream went
+      // (ADR 0035), and a crossfade may still be running.
+      idleAt(inputsEndAt = -Infinity) {
+        return Math.max(lastT1, inputsEndAt) + IMPULSE_CROSSFADE + Math.max(...slots.map((slot) => (slot.evicted ? 0 : slot.length)));
       },
       dispose() {
         for (const slot of slots) disposeSlot(slot);
