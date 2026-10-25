@@ -1234,6 +1234,8 @@ export class Runtime {
     built.instance = node.definition.audio!({
       audio: this.audioContext!, params: node.params, state: stage.states.get(node.id)!,
       param: (name, t, channel) => context().param(name, t, channel),
+      signal: (port, t, channel) => context().signal(port, t, channel),
+      value: (port, t) => context().value(port, t),
       connected: (name) => context().connected(name),
       voices: this.voicePool!.forNode(node.id), services: this.services,
     });

@@ -36,6 +36,12 @@ export interface AudioBufferLike {
   readonly numberOfChannels: number;
 }
 
+/** A buffer the engine fills itself (`createBuffer`), such as a generated impulse response. */
+export interface WritableAudioBufferLike extends AudioBufferLike {
+  /** The samples of one channel, written in place. */
+  getChannelData(channel: number): Float32Array;
+}
+
 export interface AudioBufferSourceNodeLike extends AudioNodeLike {
   buffer: AudioBufferLike | null;
   readonly playbackRate: AudioParamLike;
@@ -60,6 +66,18 @@ export interface BiquadFilterNodeLike extends AudioNodeLike {
 export interface StereoPannerNodeLike extends AudioNodeLike {
   /** −1 (left) to 1 (right), equal-power. */
   readonly pan: AudioParamLike;
+}
+
+export interface ConvolverNodeLike extends AudioNodeLike {
+  /** The impulse response. Set it once it is filled: Web Audio copies the buffer when it is assigned. */
+  buffer: AudioBufferLike | null;
+  /** Scale the impulse response to a standard loudness. Set it before `buffer`; it applies when the buffer is assigned. */
+  normalize: boolean;
+}
+
+export interface DelayNodeLike extends AudioNodeLike {
+  /** Seconds, from 0 to the `maxDelayTime` the node was created with. */
+  readonly delayTime: AudioParamLike;
 }
 
 export interface DynamicsCompressorNodeLike extends AudioNodeLike {
@@ -90,6 +108,11 @@ export interface AudioContextLike {
   createBufferSource(): AudioBufferSourceNodeLike;
   createBiquadFilter(): BiquadFilterNodeLike;
   createStereoPanner(): StereoPannerNodeLike;
+  createConvolver(): ConvolverNodeLike;
+  /** `maxDelayTime` in seconds, default 1 (Web Audio's limit is under 180). */
+  createDelay(maxDelayTime?: number): DelayNodeLike;
+  /** An empty buffer of `length` frames at `sampleRate`, to fill through `getChannelData`. */
+  createBuffer(numberOfChannels: number, length: number, sampleRate: number): WritableAudioBufferLike;
   /** Decodes an encoded file (MP3, Ogg, WAV, …). Rejects on data it can't decode. */
   decodeAudioData(data: ArrayBuffer): Promise<AudioBufferLike>;
 }
