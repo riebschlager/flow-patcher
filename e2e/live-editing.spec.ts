@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Page } from '@playwright/test';
+import { nodeDefinitions } from '@flow-patcher/nodes';
 import type { LivePatch } from '../packages/editor/src/live';
 
 declare global {
@@ -48,6 +49,9 @@ test('builds a patch from the palette while it plays, edits, undoes, saves and o
 
   // Nodes from the palette: double-click and Tab, searched by name.
   await page.mouse.dblclick(80, 440);
+  // Unsearched, it's the whole catalog, grouped by family.
+  await expect(page.getByTestId('node-palette').locator('[data-node-type]')).toHaveCount(nodeDefinitions.length);
+  await expect(page.getByTestId('node-palette').locator('.palette__group').first()).toHaveText('Sources');
   await pick(page, 'clock', 'clock');
   await page.mouse.move(320, 440);
   await page.keyboard.press('Tab');
@@ -158,4 +162,30 @@ test('builds a patch from the palette while it plays, edits, undoes, saves and o
   await page.screenshot({ path: 'test-results/live-editing-reopened.png' });
 
   expect(errors).toEqual([]);
+});
+
+test('the palette scrolls to the row the arrow keys pick, and a Signal dropped on the canvas can go into a knob', async ({ page }) => {
+  await page.goto('/?patch=new');
+  const palette = page.getByTestId('node-palette');
+
+  // Arrow keys far past the rows that fit: the picked row is scrolled into view, and Enter inserts it.
+  await page.mouse.dblclick(200, 300);
+  for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowDown');
+  const picked = palette.locator('[aria-selected="true"]');
+  await expect(picked).toBeInViewport();
+  const type = await picked.getAttribute('data-node-type');
+  await page.keyboard.press('Enter');
+  await expect(page.locator(`.react-flow__node[data-id="${type}-1"]`)).toHaveCount(1);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(page.getByTestId('patch-node')).toHaveCount(0);
+
+  // Filter takes a Signal only on its Cutoff knob; the palette still offers it and wires the knob.
+  await page.mouse.dblclick(200, 300);
+  await pick(page, 'pointer', 'pointer');
+  await cable(page, handle(page, 'pointer-1', 'x', 'source'), { x: 700, y: 320 });
+  await expect(page.getByTestId('palette-accepts')).toHaveText('Accepts signal');
+  await pick(page, 'filter', 'filter');
+  await expect(handle(page, 'filter-1', 'param:cutoff', 'target')).toBeVisible();
+  await expect(edges(page)).toHaveCount(1);
+  await expect(page.getByTestId('rf__edge-pointer-1.x→filter-1.cutoff')).toHaveCount(1);
 });
