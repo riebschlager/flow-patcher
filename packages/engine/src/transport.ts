@@ -1,6 +1,7 @@
-// The transport (ADR 0018): a beat position that a Clock writes and
-// beat-counting readers (Progression, later Step Sequencer and Arpeggio) read
-// over an ordinary Value cable.
+// The transport (ADR 0018): a beat position and tempo that a Clock writes and
+// beat-counting and tempo-synced readers (Progression, Delay, later Step
+// Sequencer and Arpeggio) read over an ordinary Value cable, as a transport
+// reading (ADR 0034).
 //
 // A transport is a list of anchors, plain data so it lives in node state and
 // survives snapshots (ADR 0019). Each anchor fixes the beat and step position
@@ -263,7 +264,8 @@ export function transportBeat(ctx: Pick<NodeContext, 'value'>, port: string, t: 
  *
  * Null when nothing is wired, or when the cable carries only a beat number
  * (no anchor to read the tempo from) or an unusable tempo. The source must
- * put a `TransportReading` on the cable (`readTransport`) for this to answer.
+ * put a `TransportReading` on the cable (`readTransport`) for this to answer,
+ * as Clock does (ADR 0034).
  */
 export function transportTempo(ctx: Pick<NodeContext, 'value'>, port: string, t: number): (TransportTempo & { since: number }) | null {
   const value = ctx.value(port, t);

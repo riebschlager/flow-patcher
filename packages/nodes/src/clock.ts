@@ -1,8 +1,8 @@
 import {
   advanceTransport,
-  beatAt,
   createTransport,
   phaseAt,
+  readTransport,
   retune,
   type EngineEvent,
   type NodeContext,
@@ -58,7 +58,9 @@ const sameKnobs = (a: Knobs, b: Knobs) => a.bpm === b.bpm && a.rate === b.rate &
 /**
  * Generator and transport source (ADR 0018). Ticks fire at a note division
  * from time 0; each carries the transport's step index in `index`. Transport
- * is the beat position at any time already queried, Phase the even, unswung
+ * is a `TransportReading` at any time already queried: the beat position and
+ * the exact tempo in effect then (ADR 0018), which readers take apart with
+ * `transportBeat` and `transportTempo`. Phase is the even, unswung
  * ramp through the current step. A knob change re-anchors both at the window
  * the new plan starts, and a modulated tempo is sampled at each tick, so
  * neither ever jumps and the ticks don't depend on the windowing.
@@ -68,7 +70,7 @@ export const clock: NodeDefinition = {
   version: 3,
   label: 'Clock',
   category: 'time-rhythm',
-  description: 'Emits ticks at a note division of a tempo, with a Phase ramp and the beat position on Transport.',
+  description: 'Emits ticks at a note division of a tempo, with a Phase ramp and the beat position and tempo on Transport.',
   ports: [
     { name: 'tick', type: 'event', direction: 'out', label: 'Tick' },
     { name: 'phase', type: 'signal', direction: 'out', label: 'Phase' },
@@ -107,6 +109,6 @@ export const clock: NodeDefinition = {
   },
   value({ state }, port, t) {
     const transport = (state as ClockState).transport;
-    return port === 'transport' && transport ? beatAt(transport, t) : 0;
+    return port === 'transport' && transport ? readTransport(transport, t) : 0;
   },
 };

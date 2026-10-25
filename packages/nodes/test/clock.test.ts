@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { transportBeat, type EngineEvent } from '@flow-patcher/engine';
-import { clock } from '../src';
+import { compilePatch, Runtime, transportBeat, transportTempo, type EngineEvent, type NodeDefinition, type Patch } from '@flow-patcher/engine';
+import { clock, nodeRegistry } from '../src';
 import { context, query, type ContextOptions } from './helpers';
 
 /** One Clock instance: shared state across windows, params changeable per window (a new plan). */
@@ -22,7 +22,10 @@ function instance(options: ContextOptions = {}) {
       for (let t = from; t < to - 1e-9; t += step) out.push(...this.query(t, Math.min(to, t + step)));
       return out;
     },
-    beat: (t: number) => clock.value!(read(), 'transport', t) as number,
+    /** What the Transport cable carries at t. */
+    transport: (t: number) => clock.value!(read(), 'transport', t),
+    beat: (t: number) => transportBeat({ value: (port, at) => clock.value!(read(), port, at) }, 'transport', t),
+    tempo: (t: number) => transportTempo({ value: (port, at) => clock.value!(read(), port, at) }, 'transport', t),
     phase: (t: number, channel = 0) => clock.signal!(read(), 'phase', t, channel),
   };
 }
@@ -260,5 +263,51 @@ describe('clock', () => {
     expectConsecutive(tick);
     expect(Number.isFinite(c.beat(1))).toBe(true);
     expect(c.query(5, 4)).toEqual([]);
+  });
+
+  it('sends its exact tempo down a Transport cable, which transportTempo reads across a tempo change', () => {
+    // A tempo-synced reader stand-in: at each tick, the tempo and beat it reads from its Transport input.
+    const reader: NodeDefinition = {
+      type: 'tempo-reader', version: 1, label: 'Tempo reader', category: 'effects-mix', description: '',
+      ports: [{ name: 'in', type: 'event', direction: 'in' }, { name: 'transport', type: 'value', direction: 'in' }, { name: 'out', type: 'event', direction: 'out' }],
+      params: [],
+      query: (ctx) => ({
+        out: (ctx.inputs.in ?? []).map((e) => ({ time: e.time, channel: 0, ...transportTempo(ctx, 'transport', e.time), beat: transportBeat(ctx, 'transport', e.time) })),
+      }),
+    };
+    const registry = new Map(nodeRegistry).set(reader.type, reader);
+    const at = { x: 0, y: 0 };
+    const patch = (bpm: number, division: string): Patch => ({
+      format: 'flowpatch', version: 1, seed: 1,
+      nodes: [
+        { id: 'clock', type: 'clock', typeVersion: clock.version, params: { bpm, division, swing: 0.25 }, position: at },
+        { id: 'read', type: reader.type, typeVersion: 1, params: {}, position: at },
+      ],
+      cables: [
+        { from: { node: 'clock', port: 'tick' }, to: { node: 'read', port: 'in' } },
+        { from: { node: 'clock', port: 'transport' }, to: { node: 'read', port: 'transport' } },
+      ],
+    });
+    const compile = (p: Patch) => {
+      const compiled = compilePatch(p, registry);
+      if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+      return compiled.plan;
+    };
+    const runtime = new Runtime(compile(patch(120, '1/4')), { history: true });
+    const log = [];
+    for (let i = 0; i < 80; i++) {
+      // A new plan at 90 bpm on eighths, from the window at 1.025 s.
+      if (i === 41) runtime.swap(compile(patch(90, '1/8')));
+      log.push(...runtime.query(i * 0.025, (i + 1) * 0.025));
+    }
+    const reads = log.filter((e) => e.node === 'read');
+    const old = { beatsPerSecond: 2, stepBeats: 1, swing: 0.25, since: 0 };
+    const changed = { beatsPerSecond: 1.5, stepBeats: 0.5, swing: 0.25, since: expect.closeTo(1.025, 9) };
+    expect(reads.filter((e) => e.time < 1).map(({ beatsPerSecond, stepBeats, swing, since }) => ({ beatsPerSecond, stepBeats, swing, since }))).toEqual([old, old]);
+    const after = reads.filter((e) => e.time > 1.025);
+    expect(after.length).toBeGreaterThan(0);
+    for (const e of after) expect(e).toMatchObject(changed);
+    // The beat carries on across the change: 2.05 beats at 1.025 s, then 1.5 a second.
+    for (const e of after) expect(e.beat).toBeCloseTo(2.05 + (e.time - 1.025) * 1.5, 9);
   });
 });

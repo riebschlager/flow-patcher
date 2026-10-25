@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compilePatch, presetFor, Runtime, type EngineEvent, type ParamValue, type Patch, type TextParamSpec } from '@flow-patcher/engine';
+import { compilePatch, presetFor, Runtime, transportBeat, type EngineEvent, type ParamValue, type Patch, type TextParamSpec } from '@flow-patcher/engine';
 import { clock, nodeRegistry, progression } from '../src';
 import { PROGRESSIONS, type Chord } from '../src/music';
 import { chordAtBeat } from '../src/progression';
@@ -10,7 +10,7 @@ function clockInstance(params: Record<string, unknown> = {}) {
   const ctx = context(clock, { params });
   return {
     query: (t0: number, t1: number) => clock.query!({ ...ctx, inputs: {}, pushed: {}, t0, t1 }).tick ?? [],
-    beat: (t: number) => clock.value!(ctx, 'transport', t) as number,
+    beat: (t: number) => transportBeat({ value: (port, at) => clock.value!(ctx, port, at) }, 'transport', t),
   };
 }
 
