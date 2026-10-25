@@ -1,7 +1,8 @@
 // Seeded randomness. Engine and node code never call Math.random (ADR 0008).
 //
 // Two shapes:
-// - `createRng(seed)`: a sequential stream, for setup work that runs once.
+// - `createRng(seed)`: a sequential stream, for setup work that runs once;
+//   `rngAt(seed, ...keys)` keys one the way `randomAt` keys a value.
 // - `randomAt(seed, ...keys)`: a counter-based value keyed by what it is for
 //   (node id, event time, channel). Window queries use this one, so the result
 //   never depends on how time was split into windows or on what ran before.
@@ -44,6 +45,15 @@ function keyHash(seed: number, keys: readonly RandomKey[]): number {
 /** A deterministic value in [0, 1) for the given seed and keys. */
 export function randomAt(seed: number, ...keys: RandomKey[]): number {
   return keyHash(seed, keys) / 0x100000000;
+}
+
+/**
+ * A sequential stream (`createRng`) keyed like `randomAt`: the same seed and
+ * keys give the same stream. For setup work that draws many values at once,
+ * such as an audio node's generated buffer: `rngAt(seed, nodeId, 'impulse', channel)`.
+ */
+export function rngAt(seed: number, ...keys: RandomKey[]): Rng {
+  return createRng(keyHash(seed, keys));
 }
 
 export interface Rng {

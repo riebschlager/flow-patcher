@@ -536,3 +536,80 @@ describe('editRamp', () => {
     expect(p.events).toEqual([{ kind: 'set', value: 0.4, time: 0.3 }, { kind: 'linear', value: 0.8, time: 0.3 + EDIT_RAMP }]);
   });
 });
+
+describe('AudioSetupContext.value and signal', () => {
+  /** A Value and Signal source: the Value is the chunk it last ran and its own `id`, the Signal 10 × t + id. */
+  const meter: NodeDefinition = {
+    type: 'meter', version: 1, label: 'Meter', category: 'control-logic', description: '',
+    ports: [{ name: 'v', type: 'value', direction: 'out' }, { name: 's', type: 'signal', direction: 'out' }],
+    params: [{ name: 'id', kind: 'number', min: 0, max: 9, default: 1, modulatable: false }],
+    query: ({ state, t0, t1 }) => ((state.chunk = [t0, t1]), {}),
+    value: ({ state, params }, _port, t) => ({ id: params.id, t, chunk: state.chunk }),
+    signal: ({ params }, _port, t) => 10 * t + (params.id as number),
+  };
+  /** An audio node with a Value and a Signal input that reads both at t0 of every automate call. */
+  const reads: { t0: number; value: unknown; signal: number }[] = [];
+  let builds = 0;
+  const effect: NodeDefinition = {
+    type: 'effect', version: 1, label: 'Effect', category: 'effects-mix', description: '',
+    ports: [{ name: 'tempo', type: 'value', direction: 'in' }, { name: 'mod', type: 'signal', direction: 'in' }, { name: 'out', type: 'audio', direction: 'out' }],
+    params: [],
+    audio: ({ value, signal }) => {
+      builds++;
+      const node = { connect() {}, disconnect() {} };
+      return { outputs: { out: node }, automate: (t0) => void reads.push({ t0, value: value('tempo', t0), signal: signal('mod', t0) }) };
+    },
+  };
+  const definitions = new Map([meter, effect].map((d) => [d.type, d]));
+  const compile = (from: string): Plan => {
+    const compiled = compilePatch({
+      format: 'flowpatch', version: 1, seed: 1,
+      nodes: [node('a', 'meter', { id: 1 }), node('b', 'meter', { id: 2 }), node('fx', 'effect')],
+      cables: [{ from: { node: from, port: 'v' }, to: { node: 'fx', port: 'tempo' } }, { from: { node: from, port: 's' }, to: { node: 'fx', port: 'mod' } }],
+    }, definitions);
+    if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+    return compiled.plan;
+  };
+
+  it('reads the cables of the plan running the chunk, and answers caught-up times from the latest state', () => {
+    reads.length = 0;
+    builds = 0;
+    const runtime = new Runtime(compile('a'));
+    runtime.keepHistory();
+    runtime.attachAudio({} as AudioContextLike);
+    runtime.query(0, 0.1);
+    expect(reads).toEqual([{ t0: 0, value: { id: 1, t: 0, chunk: [0, 0.1] }, signal: 1 }]);
+    // A late wake at 0.15 catching up [0.1, 0.15): automate gets the moved times, and the reads answer for them.
+    runtime.query(0.1, 0.3, { now: 0.15, catchUp: { until: 0.15, shift: 0.05 } });
+    const caught = reads.at(-1)!;
+    expect(caught.t0).toBeCloseTo(0.15, 12);
+    expect(caught.value).toEqual({ id: 1, t: caught.t0, chunk: [0.1, 0.3] });
+    expect(caught.signal).toBeCloseTo(10 * 0.15 + 1, 12);
+    // A swap that moves both cables to b, taking effect at 0.1: it keeps the instance (only port cables
+    // changed), and the re-run of [0.1, 0.3) under the new plan reads b.
+    const count = reads.length;
+    expect(runtime.swap(compile('b'), { now: 0.05 }).time).toBe(0.1);
+    expect(builds).toBe(1);
+    expect(reads.slice(count)).toEqual([{ t0: 0.1, value: { id: 2, t: 0.1, chunk: [0.1, 0.3] }, signal: 3 }]);
+    runtime.query(0.3, 0.4);
+    expect(reads.at(-1)).toEqual({ t0: 0.3, value: { id: 2, t: 0.3, chunk: [0.3, 0.4] }, signal: 5 });
+  });
+
+  it('gives the audio setup the node id and the patch seed, and a seed change rebuilds with the new one', () => {
+    const seen: [string, number][] = [];
+    const keyed: NodeDefinition = { ...effect, type: 'keyed', audio: (ctx) => (seen.push([ctx.nodeId, ctx.seed]), effect.audio!(ctx)) };
+    const defs = new Map([meter, keyed].map((d) => [d.type, d]));
+    const compileSeed = (seed: number): Plan => {
+      const compiled = compilePatch({ format: 'flowpatch', version: 1, seed, nodes: [node('verb', 'keyed')], cables: [] }, defs);
+      if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+      return compiled.plan;
+    };
+    const runtime = new Runtime(compileSeed(41));
+    runtime.keepHistory();
+    runtime.attachAudio({} as AudioContextLike);
+    expect(seen).toEqual([['verb', 41]]);
+    runtime.query(0, 0.1);
+    runtime.swap(compileSeed(42), { now: 0.05 });
+    expect(seen).toEqual([['verb', 41], ['verb', 42]]);
+  });
+});

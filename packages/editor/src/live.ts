@@ -33,6 +33,7 @@ import {
   type VoiceStats,
 } from '@flow-patcher/engine';
 import { nodeRegistry, rendererImage } from '@flow-patcher/nodes';
+import { observeStarts } from './audio-context';
 import { CANVAS_TYPES, CanvasLifecycle } from './canvas-lifecycle';
 import { EventTrack, PROBE_HISTORY } from './event-track';
 import { HeldKeys, isApplePlatform, keyStartsAudio, type KeyFields } from './keys';
@@ -334,7 +335,8 @@ export class LivePatch {
     // The cards show warnings (`warnings`); the console keeps a line for each one raised.
     this.runtime.onWarning = (message) => console.debug(`[live] warning: ${message}`);
     this.context = new AudioContext({ latencyHint: 'interactive' });
-    this.audio = this.observeStarts(this.context);
+    // The context as the runtime sees it, noting oscillator start times while a push runs.
+    this.audio = observeStarts(this.context, (time, clock) => this.noteStart(time, clock));
     this.wasRunning = this.context.state === 'running';
     this.runtime.attachAudio(this.audio);
     const context = this.context;
@@ -836,45 +838,6 @@ export class LivePatch {
 
   private emit(): void {
     for (const listener of this.listeners) listener();
-  }
-
-  /** The AudioContext as the runtime sees it, noting oscillator start times while a push runs. */
-  private observeStarts(context: AudioContext): AudioContextLike {
-    return {
-      get currentTime() {
-        return context.currentTime;
-      },
-      get sampleRate() {
-        return context.sampleRate;
-      },
-      destination: context.destination,
-      createGain: () => context.createGain(),
-      createDynamicsCompressor: () => context.createDynamicsCompressor(),
-      createWaveShaper: () => context.createWaveShaper(),
-      createBiquadFilter: () => context.createBiquadFilter(),
-      createStereoPanner: () => context.createStereoPanner(),
-      decodeAudioData: (data) => context.decodeAudioData(data),
-      createOscillator: () => {
-        const osc = context.createOscillator();
-        const start = osc.start.bind(osc);
-        osc.start = (when = 0) => {
-          const now = context.currentTime;
-          this.noteStart(Math.max(when, now), now);
-          start(when);
-        };
-        return osc;
-      },
-      createBufferSource: () => {
-        const source = context.createBufferSource();
-        const start = source.start.bind(source);
-        source.start = (when = 0, offset?: number, duration?: number) => {
-          const now = context.currentTime;
-          this.noteStart(Math.max(when, now), now);
-          start(when, offset, duration);
-        };
-        return source;
-      },
-    };
   }
 
   /** `clock`: currentTime when start() was called. */

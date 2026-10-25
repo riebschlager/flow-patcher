@@ -6,6 +6,7 @@ import {
   createNodeContext,
   createTransport,
   phaseAt,
+  readTransport,
   retune,
   Runtime,
   stepAt,
@@ -13,6 +14,7 @@ import {
   ticksIn,
   TRANSPORT_HISTORY,
   transportBeat,
+  transportTempo,
   type NodeDefinition,
   type Patch,
   type Transport,
@@ -288,5 +290,52 @@ describe('transport on a cable', () => {
     expect(transportBeat(createNodeContext(base, { values: { transport: (t) => t * 2 } }), 'transport', 3)).toBe(6);
     expect(transportBeat(createNodeContext(base, { values: { transport: () => 'x' } }), 'transport', 3)).toBe(0);
     expect(transportBeat(createNodeContext(base, { values: { transport: () => NaN } }), 'transport', 3)).toBe(0);
+  });
+});
+
+describe('transportTempo', () => {
+  const reader: NodeDefinition = {
+    type: 'reader', version: 1, label: 'Reader', category: 'time-rhythm', description: '',
+    ports: [{ name: 'transport', type: 'value', direction: 'in' }], params: [],
+  };
+  const wired = (value: (t: number) => unknown) => createNodeContext({ nodeId: 'r', seed: 1, definition: reader, params: {}, state: {} }, { values: { transport: value } });
+
+  it('reads the exact tempo of the anchor in effect, across a tempo change, and the beat alongside', () => {
+    // 120 bpm on quarter notes, then 90 bpm on eighths with swing from 1.25 s (mid-step).
+    const transport = createTransport(tempo(120));
+    advanceTransport(transport, 0, 1.25);
+    expect(retune(transport, 1.25, tempo(90, 0.5, 0.3))).toBe(true);
+    advanceTransport(transport, 1.25, 3);
+    const ctx = wired((t) => readTransport(transport, t));
+    expect(transportTempo(ctx, 'transport', 0)).toEqual({ beatsPerSecond: 2, stepBeats: 1, swing: 0, since: 0 });
+    expect(transportTempo(ctx, 'transport', 1.2499999)).toEqual({ beatsPerSecond: 2, stepBeats: 1, swing: 0, since: 0 });
+    // From the change on, exactly the new tempo: no blend across it.
+    expect(transportTempo(ctx, 'transport', 1.25)).toEqual({ beatsPerSecond: 1.5, stepBeats: 0.5, swing: 0.3, since: 1.25 });
+    expect(transportTempo(ctx, 'transport', 2.9)).toEqual({ beatsPerSecond: 1.5, stepBeats: 0.5, swing: 0.3, since: 1.25 });
+    // A tempo-synced reader's division in seconds: an eighth at 90 bpm is 1/3 s.
+    expect(0.5 / transportTempo(ctx, 'transport', 2)!.beatsPerSecond).toBeCloseTo(1 / 3, 15);
+    // The beat reads the same as from a bare number, and doesn't jump at the change.
+    for (const t of [0, 0.7, 1.25, 2.2]) expect(transportBeat(ctx, 'transport', t)).toBe(beatAt(transport, t));
+    expect(transportBeat(ctx, 'transport', 1.25)).toBeCloseTo(2.5, 12);
+    // The same whatever the windowing: one call over [0, 3) after the same change.
+    const once = createTransport(tempo(120));
+    advanceTransport(once, 0, 1.25);
+    retune(once, 1.25, tempo(90, 0.5, 0.3));
+    advanceTransport(once, 1.25, 1.5);
+    advanceTransport(once, 1.5, 3);
+    for (const t of [0.3, 1.25, 1.6, 2.95]) expect(readTransport(once, t)).toEqual(readTransport(transport, t));
+  });
+
+  it('is null with no cable, a bare beat number, or an unusable tempo', () => {
+    expect(transportTempo(createNodeContext({ nodeId: 'r', seed: 1, definition: reader, params: {}, state: {} }), 'transport', 1)).toBeNull();
+    expect(transportTempo(wired((t) => t * 2), 'transport', 1)).toBeNull();
+    expect(transportTempo(wired(() => null), 'transport', 1)).toBeNull();
+    expect(transportTempo(wired(() => ({ beat: 1, beatsPerSecond: 0, stepBeats: 1, swing: 0, since: 0 })), 'transport', 1)).toBeNull();
+    expect(transportTempo(wired(() => ({ beat: 1, beatsPerSecond: NaN, stepBeats: 1, swing: 0, since: 0 })), 'transport', 1)).toBeNull();
+    expect(transportTempo(wired(() => ({ beat: 1, beatsPerSecond: 2, stepBeats: 1, swing: 1, since: 0 })), 'transport', 1)).toBeNull();
+    expect(transportTempo(wired(() => ({ beat: 1 })), 'transport', 1)).toBeNull();
+    // transportBeat takes a reading's beat, and still 0 for a reading with none.
+    expect(transportBeat(wired(() => ({ beat: 7 })), 'transport', 1)).toBe(7);
+    expect(transportBeat(wired(() => ({ beat: NaN })), 'transport', 1)).toBe(0);
   });
 });

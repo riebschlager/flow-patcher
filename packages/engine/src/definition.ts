@@ -276,6 +276,12 @@ export interface AudioInstance {
 }
 
 export interface AudioSetupContext {
+  /** The node's id, as `NodeContext.nodeId`. */
+  readonly nodeId: string;
+  /** The patch seed, as `NodeContext.seed`. With `nodeId`, it keys randomness drawn at setup, such as a generated
+   *  impulse response: `rngAt(seed, nodeId, ...keys)` for a stream, `randomAt(seed, nodeId, ...keys)` for one value.
+   *  Never Math.random. A seed change rebuilds the instance, so both are fixed for its life. */
+  readonly seed: number;
   readonly audio: AudioContextLike;
   /** The resolved params as the instance was built. An in-place edit hands the new ones to `AudioInstance.update`. */
   readonly params: ParamValues;
@@ -284,6 +290,20 @@ export interface AudioSetupContext {
    *  automation grid inside `automate`. It reads the plan running the chunk, so after
    *  an in-place edit it adds modulation to the new base. */
   param(name: string, t: number, channel?: number): number;
+  /**
+   * See `NodeContext.signal` and `NodeContext.value`: the Signal cables into an input
+   * port, summed, and the Value on one, at time t (0 and undefined when unconnected).
+   * Like `param`, they read the plan running the chunk, so after a swap they follow
+   * the new cables, and a rewind into earlier windows reads the old ones. Use them at
+   * note time inside `schedule`, and inside `automate` at the times it works in: the
+   * audio clock, so in a caught-up chunk (ADR 0017) t is the moved time, and the read
+   * answers for that later moment, not for the patch time the chunk was queried at.
+   * Sources answer reads past their chunk from their latest state (`NodeState`), so a
+   * stateful source such as a Clock's Transport gives the reading as of its latest
+   * window there. Outside a chunk (setup, `update`), they read the sources as they stand.
+   */
+  signal(port: string, t: number, channel?: number): number;
+  value(port: string, t: number): unknown;
   /** True when a cable feeds this param or input port (Event, Note, Signal, Value or
    *  Field; Audio ports always answer false). For params it is fixed for the instance's
    *  life, since a change to the cables into params builds a new instance; for ports it

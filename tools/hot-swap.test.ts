@@ -15,6 +15,7 @@ import {
   createRng,
   parsePatch,
   resolveParams,
+  transportBeat,
   type AudioContextLike,
   type EngineEvent,
   type LoggedEvent,
@@ -49,8 +50,8 @@ describe('a knob change across a rewind (ADR 0021)', () => {
       { name: 'out', type: 'event', direction: 'out' },
     ],
     params: [],
-    query: ({ inputs, value, signal }) => ({
-      out: (inputs.in ?? []).map((e) => ({ time: e.time, channel: e.channel, beat: value('transport', e.time) as number, phase: signal('phase', e.time) })),
+    query: (ctx) => ({
+      out: (ctx.inputs.in ?? []).map((e) => ({ time: e.time, channel: e.channel, beat: transportBeat(ctx, 'transport', e.time), phase: ctx.signal('phase', e.time) })),
     }),
   };
   const pusher: NodeDefinition = { type: 'pusher', version: 1, label: 'Pusher', category: 'canvas-sources', description: '', ports: [{ name: 'out', type: 'event', direction: 'out' }], params: [] };

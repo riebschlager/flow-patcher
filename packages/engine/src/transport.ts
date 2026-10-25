@@ -1,6 +1,7 @@
-// The transport (ADR 0018): a beat position that a Clock writes and
-// beat-counting readers (Progression, later Step Sequencer and Arpeggio) read
-// over an ordinary Value cable.
+// The transport (ADR 0018): a beat position and tempo that a Clock writes and
+// beat-counting and tempo-synced readers (Progression, Delay, later Step
+// Sequencer and Arpeggio) read over an ordinary Value cable, as a transport
+// reading (ADR 0034).
 //
 // A transport is a list of anchors, plain data so it lives in node state and
 // survives snapshots (ADR 0019). Each anchor fixes the beat and step position
@@ -224,10 +225,52 @@ export function advanceTransport(transport: Transport, t0: number, t1: number, s
 }
 
 /**
- * A reader's beat at t from the Transport cable on `port` (ADR 0018): 0 when
- * nothing is wired or the cable carries no finite number.
+ * Everything a transport reader can know at t: the beat position, and the
+ * tempo, division and swing of the anchor in effect then, with the time that
+ * anchor took effect. Plain data, so it can travel on a Value cable.
+ */
+export interface TransportReading extends TransportTempo {
+  /** Beat position at t, as `beatAt`. */
+  beat: number;
+  /** When this tempo took effect: the anchor's time. Reads before a change keep the old tempo. */
+  since: number;
+}
+
+/** The transport at t as a `TransportReading`. */
+export function readTransport(transport: Transport, t: number): TransportReading {
+  const a = anchorAt(transport, t);
+  return { beat: beatIn(a, t), ...tempoOf(a), since: a.time };
+}
+
+const isReading = (v: unknown): v is TransportReading => typeof v === 'object' && v !== null && 'beat' in v;
+
+/**
+ * A reader's beat at t from the Transport cable on `port` (ADR 0018): the
+ * cable carries the beat as a number, or a `TransportReading`. 0 when nothing
+ * is wired or there is no finite beat.
  */
 export function transportBeat(ctx: Pick<NodeContext, 'value'>, port: string, t: number): number {
-  const beat = ctx.value(port, t);
+  const value = ctx.value(port, t);
+  const beat = isReading(value) ? value.beat : value;
   return typeof beat === 'number' && Number.isFinite(beat) ? beat : 0;
+}
+
+/**
+ * A reader's tempo at t from the Transport cable on `port`: the exact
+ * beats per second, beats per step and swing of the anchor in effect at t,
+ * and when it took effect (`since`), so a tempo-synced node can turn a
+ * division into seconds (division beats / beatsPerSecond) and follow a change
+ * from the moment it happens. Reads before a change get the old tempo.
+ *
+ * Null when nothing is wired, or when the cable carries only a beat number
+ * (no anchor to read the tempo from) or an unusable tempo. The source must
+ * put a `TransportReading` on the cable (`readTransport`) for this to answer,
+ * as Clock does (ADR 0034).
+ */
+export function transportTempo(ctx: Pick<NodeContext, 'value'>, port: string, t: number): (TransportTempo & { since: number }) | null {
+  const value = ctx.value(port, t);
+  if (!isReading(value)) return null;
+  const { beatsPerSecond, stepBeats, swing, since } = value;
+  const usable = beatsPerSecond > 0 && Number.isFinite(beatsPerSecond) && stepBeats > 0 && Number.isFinite(stepBeats) && swing >= 0 && swing < 1 && Number.isFinite(since);
+  return usable ? { beatsPerSecond, stepBeats, swing, since } : null;
 }

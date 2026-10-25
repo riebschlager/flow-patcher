@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createRng, randomAt, timeKey } from '../src';
+import { createRng, randomAt, rngAt, timeKey } from '../src';
 
 describe('seeded randomness', () => {
   it('randomAt is a pure function of seed and keys', () => {
@@ -25,5 +25,15 @@ describe('seeded randomness', () => {
 
   it('handles non-finite keys', () => {
     expect(Number.isFinite(randomAt(1, NaN, Infinity))).toBe(true);
+  });
+});
+
+describe('rngAt', () => {
+  const draw = (rng: { next(): number }, n = 8) => Array.from({ length: n }, () => rng.next());
+  it('gives the same stream for the same seed and keys, and another for any other key', () => {
+    const a = draw(rngAt(7, 'verb', 'impulse', 0));
+    expect(draw(rngAt(7, 'verb', 'impulse', 0))).toEqual(a);
+    for (const other of [rngAt(8, 'verb', 'impulse', 0), rngAt(7, 'verb-2', 'impulse', 0), rngAt(7, 'verb', 'impulse', 1), rngAt(7, 'verb', 'impulse')]) expect(draw(other)).not.toEqual(a);
+    for (const v of draw(rngAt(1, 'x'), 1000)) expect(v >= 0 && v < 1).toBe(true);
   });
 });
