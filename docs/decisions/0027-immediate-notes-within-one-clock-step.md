@@ -1,6 +1,6 @@
 # 0027 · A tap's own note may reach Web Audio up to one clock step late
 
-Status: Accepted · 2026-10-23 · Amends [0017](0017-immediate-offset-and-catch-up.md)
+Status: Accepted · 2026-10-23 · Amends [0017](0017-immediate-offset-and-catch-up.md) · Amended by [0033](0033-first-wake-catches-up-from-zero.md) (caught-up events behind the clock count in `lateCaughtUp`, at most one step, not in `lateScheduled`)
 
 ## Context
 ADR 0017 stamps live input at `ctx.currentTime + 5 ms`. The M1 gate's e2e edit run (#33) found that on macOS (Chromium, 48 kHz) about one run in two had a tap's own note reach `start()` behind `currentTime`: usually by 0.33 ms, once by 2.5 ms. `currentTime` doesn't move smoothly. It jumps once per audio callback, and a jump between the push's clock read and `start()` can be larger than the 5 ms lead. Scheduled events, 120 ms ahead, never come near this.
