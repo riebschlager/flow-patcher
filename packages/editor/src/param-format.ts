@@ -25,8 +25,10 @@ function significant(value: number, figures: number): string {
  *  param shows three significant figures, Hz as kHz from 1 kHz and seconds as ms below 1 s. */
 export function formatParam(spec: NumberParamSpec, value: number): string {
   if (isLogParam(spec) && spec.step === undefined) {
-    const prefix = PREFIXED[spec.unit ?? '']?.find((p) => Math.abs(value) >= p.at);
-    const text = significant(prefix ? value / prefix.scale : value, LOG_FIGURES).replace('-', '−');
+    // Rounded before the prefix is picked, so 999.7 Hz reads "1 kHz", not "1000 Hz".
+    const rounded = Number(significant(value, LOG_FIGURES));
+    const prefix = PREFIXED[spec.unit ?? '']?.find((p) => Math.abs(rounded) >= p.at);
+    const text = significant(prefix ? rounded / prefix.scale : rounded, LOG_FIGURES).replace('-', '−');
     const unit = prefix?.unit ?? spec.unit;
     return unit ? `${text} ${unit}` : text;
   }
@@ -93,6 +95,19 @@ export function keyedParam(spec: NumberParamSpec, key: string, shift: boolean, v
   if (key === 'Home') return spec.min;
   if (key === 'End') return spec.max;
   return key in by ? turnBy(spec, value, by[key]!) : undefined;
+}
+
+/** A depth chip's value after a key. Into a log-scaled param it steps in octaves, snapped once to OCTAVE_STEP:
+ *  arrows 0.1 octave, Shift 0.01, Page keys ten times that, Home and End the ends of its reach. Into a linear
+ *  param, `keyedValue` over ±the range. Undefined for any other key. */
+export function keyedDepth(spec: NumberParamSpec, key: string, shift: boolean, depth: number): number | undefined {
+  const { range, step } = depthScale(spec);
+  if (!isLogParam(spec)) return keyedValue(key, shift, depth, -range, range, step);
+  const unit = shift ? OCTAVE_STEP : 10 * OCTAVE_STEP;
+  const by: Record<string, number> = { ArrowUp: unit, ArrowRight: unit, ArrowDown: -unit, ArrowLeft: -unit, PageUp: unit * 10, PageDown: -unit * 10 };
+  if (key === 'Home') return -range;
+  if (key === 'End') return range;
+  return key in by ? snapTo(depth + by[key]!, -range, range, OCTAVE_STEP) : undefined;
 }
 
 /** How far a depth chip reaches each way, and the step it snaps to: octaves on a log-scaled param. */

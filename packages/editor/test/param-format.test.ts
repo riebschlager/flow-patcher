@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { NumberParamSpec } from '@flow-patcher/engine';
 import { filter } from '@flow-patcher/nodes';
-import { depthScale, formatDepth, formatParam, keyedParam, parseParam, snapParam, turnBy } from '../src/param-format';
+import { depthScale, formatDepth, formatParam, keyedDepth, keyedParam, keyedValue, parseParam, snapParam, turnBy } from '../src/param-format';
 
 const cutoff = filter.params.find((p) => p.name === 'cutoff') as NumberParamSpec;
 const time: NumberParamSpec = { name: 'time', kind: 'number', min: 0.001, max: 4, default: 0.25, unit: 's', scale: 'log' };
@@ -18,6 +18,12 @@ describe('log-scaled params in the inspector', () => {
     expect(formatParam(cutoff, 20)).toBe('20 Hz');
     expect(formatParam(time, 0.25)).toBe('250 ms');
     expect(formatParam(time, 1.5)).toBe('1.5 s');
+    // Rounded before the prefix is picked: no "1000 Hz" or "1000 ms".
+    expect(formatParam(cutoff, 999.7)).toBe('1 kHz');
+    expect(formatParam(cutoff, 999.4)).toBe('999 Hz');
+    expect(formatParam(cutoff, 19996)).toBe('20 kHz');
+    expect(formatParam(time, 0.9996)).toBe('1 s');
+    expect(formatParam(time, 0.9994)).toBe('999 ms');
     // Linear params read as before.
     expect(formatParam(q, 6)).toBe('6.00');
   });
@@ -30,6 +36,13 @@ describe('log-scaled params in the inspector', () => {
     expect(parseParam(time, '250 ms')).toBe(0.25);
     expect(parseParam(time, '2 s')).toBe(2);
     expect(parseParam(cutoff, 'loud')).toBeNaN();
+    // Linear fields read the prefixes too: any Hz param takes "k", any seconds param "ms".
+    const attack: NumberParamSpec = { name: 'attack', kind: 'number', min: 0, max: 2, default: 0.02, unit: 's' };
+    const hz: NumberParamSpec = { name: 'rate', kind: 'number', min: 0, max: 20000, default: 440, unit: 'Hz' };
+    expect(parseParam(attack, '250 ms')).toBe(0.25);
+    expect(parseParam(attack, '0.5')).toBe(0.5);
+    expect(parseParam(hz, '1.2k')).toBe(1200);
+    expect(parseParam(q, '3')).toBe(3);
   });
 
   it('snap to three significant figures inside the range', () => {
@@ -68,6 +81,23 @@ describe('log-scaled params in the inspector', () => {
     expect(formatDepth(cutoff, 3.17)).toBe('+3.17 oct');
     expect(formatDepth(cutoff, -1.5)).toBe('−1.50 oct');
     expect(formatDepth(cutoff, 1)).toBe('+1.00 oct');
+    // Keys step in octaves, snapped once: 0.1 octave, Shift 0.01, Page keys ten times that, Home and End the reach.
+    expect(keyedDepth(cutoff, 'ArrowDown', true, 3.17)).toBe(3.16);
+    expect(keyedDepth(cutoff, 'ArrowUp', true, 3.17)).toBe(3.18);
+    expect(keyedDepth(cutoff, 'ArrowUp', false, 3.17)).toBe(3.27);
+    expect(keyedDepth(cutoff, 'ArrowLeft', false, 0.05)).toBe(-0.05);
+    expect(keyedDepth(cutoff, 'PageUp', false, 3.17)).toBe(4.17);
+    expect(keyedDepth(cutoff, 'PageDown', true, 3.17)).toBe(3.07);
+    expect(keyedDepth(cutoff, 'End', false, 3.17)).toBe(Math.log2(1000));
+    expect(keyedDepth(cutoff, 'Home', false, 3.17)).toBe(-Math.log2(1000));
+    expect(keyedDepth(cutoff, 'ArrowUp', false, 9.9)).toBe(Math.log2(1000));
+    expect(keyedDepth(cutoff, 'x', false, 3.17)).toBeUndefined();
+    // Many Shift steps one way go a hundredth each, never stuck.
+    let depth = 3.17;
+    for (let i = 0; i < 50; i++) depth = keyedDepth(cutoff, 'ArrowDown', true, depth)!;
+    expect(depth).toBe(2.67);
+    // A linear param's depth keys over ±its range, as before.
+    expect(keyedDepth(q, 'ArrowUp', false, 3)).toBe(keyedValue('ArrowUp', false, 3, -19.9, 19.9));
     // A linear param's depth is in its unit.
     expect(depthScale(q)).toEqual({ range: 19.9, step: undefined });
     expect(formatDepth(q, 3)).toBe('+3.00');

@@ -317,6 +317,17 @@ test('a log-scaled knob turns by ratio, types and reads in Hz, and its cable dep
   await expect(cutoff.locator('.param-field__value')).toHaveText('1.2 kHz');
   await expect(cutoff).toHaveAttribute('aria-valuetext', '1.2 kHz');
 
+  // With the node selected, Backspace or Delete on a focused knob leaves the node alone: the field is `nokey`, so React
+  // Flow treats it as an input (#104).
+  await page.locator('.react-flow__node[data-id="filter"] .patch-node__title').click();
+  await expect(page.locator('.react-flow__node[data-id="filter"]')).toHaveClass(/selected/);
+  await cutoff.focus();
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Delete');
+  await expect(page.locator('.react-flow__node[data-id="filter"]')).toHaveCount(1);
+  await expect(page.getByTestId('compile-status')).toHaveText('6 nodes compiled');
+  await expect(cutoff).toHaveAttribute('data-value', '1200');
+
   // The modulated value's band runs from the knob to the value's place on the same log travel.
   await startAudio(page);
   const band = cutoff.getByTestId('mod-band');
@@ -350,6 +361,12 @@ test('a log-scaled knob turns by ratio, types and reads in Hz, and its cable dep
   await page.mouse.move(hover.x, hover.y);
   await expect(chip).toHaveAttribute('data-depth', '-1.5');
   await expect(chip).toHaveText(/−1\.50 oct/);
+  // Keys step in octaves: Shift a hundredth, plain a tenth.
+  await chip.focus();
+  await page.keyboard.press('Shift+ArrowDown');
+  await expect(chip).toHaveAttribute('data-depth', '-1.51');
+  await page.keyboard.press('ArrowUp');
+  await expect(chip).toHaveAttribute('data-depth', '-1.41');
   expect(errors).toEqual([]);
 });
 

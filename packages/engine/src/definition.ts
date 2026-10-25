@@ -506,6 +506,8 @@ export function modulate(spec: NumberParamSpec, base: number, offset: number): n
   if (!Number.isFinite(offset)) return base;
   if (offset === 0) return base;
   if (!isLogParam(spec)) {
+    // For the editor and tests: `param()` sums a linear param's cables onto the base itself, in cable order,
+    // so its values stay bit-exact with what they were before log params (adding a pre-summed offset can round differently).
     const sum = base + offset;
     return Number.isFinite(sum) ? (resolveParam(spec, sum) as number) : base;
   }

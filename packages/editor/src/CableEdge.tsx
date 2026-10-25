@@ -1,11 +1,11 @@
 import { useContext, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type Edge, type EdgeProps } from '@xyflow/react';
-import { isLogParam, type NumberParamSpec, type PatchCable, type PatchEdit, type PortType } from '@flow-patcher/engine';
+import type { NumberParamSpec, PatchCable, PatchEdit, PortType } from '@flow-patcher/engine';
 import { CABLE_STYLES, PORT_COLORS } from './ports';
 import { ABOVE_NODES, cableId, type CableEdgeData } from './patch-graph';
 import { snapTo, startDrag } from './drag-edit';
 import { EditorStoreContext, LivePatchContext, TypedNumber } from './ParamField';
-import { depthScale, formatDepth, keyedValue } from './param-format';
+import { depthScale, formatDepth, keyedDepth } from './param-format';
 
 /** How long a refused cable shows before it's gone, ms; its fade runs over the same time. */
 export const REFUSED_MS = 900;
@@ -178,10 +178,8 @@ function DepthChip({ cable, spec, onBusy }: { cable: PatchCable; spec: NumberPar
       onPointerDown={onPointerDown}
       onKeyDown={(event) => {
         if (event.key === 'Enter') return setTyping(true);
-        // Octaves step by a hundredth of the reach (Shift a thousandth), then snap to OCTAVE_STEP.
-        const keyed = keyedValue(event.key, event.shiftKey, depth, -range, range, isLogParam(spec) ? undefined : step);
-        if (keyed === undefined) return;
-        const next = clamp(keyed);
+        const next = keyedDepth(spec, event.key, event.shiftKey, depth);
+        if (next === undefined) return;
         event.preventDefault();
         event.stopPropagation();
         set(next);
