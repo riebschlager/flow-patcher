@@ -408,8 +408,8 @@ describe('in-place knob edits', () => {
   it('re-automates a modulated param on the new base from the swap time, also when a rewind crosses the swap', () => {
     const run = live();
     run.wakeTo(0.5);
-    // At 0.475, so the swap takes the boundary at 0.495 (0.475 + SWAP_MARGIN).
-    const report = run.edit(0.475, { cutoff: 3 });
+    // At 0.48, so the swap takes the boundary at 0.495 (0.48 + SWAP_MARGIN).
+    const report = run.edit(0.48, { cutoff: 3 });
     expect(report.time).toBeCloseTo(0.495, 12);
     // A live event between the edit and the swap time: its re-run replays the old plan, then the new one.
     const lift = 0.4925;
@@ -422,17 +422,17 @@ describe('in-place knob edits', () => {
     const sine = (t: number) => 0.25 * Math.sin(2 * Math.PI * t);
     // Each re-run keeps the ramp it starts in whole, and the next while the kept end is within
     // AUTOMATION_RENDER_MARGIN of its clock: its change shows from the grid point after. The swap's
-    // boundary is SWAP_MARGIN past its clock (0.475), so it keeps only its own ramp, to 30/60; the
+    // boundary is SWAP_MARGIN past its clock (0.48), so it keeps only its own ramp, to 30/60; the
     // push's re-run (clock 0.49) keeps the next one too, to 31/60, swap's new base included.
     const kept = (t: number, clock: number) => {
       let g = automationTimes(t, t + 1)[0]!;
       while (g < clock + AUTOMATION_RENDER_MARGIN) g = automationTimes(g, g + 1)[1]!;
       return g;
     };
-    expect(kept(report.time, 0.475)).toBe(30 / 60);
+    expect(kept(report.time, 0.48)).toBe(30 / 60);
     expect(kept(lift, 0.49)).toBe(31 / 60);
     expect(offGrid(b.cutoff.events)).toEqual([]);
-    for (const e of b.cutoff.events) expect(e.value).toBeCloseTo(sine(e.time) + (e.time > kept(report.time, 0.475) ? 3 : 1) + (e.time > kept(lift, 0.49) ? 1 : 0), 12);
+    for (const e of b.cutoff.events) expect(e.value).toBeCloseTo(sine(e.time) + (e.time > kept(report.time, 0.48) ? 3 : 1) + (e.time > kept(lift, 0.49) ? 1 : 0), 12);
     expect(b.cutoff.events.map((e) => e.time)).toEqual(automationTimes(0, 0.8 + 0.12 - 0.025));
   });
 
@@ -442,10 +442,10 @@ describe('in-place knob edits', () => {
     const b = run.built[0]!;
     const course = (from: number, to: number) => Array.from({ length: Math.round((to - from) / 1e-4) }, (_, i) => b.cutoff.at(from + i * 1e-4));
     const played = course(0.45, 30 / 60);
-    // At 0.475, the boundary is 0.495 (0.475 + SWAP_MARGIN): inside the ramp from 29/60 to 30/60, which the
+    // At 0.48, the boundary is 0.495 (0.48 + SWAP_MARGIN): inside the ramp from 29/60 to 30/60, which the
     // swap's re-run keeps. Its end, 30/60, is past the clock by more than AUTOMATION_RENDER_MARGIN, as every
     // swap's is now (the boundary is SWAP_MARGIN ahead), so the ramp after it isn't kept.
-    const report = run.edit(0.475, { cutoff: 3 });
+    const report = run.edit(0.48, { cutoff: 3 });
     expect(report.time).toBeGreaterThan(29 / 60);
     expect(report.time).toBeLessThan(30 / 60);
     run.wakeTo(0.8);

@@ -12,6 +12,7 @@
 // enforces the event caps (limits.ts, ADR 0011) and keeps the per-node
 // warnings they raise. Hot patching (`swap`, ADR 0023) replaces the plan at a
 // window boundary; each window remembers the plan it ran under.
+import { AUTOMATION_RENDER_MARGIN } from './audio/automation';
 import type { AudioContextLike, AudioNodeLike } from './audio/types';
 import { VoicePool } from './audio/voices';
 import { createNodeContext, type BoundContext, type NodeWiring } from './context';
@@ -38,12 +39,14 @@ import { clonePlain, restoreState } from './state';
 
 /**
  * How far past the audio clock a swap's boundary must be, in seconds (ADR 0023, #97), the clock
- * read once the swap has built its audio instances. The render thread can be ahead of currentTime
- * by a callback (512 frames, 11.6 ms at 44.1 kHz) plus the quantum it is rendering (2.9 ms); the
- * remaining ~5 ms is for the rest of the swap (retiring, updates, rewiring, restoring state and the
- * re-run's first window) before that window's events are handed over. *(tune)*
+ * read once the swap has built its audio instances: the render lead automation already assumes,
+ * AUTOMATION_RENDER_MARGIN. The render thread can be ahead of currentTime by a callback (512
+ * frames, 11.6 ms at 44.1 kHz) plus the quantum it is rendering (2.9 ms), which leaves about
+ * 0.5 ms of it for the rest of the swap on such a runner; a slower swap can still hand boundary
+ * events over late (counted in lateScheduled). 20 ms was tried and rejected: it puts every
+ * swap's boundary past the playing ramp, so #103's in-ramp re-run is never exercised from a swap.
  */
-export const SWAP_MARGIN = 0.02;
+export const SWAP_MARGIN = AUTOMATION_RENDER_MARGIN;
 
 export interface PlanNode {
   id: string;
