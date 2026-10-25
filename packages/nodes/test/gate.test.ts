@@ -43,12 +43,22 @@ describe('gate', () => {
     expect(new Set(lifted.map((e) => e.channel))).toEqual(new Set([0, 3]));
   });
 
-  it('sums several Gate cables', () => {
+  it('sums several Gate cables, dropping a non-finite one', () => {
     const out = query(gate, 0, 1, { inputs: { in: ticks([0.1]) }, signals: { gate: [() => 0.3, () => 0.3] } }).out;
     expect(timesOf(out)).toEqual([0.1]);
+    const withNaN = query(gate, 0, 1, { params: { level: 0.5 }, inputs: { in: ticks([0.1]) }, signals: { gate: [() => 1, () => NaN] } }).out;
+    expect(timesOf(withNaN)).toEqual([0.1]);
   });
 
-  it('follows the Open toggle while Gate is unwired', () => {
+  it('passes below a level when the signal is negated and Level is negative', () => {
+    // Math (Multiply, Constant −1) in front: pass while the source is under 0.5.
+    const source: SignalSource = (t) => t;
+    const negated: SignalSource = (t, c) => -source(t, c);
+    const out = query(gate, 0, 1, { params: { level: -0.5 }, inputs: { in: ticks([0.25, 0.5, 0.75]) }, signals: { gate: [negated] } }).out;
+    expect(timesOf(out)).toEqual([0.25, 0.5]);
+  });
+
+  it('passes everything with Gate unwired and Open on, and nothing with Open off', () => {
     expect(timesOf(query(gate, 0, 10, { inputs: { in: ticks(times) } }).out)).toEqual(times);
     expect(query(gate, 0, 10, { params: { open: true }, inputs: { in: ticks(times) } }).out).toHaveLength(400);
     expect(query(gate, 0, 10, { params: { open: false }, inputs: { in: ticks(times) } }).out).toEqual([]);
@@ -56,9 +66,9 @@ describe('gate', () => {
     expect(query(gate, 0, 10, { params: { level: 10 }, inputs: { in: ticks(times) } }).out).toHaveLength(400);
   });
 
-  it('ignores Open once Gate is wired', () => {
-    const out = query(gate, 0, 10, { params: { open: false }, inputs: { in: ticks(times) }, signals: { gate: [() => 1] } }).out;
-    expect(out).toHaveLength(400);
+  it('blocks everything with Open off, even with Gate wired and high', () => {
+    expect(query(gate, 0, 10, { params: { open: false }, inputs: { in: ticks(times) }, signals: { gate: [() => 1] } }).out).toEqual([]);
+    expect(query(gate, 0, 10, { params: { open: true }, inputs: { in: ticks(times) }, signals: { gate: [() => 1] } }).out).toHaveLength(400);
     expect(query(gate, 0, 10, { params: { open: true }, inputs: { in: ticks(times) }, signals: { gate: [() => 0] } }).out).toEqual([]);
   });
 
@@ -75,6 +85,7 @@ describe('gate', () => {
     }
     for (const open of [true, false]) {
       expect(queryTiled(gate, 'out', 10, 0.1, { params: { open }, inputsFor: within(both) })).toEqual(query(gate, 0, 10, { params: { open }, inputs: { in: both } }).out);
+      expect(queryTiled(gate, 'out', 10, 0.1, { ...options, params: { open }, inputsFor: within(both) })).toEqual(query(gate, 0, 10, { ...options, params: { open } }).out);
     }
   });
 
