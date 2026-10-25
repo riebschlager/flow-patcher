@@ -46,6 +46,54 @@ describe('observeStarts', () => {
     expect(calls.at(-1)).toEqual(['createDelay', []]);
   });
 
+  it('keeps the largest clock step between close reads, and reports the clock on both sides of start() (#97)', () => {
+    const fake = { currentTime: 0, createOscillator: () => ({ start: () => void (fake.currentTime += 0.0116) }) };
+    let wall = 0;
+    const seen: number[][] = [];
+    const like = observeStarts(fake as unknown as AudioContext, (time, clock, after) => seen.push([time, clock, after]), () => wall);
+    expect(like.largestStep).toBe(0);
+    // Reads 0.5 ms apart across a 2.9 ms quantum: a step.
+    void like.currentTime;
+    fake.currentTime = 0.0029;
+    wall = 0.5;
+    void like.currentTime;
+    expect(like.largestStep).toBeCloseTo(0.0029, 12);
+    // Reads 25 ms apart (a wake interval, or a main-thread stall) aren't a step, however far the clock moved.
+    fake.currentTime = 0.03;
+    wall = 25.5;
+    void like.currentTime;
+    expect(like.largestStep).toBeCloseTo(0.0029, 12);
+    // A start() during which the clock jumps a 512-frame callback: both readings go to the listener, and the step counts.
+    like.createOscillator().start(0.035);
+    expect(seen).toEqual([[0.035, 0.03, 0.03 + 0.0116]]);
+    expect(like.largestStep).toBeCloseTo(0.0116, 12);
+  });
+
+  it('does not take a clock move as a step when the thread was descheduled between a clock read and its wall reading', () => {
+    // currentTime is read between two wall readings; a stall can fall between them.
+    const fake = { currentTime: 0 };
+    let wall = 0, stallAfterClock = 0;
+    const like = observeStarts(fake as unknown as AudioContext, () => {}, () => {
+      const now = wall;
+      wall += stallAfterClock;
+      stallAfterClock = 0;
+      return now;
+    });
+    void like.currentTime;
+    // Read 2: wall 0, clock 0, then a 20 ms stall before its wall reading after (20).
+    stallAfterClock = 20;
+    void like.currentTime;
+    // Read 3, right after: the clock moved 20 ms during the stall. Its wall readings (20, 20) sit next to
+    // read 2's last one, but read 2's clock read came at wall 0: 20 ms apart, so not a step.
+    fake.currentTime = 0.02;
+    void like.currentTime;
+    expect(like.largestStep).toBe(0);
+    // Reads with no stall between them still measure a step.
+    fake.currentTime = 0.0229;
+    void like.currentTime;
+    expect(like.largestStep).toBeCloseTo(0.0029, 12);
+  });
+
   it('builds a working convolver, delay and buffer on a real context', async () => {
     const rate = 48000;
     const context = new OfflineAudioContext(1, rate / 10, rate);

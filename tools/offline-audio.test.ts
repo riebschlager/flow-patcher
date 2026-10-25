@@ -8,10 +8,14 @@
 // on a stand-in stage. The second's are hot swaps (#22): knob changes on every
 // node, which rebuild Simple Synth and Output, and a Make Note added and
 // removed on a second cable into the synth.
+//
+// The seed-change test (#115, ADR 0035): a seed change mid-echo rebuilds Delay
+// and Reverb but keeps Output, and the old chain rings out into it sample for
+// sample as if nothing changed.
 import { describe, expect, it } from 'vitest';
-import { createOutputStage, OUTPUT_CEILING, parsePatch, type NodeDefinition, type OutputStage, type Patch, type PatchEdit } from '@flow-patcher/engine';
+import { compilePatch, createOutputStage, OUTPUT_CEILING, parsePatch, type NodeDefinition, type OutputStage, type Patch, type PatchEdit } from '@flow-patcher/engine';
 import { nodeRegistry, output } from '@flow-patcher/nodes';
-import { longestSilence, maxDifference, peak, RENDER_TOLERANCE, SuspendRaceError } from './lib/audio';
+import { blockLoudness, longestSilence, maxDifference, peak, RENDER_TOLERANCE, SuspendRaceError } from './lib/audio';
 import { formatEvents, runPatch, scriptedEdits, type RunEdit, type ScriptedEdit } from './lib/run';
 
 const SECONDS = 4;
@@ -164,5 +168,75 @@ describe('offline audio with live edits', () => {
     expect(peak(live.audio!)).toBeGreaterThan(0.1);
     expect(maxDifference(live.audio!, batch.audio!)).toBeLessThanOrEqual(RENDER_TOLERANCE);
     expect(live.events).toEqual(batch.events);
+  });
+});
+
+// #115, ADR 0035: a seed change rebuilds every audio node but Output, which reads no seed. The old
+// chain rings out together into it: each retired instance stays while a retired one upstream still feeds it.
+describe('a seed change mid-echo', () => {
+  const ECHO_SECONDS = 5;
+  /** One note at 0 (the next tick is at 8 s) into Delay (0.5 s, feedback 0.42) → Reverb (Decay 1, Mix 0.35) → Output. */
+  function echoPatch(seed: number): Patch {
+    const version = (type: string) => nodeRegistry.get(type)!.version;
+    const node = (id: string, type: string, params: Record<string, unknown>) => ({ id, type, typeVersion: version(type), params, position: { x: 0, y: 0 } });
+    const cable = (from: string, fromPort: string, to: string, toPort: string) => ({ from: { node: from, port: fromPort }, to: { node: to, port: toPort } });
+    const parsed = parsePatch({
+      format: 'flowpatch', version: 1, seed,
+      nodes: [
+        node('clock', 'clock', { bpm: 30, division: '1/1' }),
+        node('note', 'make-note', { pitch: 69, velocity: 0.8, length: 0.1 }),
+        node('synth', 'simple-synth', { wave: 'sine', attack: 0.005, release: 0.05, level: 0.5 }),
+        node('delay', 'delay', { time: 0.5, feedback: 0.42, mix: 0.5 }),
+        node('reverb', 'reverb', { decay: 1, mix: 0.35 }),
+        node('out', 'output', { level: 0.7 }),
+      ],
+      cables: [
+        cable('clock', 'tick', 'note', 'trigger'), cable('note', 'note', 'synth', 'note'), cable('synth', 'audio', 'delay', 'in'),
+        cable('delay', 'out', 'reverb', 'in'), cable('reverb', 'out', 'out', 'audio'),
+      ],
+    });
+    if (!parsed.ok) throw new Error(parsed.errors.join('\n'));
+    return parsed.patch;
+  }
+
+  it('lets the old Delay → Reverb echo on into the one Output past +1.2 s, sample for sample as with no change', async () => {
+    // Records which nodes' instances are built and when they are disposed, per audio context (a live run may start over).
+    const builds = new Map<unknown, string[]>();
+    const disposals = new Map<unknown, { node: string; at: number }[]>();
+    const registry = new Map([...nodeRegistry].map(([type, definition]) => [type, !definition.audio ? definition : {
+      ...definition,
+      audio: (ctx) => {
+        const inner = definition.audio!(ctx);
+        builds.set(ctx.audio, [...(builds.get(ctx.audio) ?? []), ctx.nodeId]);
+        return { ...inner, dispose: () => (disposals.set(ctx.audio, [...(disposals.get(ctx.audio) ?? []), { node: ctx.nodeId, at: ctx.audio.currentTime }]), inner.dispose?.()) };
+      },
+    } satisfies NodeDefinition]));
+    let context: unknown = null;
+    const reseed: RunEdit = {
+      time: 0.6,
+      apply: (run) => {
+        context = run.context;
+        const compiled = compilePatch({ ...echoPatch(1), seed: 2 }, registry);
+        if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+        const report = run.scheduler.swap(compiled.plan);
+        // Every node but Output, which reads no seed.
+        expect(report.changed).toEqual(['clock', 'note', 'synth', 'delay', 'reverb']);
+      },
+    };
+    const options = { seconds: ECHO_SECONDS, fps: 0, live: true };
+    const [plain, changed] = [await runPatch(echoPatch(1), options, { registry }), await runPatch(echoPatch(1), options, { registry, edits: [reseed] })];
+    const audio = changed.audio!;
+    // The new chain hears nothing (the next note is at 8 s) and the old one keeps its impulse, so
+    // the old chain is all that sounds: the same samples as a run without the change.
+    expect(maxDifference(audio, plain.audio!)).toBeLessThanOrEqual(RENDER_TOLERANCE);
+    // The echo train goes on: the repeats at 1.5, 2 and 2.5 s are there (before #115, from the swap at ~0.62 s on, silence).
+    const loudness = blockLoudness(audio, 0.1);
+    for (const t of [1.5, 2, 2.5, 3]) expect(loudness[Math.round(t * 10)]!).toBeGreaterThan(1e-3);
+    // Before the run ends (which disposes everything), only the old synth has gone, once the swap
+    // took effect: Delay echoes until ~5.3 s, Reverb after it, both into the one Output.
+    expect(builds.get(context)!.filter((id) => id === 'out')).toHaveLength(1);
+    const early = disposals.get(context)!.filter((d) => d.at < ECHO_SECONDS - 0.1);
+    expect(early.map((d) => d.node)).toEqual(['synth']);
+    expect(early[0]!.at).toBeGreaterThan(0.6);
   });
 });

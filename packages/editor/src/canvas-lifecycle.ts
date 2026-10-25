@@ -30,7 +30,7 @@ export interface CanvasLifecycleHost {
  * brings a Blur when audio comes back.
  *
  * A source that reads the size and is new to the plan is sent it once its swap has taken effect: a swap
- * lands at a window boundary at or after now (ADR 0023), and a push stamped before that reaches a window
+ * lands at a window boundary at least SWAP_MARGIN past now (ADR 0023), and a push stamped before that reaches a window
  * the new node isn't in yet, so it would be lost. `tick` sends it when a push would be stamped at or
  * after the swap. The host calls it each frame, at each AudioContext state change, and after each of the
  * scheduler's wakes (`pace`), since frames stop while the page is hidden and the wakes don't.

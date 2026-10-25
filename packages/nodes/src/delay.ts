@@ -41,8 +41,8 @@ export const MIN_DELAY = 0.001;
 /** How long a Division or Time edit glides, seconds (Flow's delayGlide). *(tune)* */
 export const DELAY_GLIDE = 0.04;
 /**
- * How long after an edit's swap time the glide starts: the most the swap's re-run keeps of the ramps
- * already scheduled (two grid steps plus the render margin, ADR 0031). Starting there, all of the
+ * How long after an edit's swap time the glide starts: the most any re-run keeps of the ramps already
+ * scheduled after the swap time (two grid steps plus the render margin, ADR 0031). Starting there, all of the
  * glide plays; the time holds until then.
  */
 export const GLIDE_LEAD = 2 / AUTOMATION_RATE + AUTOMATION_RENDER_MARGIN;
@@ -251,10 +251,10 @@ export const delay: NodeDefinition = {
         }
       },
       // Retired by a rebuild (a cable change, a seed change), it echoes on until its repeats are 60 dB
-      // down: input reaches it until the last time it covered.
-      idleAt() {
+      // down: input reaches it until the last time it covered, or until a retired upstream went (ADR 0035).
+      idleAt(inputsEndAt = -Infinity) {
         const seconds = history.at(-1)?.value ?? line.delayTime.value;
-        return lastT1 + audibleRepeats(lastFeedback) * seconds + DELAY_GLIDE;
+        return Math.max(lastT1, inputsEndAt) + audibleRepeats(lastFeedback) * seconds + DELAY_GLIDE;
       },
       dispose() {
         for (const node of [input, dry, wet, out, line, tone, feedback]) node.disconnect();

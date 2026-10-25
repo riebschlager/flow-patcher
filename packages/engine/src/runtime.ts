@@ -12,6 +12,7 @@
 // enforces the event caps (limits.ts, ADR 0011) and keeps the per-node
 // warnings they raise. Hot patching (`swap`, ADR 0023) replaces the plan at a
 // window boundary; each window remembers the plan it ran under.
+import { AUTOMATION_RENDER_MARGIN } from './audio/automation';
 import type { AudioContextLike, AudioNodeLike } from './audio/types';
 import { VoicePool } from './audio/voices';
 import { createNodeContext, type BoundContext, type NodeWiring } from './context';
@@ -35,6 +36,17 @@ import { pushable } from './input';
 import { LIMIT_WINDOW, limitWindowOf, NODE_EVENT_LIMIT, PATCH_EVENT_LIMIT, VOICE_LIMIT, WARNING_KINDS, type NodeWarning, type NodeWarningKind } from './limits';
 import type { Patch, PortRef } from './patch';
 import { clonePlain, restoreState } from './state';
+
+/**
+ * How far past the audio clock a swap's boundary must be, in seconds (ADR 0023, #97), the clock
+ * read once the swap has built its audio instances: the render lead automation already assumes,
+ * AUTOMATION_RENDER_MARGIN. The render thread can be ahead of currentTime by a callback (512
+ * frames, 11.6 ms at 44.1 kHz) plus the quantum it is rendering (2.9 ms), which leaves about
+ * 0.5 ms of it for the rest of the swap on such a runner; a slower swap can still hand boundary
+ * events over late (counted in lateScheduled). 20 ms was tried and rejected: it puts every
+ * swap's boundary past the playing ramp, so #103's in-ramp re-run is never exercised from a swap.
+ */
+export const SWAP_MARGIN = AUTOMATION_RENDER_MARGIN;
 
 export interface PlanNode {
   id: string;
@@ -332,12 +344,16 @@ export interface DeliveryTiming {
   now: number;
   /** A live read of the audio clock (the scheduler's `audioTime`). The clock keeps
    *  moving while a long call runs (a push's rewind, a swap re-running windows), so
-   *  each hand-over clamps and counts against the later of `now` and this reading:
-   *  an audio node is never handed a time before the clock at hand-over. Without
+   *  each hand-over clamps against the later of `now` and this reading: an audio
+   *  node is never handed a time before the clock at hand-over. It counts late
+   *  events against a second reading taken after the node's schedule() returns,
+   *  so a step before the node's start() calls is counted too (#97). Without
    *  it (headless, tests), `now` is the clock throughout. */
   currentTime?: () => number;
   /** A late wake's missed stretch (ADR 0017): events before `until` move `shift`
-   *  seconds later, so they keep their spacing and play late instead of stacking. */
+   *  seconds later, so they keep their spacing and play late instead of stacking.
+   *  The scheduler moves the stretch to start at its `now` plus the immediate
+   *  offset (ADR 0033), so `shift` is the wake's lateness plus that lead. */
   catchUp?: { until: number; shift: number };
   /** The path the events took, for the late counters. Default 'scheduled'.
    *  A push marks its event with it, for the visual nodes (ADR 0020). */
@@ -350,22 +366,31 @@ export interface RuntimeCounters {
   delivered: number;
   /** Events a catch-up moved later. */
   caughtUp: number;
-  /** Of those, the ones still before the audio clock at hand-over, read as for
-   *  lateScheduled, and moved to it. A catch-up moves its stretch to start at the
-   *  wake's `now`, with no lead, so a clock step during the wake's query makes its
-   *  first events late. Counted here, not in lateScheduled (ADR 0033). */
+  /** Of those, the ones behind the audio clock at hand-over, read as for
+   *  lateScheduled. A catch-up moves its stretch to start at the wake's `now` plus
+   *  the immediate offset, a lead of 5 ms, so a clock step during the wake's query
+   *  and hand-over larger than that makes its first events late. Counted here, not
+   *  in lateScheduled (ADR 0033). So is any other event with no
+   *  lead, one at or before the wake's `now` (the first wake at now == 0, a window
+   *  resuming at now): lateness is classified by lead, not by path. */
   lateCaughtUp: number;
-  /** The most any of those was moved, in ms: how far the clock stepped during the catch-up's query (ADR 0033). */
+  /** The most any of those was behind the clock, in ms: how far the clock stepped during the catch-up's query and hand-over (ADR 0033). */
   lateCaughtUpMaxMs: number;
-  /** Scheduled events (a wake's window, a swap's re-run) that were before the audio
-   *  clock at hand-over, read then (`DeliveryTiming.currentTime`) and not just as
-   *  the call began, and were moved to it. Caught-up events count in lateCaughtUp. */
+  /** Scheduled events (a wake's window, a swap's re-run) queried ahead of the clock
+   *  (after the call's `now`) that were behind it around hand-over. The clock is read
+   *  at hand-over (`DeliveryTiming.currentTime`), not just as the call began, and the
+   *  handed times are clamped to that; it is read again once the node's schedule()
+   *  returns, and each event counts against the later reading (#97). A node calls
+   *  start() inside schedule(), so a step between the two reads can leave an event
+   *  behind at start() that the first read saw on time. The count is an upper bound:
+   *  it may include events whose start() came before the step. Events with no lead
+   *  count in lateCaughtUp. */
   lateScheduled: number;
-  /** Events a push handed over (its rewind's re-run) that were before the audio
-   *  clock at hand-over, read as for lateScheduled, and were moved to it. This covers the
+  /** Events a push handed over (its rewind's re-run) that were behind the audio
+   *  clock around hand-over, read and bounded as for lateScheduled. This covers the
    *  push's whole re-run, so Clock-driven events it re-delivers count too. */
   lateImmediate: number;
-  /** The most any of those was moved, in ms: how late a push's notes reached Web Audio (ADR 0027). */
+  /** The most any of those was behind the clock, in ms: how late a push's notes reached Web Audio (ADR 0027). */
   lateImmediateMaxMs: number;
   /** Events withdrawn from audio nodes because a rewind replaced them. */
   cancelled: number;
@@ -596,11 +621,14 @@ interface Stage {
   gone: Set<string>;
 }
 
-/** An audio instance a swap removed or rebuilt, kept until its notes have finished. */
+/** An audio instance a swap removed or rebuilt, kept until its notes and its tail have finished. */
 interface Retiring {
   instance: AudioInstance;
   /** When the swap took effect: deliveries before it may still reach the instance. */
   from: number;
+  /** When the last retiring instance upstream of it was disposed: its Audio inputs may carry
+   *  sound until then (`idleAt`'s argument). -Infinity while none was. */
+  inputsEnd: number;
 }
 
 export class Runtime {
@@ -639,6 +667,9 @@ export class Runtime {
   private readonly sent = new Map<AudioInstance, Map<string, Sent[]>>();
   private end: number | null = null;
   private wallTime: (() => number) | null = null;
+  /** The wall clock (keepHistory's) when the hand-over that set `counters.lateCaughtUpMaxMs` was counted,
+   *  just after its schedule() returned; null without a wall clock or before one (#97). */
+  lateCaughtUpWall: number | null = null;
   /** Each node's cap counts per limit window (by `limitWindowOf`). Only windows
    *  a query or rewind can still reach are held. */
   private readonly counts = new Map<string, Map<number, LimitCount>>();
@@ -919,7 +950,9 @@ export class Runtime {
   /**
    * Hot patching (design.md, ADR 0023): `plan` replaces the running plan at
    * the next window boundary. With `timing` and history, that is the first
-   * retained window starting at or after `timing.now`: every window from
+   * retained window starting at or after the audio clock plus SWAP_MARGIN,
+   * the clock read once the new audio instances are built, so the re-run never
+   * starts behind the clock or the render thread (#97): every window from
    * there to the horizon runs again under the new plan, the way a rewind
    * re-runs them, and what removed or changed nodes had scheduled from then on
    * is replaced. Otherwise the new plan takes effect at the horizon, where the
@@ -929,10 +962,12 @@ export class Runtime {
    * or version changed or its definition's `keepState` says no; a removed
    * node's state is dropped. Only the added and changed nodes and those
    * downstream of them re-run; the rest keep what they emitted. An audio node
-   * whose type, params, seed or param cables changed gets a new instance, and
+   * whose type, params, seed (unless its definition `ignoresSeed`) or param
+   * cables changed gets a new instance, and
    * the old one, like a removed node's, has its events from the swap on
    * cancelled and is disposed once its sounding notes have finished
-   * (`AudioInstance.idleAt`, checked in `retain`). The exception (ADR 0031):
+   * (`AudioInstance.idleAt`, checked in `retain`), and no retired instance
+   * upstream still feeds it (ADR 0035). The exception (ADR 0031):
    * when only params in the definition's `liveParams` changed, the node keeps
    * its state, and the instance has `update`, it keeps the instance and calls `update` with the
    * new params at the swap time (never before the clock). Audio cables are rewired
@@ -953,7 +988,9 @@ export class Runtime {
       if (!sameType) retyped.add(node.id);
       const sameParams = sameType && sameValues(before.params, node.params);
       const links = plan.incoming.get(node.id), linksBefore = prev.plan.incoming.get(node.id);
-      const sameNode = sameType && sameParams && !seedChanged && before.definition === node.definition;
+      // A node that reads no seed (Output) stays as it is across a seed change (ADR 0035).
+      const reseeded = seedChanged && !node.definition.ignoresSeed;
+      const sameNode = sameType && sameParams && !reseeded && before.definition === node.definition;
       if (!sameNode || !sameJson(links, linksBefore)) changed.push(node.id);
       if (sameType && (sameParams || node.definition.keepState?.(before.params, node.params) !== false)) kept.add(node.id);
       else reset.push(node.id);
@@ -962,32 +999,15 @@ export class Runtime {
       // seed and cables into params, the state kept (the instance holds the state object it was
       // built with), and only liveParams changed.
       const live = node.definition.liveParams;
-      if (sameType && !sameParams && !seedChanged && before.definition === node.definition && sameParamLinks && kept.has(node.id) && live
+      if (sameType && !sameParams && !reseeded && before.definition === node.definition && sameParamLinks && kept.has(node.id) && live
         && changedKeys(before.params, node.params).every((key) => live.includes(key))) inPlace.add(node.id);
       if (!sameNode || !sameParamLinks) rebuild.add(node.id);
     }
     const ids = new Set(plan.order.map((n) => n.id));
     const removed = prev.plan.order.map((n) => n.id).filter((id) => !ids.has(id));
 
-    // The next window boundary at or after now; else the horizon.
-    const history = this.history;
-    let first = -1, time = this.end ?? -Infinity;
-    if (timing && history) {
-      const j = history.findIndex((w) => w.t0 >= timing.now);
-      if (j >= 0) {
-        first = j;
-        time = history[j]!.t0;
-      }
-    }
-    // Never before the plan it replaces took effect: a swap without timing may have put that
-    // at the horizon, past now. Swap times then stay in order, and the fold below applies.
-    if (time < prev.from) {
-      time = prev.from;
-      first = history?.findIndex((w) => w.t0 >= time) ?? -1;
-    }
-
-    const next = this.makeStage(plan, time, prev, kept);
-    let cancelled = 0;
+    // The stage takes effect at the boundary chosen below, once its audio instances are built.
+    const next = this.makeStage(plan, -Infinity, prev, kept);
     const updated: string[] = [];
     if (this.audioContext) {
       // Setup reads (value/signal/param in audio()) resolve cables in the plan being built:
@@ -1006,6 +1026,33 @@ export class Runtime {
       } finally {
         this.active = was;
       }
+    }
+
+    // The first window boundary far enough ahead of the clock that the re-run from it can't start in
+    // the past (#97); else the horizon. The clock is read again here, after building the instances
+    // (a Reverb renders its impulse), and the boundary is at least SWAP_MARGIN past it: the render
+    // thread can be that far ahead of currentTime, and the rest of the swap (retiring, updates,
+    // rewiring, the re-run's first window) runs before that window's events reach Web Audio.
+    const history = this.history;
+    let first = -1, time = this.end ?? -Infinity;
+    if (timing && history) {
+      const from = clockAt(timing) + SWAP_MARGIN;
+      const j = history.findIndex((w) => w.t0 >= from);
+      if (j >= 0) {
+        first = j;
+        time = history[j]!.t0;
+      }
+    }
+    // Never before the plan it replaces took effect: a swap without timing may have put that
+    // at the horizon, past now. Swap times then stay in order, and the fold below applies.
+    if (time < prev.from) {
+      time = prev.from;
+      first = history?.findIndex((w) => w.t0 >= time) ?? -1;
+    }
+    next.from = time;
+
+    let cancelled = 0;
+    if (this.audioContext) {
       for (const instance of prev.audio.values()) {
         if (![...next.audio.values()].includes(instance)) cancelled += this.retire(instance, time);
       }
@@ -1271,19 +1318,58 @@ export class Runtime {
         withdrawn += late.length;
       } else this.counters.uncancelled += late.length;
     }
-    this.retiring.push({ instance, from: time });
+    this.retiring.push({ instance, from: time, inputsEnd: -Infinity });
     return withdrawn;
   }
 
+  /**
+   * Disposes retired instances that have gone quiet (ADR 0035). Retiring instances keep their
+   * connections, so one may still be fed by another retired in the same swap or an earlier one
+   * (a seed change retires every audio node but Output): such a chain rings out together. An instance is
+   * kept while any retiring instance upstream of it is, and once the last of them is disposed,
+   * its tail counts from then: `idleAt(inputsEnd)`, or `inputsEnd` itself without `idleAt`.
+   * Instances that feed each other (an audio cycle) go together, once every one of them is idle;
+   * what their loop would add past that is cut.
+   */
   private disposeRetired(now: number): void {
     if (!this.retiring.length) return;
-    this.retiring = this.retiring.filter(({ instance, from }) => {
-      if (now < from || now < (instance.idleAt?.() ?? -Infinity)) return true;
-      instance.dispose?.();
-      for (const out of Object.values(instance.outputs ?? {})) this.connections.delete(out);
-      this.sent.delete(instance);
-      return false;
+    const entries = this.retiring;
+    // Who feeds whom among retiring instances, by their frozen connections.
+    const inputOf = new Map<AudioNodeLike, number>();
+    entries.forEach(({ instance }, i) => {
+      for (const input of Object.values(instance.inputs ?? {})) inputOf.set(input, i);
     });
+    const feeds = entries.map(({ instance }, i) => {
+      const to = new Set<number>();
+      for (const out of Object.values(instance.outputs ?? {})) {
+        for (const into of this.connections.get(out) ?? []) {
+          const j = inputOf.get(into);
+          if (j !== undefined && j !== i) to.add(j);
+        }
+      }
+      return [...to];
+    });
+    const reach = feeds.map((_, i) => reachable(feeds, i));
+    const disposed = new Set<number>();
+    // Upstream groups before downstream ones, so a chain can end in one call.
+    for (const group of feedbackGroups(feeds)) {
+      const members = new Set(group);
+      if (entries.some((_, j) => !members.has(j) && !disposed.has(j) && reach[j]!.has(group[0]!))) continue;
+      const idle = Math.max(...group.map((i) => {
+        const { instance, from, inputsEnd } = entries[i]!;
+        return Math.max(from, instance.idleAt ? instance.idleAt(inputsEnd) : inputsEnd);
+      }));
+      if (now < idle) continue;
+      for (const i of group) {
+        const { instance } = entries[i]!;
+        instance.dispose?.();
+        for (const out of Object.values(instance.outputs ?? {})) this.connections.delete(out);
+        this.sent.delete(instance);
+        disposed.add(i);
+      }
+      for (const i of group) for (const j of reach[i]!) if (!members.has(j)) entries[j]!.inputsEnd = Math.max(entries[j]!.inputsEnd, now);
+    }
+    if (disposed.size) this.retiring = entries.filter((_, i) => !disposed.has(i));
   }
 
   /**
@@ -1653,8 +1739,19 @@ export class Runtime {
   private send(instance: AudioInstance, port: string, events: readonly EngineEvent[], timing: DeliveryTiming | undefined): void {
     // The clock at hand-over: a long re-run may have moved it past `now`.
     const floor = timing && clockAt(timing);
-    const sent = events.map((event) => this.timed(event, timing, floor!));
+    const moved = events.map((event) => this.moved(event, timing));
+    const sent = events.map((event, i) => {
+      // Never before `floor`; a NaN time goes to it too.
+      const time = moved[i]!.time >= floor! ? moved[i]!.time : floor!;
+      return !timing || time === event.time ? event : { ...event, time };
+    });
     instance.schedule!(port, sent);
+    // The node calls start() inside schedule(), so the clock may have stepped after `floor`
+    // was read and before Web Audio got the time (#97). Read it again now that schedule()
+    // has returned, and count lateness against the later reading: a step in that gap
+    // can't go uncounted. The times handed over stay clamped to `floor`; Web Audio plays
+    // a past start() at the next render quantum.
+    if (timing) this.countLate(moved, Math.max(floor!, clockAt(timing)), timing);
     this.counters.delivered += sent.length;
     if (!this.history) return;
     let ports = this.sent.get(instance);
@@ -1664,26 +1761,35 @@ export class Runtime {
     ports.set(port, list);
   }
 
-  /** The time an audio node gets: moved by a catch-up, never before `floor`, the clock at hand-over. */
-  private timed(event: EngineEvent, timing: DeliveryTiming | undefined, floor: number): EngineEvent {
-    if (!timing) return event;
-    let time = event.time;
-    const caught = timing.catchUp !== undefined && time < timing.catchUp.until;
-    if (caught) {
-      time += timing.catchUp!.shift;
-      this.counters.caughtUp++;
-    }
-    if (!(time >= floor)) {
-      if (caught) {
-        this.counters.lateCaughtUp++;
-        if (Number.isFinite(time)) this.counters.lateCaughtUpMaxMs = Math.max(this.counters.lateCaughtUpMaxMs, (floor - time) * 1000);
+  /** An event's time moved by a catch-up (and whether it was), before the clock clamps it. */
+  private moved(event: EngineEvent, timing: DeliveryTiming | undefined): { time: number; caught: boolean } {
+    const caught = timing?.catchUp !== undefined && event.time < timing.catchUp.until;
+    if (caught) this.counters.caughtUp++;
+    return { time: caught ? event.time + timing!.catchUp!.shift : event.time, caught };
+  }
+
+  /**
+   * Counts the events behind `clock`, the latest clock reading around their hand-over. A push's
+   * count in lateImmediate. The rest go by their lead (ADR 0033): one with none, caught up or at
+   * or before the call's `now` (the first wake at now == 0, a window resuming at now), counts in
+   * lateCaughtUp; only one queried ahead of the clock counts in lateScheduled.
+   */
+  private countLate(moved: readonly { time: number; caught: boolean }[], clock: number, timing: DeliveryTiming): void {
+    const counters = this.counters;
+    for (const { time, caught } of moved) {
+      if (time >= clock) continue;
+      const ms = Number.isFinite(time) ? (clock - time) * 1000 : 0;
+      if (caught || (timing.path !== 'immediate' && time <= timing.now)) {
+        counters.lateCaughtUp++;
+        if (ms > counters.lateCaughtUpMaxMs) {
+          counters.lateCaughtUpMaxMs = ms;
+          this.lateCaughtUpWall = this.wallTime?.() ?? null;
+        }
       } else if (timing.path === 'immediate') {
-        this.counters.lateImmediate++;
-        if (Number.isFinite(time)) this.counters.lateImmediateMaxMs = Math.max(this.counters.lateImmediateMaxMs, (floor - time) * 1000);
-      } else this.counters.lateScheduled++;
-      time = floor;
+        counters.lateImmediate++;
+        counters.lateImmediateMaxMs = Math.max(counters.lateImmediateMaxMs, ms);
+      } else counters.lateScheduled++;
     }
-    return time === event.time ? event : { ...event, time };
   }
 
   private record(id: string, result: PortEvents): void {
@@ -2086,6 +2192,50 @@ export class Runtime {
 interface Tap {
   time: number;
   reach: ReadonlySet<string>;
+}
+
+/** The nodes reachable from `start` along `edges` (index → indices it feeds), `start` itself only through a cycle. */
+function reachable(edges: readonly (readonly number[])[], start: number): Set<number> {
+  const seen = new Set<number>();
+  const stack = [...edges[start]!];
+  while (stack.length) {
+    const i = stack.pop()!;
+    if (seen.has(i)) continue;
+    seen.add(i);
+    stack.push(...edges[i]!);
+  }
+  return seen;
+}
+
+/**
+ * The strongly connected components of a graph (index → indices it feeds), each in index order,
+ * upstream components before the ones they feed (Tarjan's algorithm, whose output is reversed).
+ */
+function feedbackGroups(edges: readonly (readonly number[])[]): number[][] {
+  const index = new Map<number, number>(), low = new Map<number, number>(), onStack = new Set<number>();
+  const stack: number[] = [], groups: number[][] = [];
+  const visit = (v: number) => {
+    index.set(v, index.size);
+    low.set(v, index.get(v)!);
+    stack.push(v);
+    onStack.add(v);
+    for (const w of edges[v]!) {
+      if (!index.has(w)) {
+        visit(w);
+        low.set(v, Math.min(low.get(v)!, low.get(w)!));
+      } else if (onStack.has(w)) low.set(v, Math.min(low.get(v)!, index.get(w)!));
+    }
+    if (low.get(v) !== index.get(v)) return;
+    const group: number[] = [];
+    for (let w = -1; w !== v;) {
+      w = stack.pop()!;
+      onStack.delete(w);
+      group.push(w);
+    }
+    groups.push(group.sort((a, b) => a - b));
+  };
+  for (let v = 0; v < edges.length; v++) if (!index.has(v)) visit(v);
+  return groups.reverse();
 }
 
 /** How many chunks `forChunks` splits a window `width` seconds wide into, for a plan's `maxWindow`. */

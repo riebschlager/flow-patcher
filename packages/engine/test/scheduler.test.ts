@@ -10,6 +10,7 @@ import {
   ManualClock,
   Runtime,
   Scheduler,
+  SWAP_MARGIN,
   type AudioContextLike,
   type EngineEvent,
   type LoggedEvent,
@@ -193,14 +194,35 @@ describe('Catch-up: a 150 ms stall loses nothing and stacks nothing', () => {
     const ref = reference();
     expect(json(scheduler.events())).toBe(json(ref.scheduler.events()));
     expect(json(deliveries.map((d) => d.event.index))).toBe(json(ref.deliveries.map((d) => d.event.index)));
-    // The caught-up ticks moved by the same amount, so their spacing holds and none share a time.
+    // The caught-up ticks moved by the same amount, to start at the wake plus the immediate offset (ADR 0033),
+    // so their spacing holds and none share a time.
     const caught = deliveries.filter((d) => d.at === resume && (d.event.index as number) * 0.01 < resume);
     expect(caught.length).toBe(stats.caughtUp);
     expect(caught.length).toBeGreaterThanOrEqual(3);
-    for (const d of caught) expect(d.event.time).toBeCloseTo((d.event.index as number) * 0.01 + (resume - horizon), 9);
+    for (const d of caught) expect(d.event.time).toBeCloseTo((d.event.index as number) * 0.01 + (resume - horizon) + IMMEDIATE_OFFSET, 9);
     expect(new Set(caught.map((d) => d.event.time)).size).toBe(caught.length);
     expect(deliveries.every((d) => d.event.time >= d.at)).toBe(true);
     expect(stats.lateScheduled).toBe(0);
+  });
+
+  it('keeps caught-up events window-independent with the lead: the same log for any wake grid, each catch-up shifted as a block', () => {
+    const ref = reference();
+    for (const step of [0.01, 0.025, 0.05]) {
+      const run = setup(p);
+      run.wakeEvery(0, 0.5, step);
+      const horizon = run.scheduler.horizon!;
+      const resume = 0.5 - step + 0.15;
+      run.wakeAt(resume);
+      run.wakeEvery(Math.ceil(resume / step) * step, 1.5, step);
+      expect(run.scheduler.stats).toMatchObject({ catchUps: 1, stalls: 0, skipped: 0, lateScheduled: 0, lateCaughtUp: 0 });
+      // The log keeps generated times, whatever the windows and the catch-up (up to where both runs queried).
+      const upTo = (events: LoggedEvent[]) => json(events.filter((e) => e.time < 1.5));
+      expect(upTo(run.scheduler.events())).toBe(upTo(ref.scheduler.events()));
+      // Every caught-up tick moved by one shift, the wake's lateness plus the lead: spacing kept.
+      const caught = run.deliveries.filter((d) => d.at === resume && (d.event.index as number) * 0.01 < resume);
+      expect(caught.length).toBeGreaterThanOrEqual(3);
+      for (const d of caught) expect(d.event.time).toBeCloseTo((d.event.index as number) * 0.01 + (resume - horizon) + IMMEDIATE_OFFSET, 9);
+    }
   });
 
   it('catches up to 100 ms past the horizon, and skips beyond that', () => {
@@ -285,7 +307,7 @@ describe('late counters read the audio clock at hand-over', () => {
   };
   const arm = (clock: ManualClock, to: number) => Object.assign(stall, { clock, to });
 
-  it('clamps and counts a wake\'s event the clock passed while the window ran', () => {
+  it('clamps and counts a wake\'s event the clock passed while the window ran, by its lead', () => {
     const { scheduler, clock, deliveries, wakeAt } = setup(
       patch([node('m', 'metro'), node('s', 'slow'), node('r', 'recorder')], [cable('m', 's'), cable('s', 'r')]), {}, [slow]);
     // The wake reads 0; the query moves the clock to 30 ms, past the ticks at 0 and 25 ms.
@@ -295,7 +317,10 @@ describe('late counters read the audio clock at hand-over', () => {
     expect(deliveries.slice(0, 2).map((d) => [d.event.index, d.event.time])).toEqual([[0, 0.03], [1, 0.03]]);
     expect(deliveries[2]!.event.time).toBe(0.05);
     expect(deliveries.every((d) => d.event.time >= d.at)).toBe(true);
-    expect(scheduler.stats).toMatchObject({ lateScheduled: 2, lateImmediate: 0 });
+    // The tick at 0 had no lead (it is at the wake's now): lateCaughtUp (ADR 0033). The one at 25 ms was
+    // queried ahead of the clock: lateScheduled.
+    expect(scheduler.stats).toMatchObject({ lateScheduled: 1, lateCaughtUp: 1, lateImmediate: 0 });
+    expect(scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(30, 9);
     // The log keeps the generated times: only the hand-over moves.
     expect(scheduler.events().filter((e) => e.node === 's').slice(0, 2).map((e) => e.time)).toEqual([0, 0.025]);
   });
@@ -314,6 +339,198 @@ describe('late counters read the audio clock at hand-over', () => {
     // Stamped at +5 ms, handed over at +10 ms: 5 ms late.
     expect(scheduler.stats.lateImmediateMaxMs).toBeCloseTo(5, 9);
     expect(scheduler.events().map((e) => [e.node, e.time])).toEqual([['t', event!.time], ['s', event!.time]]);
+  });
+
+  // #97: an audio node calls start() inside schedule(), after the runtime read the clock for the
+  // hand-over. A clock step there reaches Web Audio as lateness the floor read can't see.
+  describe('a clock step inside schedule(), between the floor read and start()', () => {
+    /** Like the recorder, but while armed its first schedule() steps the clock to `to` before "calling start()". */
+    function jumpy(clock: ManualClock, starts: { when: number; at: number }[], jump: { to: number | null }): NodeDefinition {
+      return {
+        type: 'jumpy', version: 1, label: 'Jumpy', category: 'instruments', description: '',
+        ports: [{ name: 'in', type: 'event', direction: 'in' }],
+        params: [],
+        audio: () => ({
+          schedule: (_port, events) => {
+            if (jump.to !== null) {
+              clock.set(Math.max(clock.audio, jump.to));
+              jump.to = null;
+            }
+            starts.push(...events.map((event) => ({ when: event.time, at: clock.audio })));
+          },
+          cancel: () => {},
+        }),
+      };
+    }
+    const build = (p: Patch) => {
+      const clock = new ManualClock();
+      const starts: { when: number; at: number }[] = [], jump = { to: null as number | null };
+      const compiled = compilePatch(p, new Map([metro, tap, jumpy(clock, starts, jump)].map((d) => [d.type, d])));
+      if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+      const runtime = new Runtime(compiled.plan);
+      runtime.attachAudio({} as AudioContextLike);
+      return { clock, scheduler: new Scheduler(runtime, { clock, record: true }), starts, jump };
+    };
+    const lateness = (starts: { when: number; at: number }[]) => Math.max(...starts.map((s) => s.at - s.when));
+
+    it('counts a pushed note whose start() came after the step in lateImmediate, by how far start() was behind', () => {
+      const { clock, scheduler, starts, jump } = build(patch([node('t', 'tap'), node('j', 'jumpy')], [cable('t', 'j')]));
+      for (let k = 0; k * 0.025 < 1; k++) {
+        clock.set(k * 0.025);
+        scheduler.wake();
+      }
+      clock.set(1.0123);
+      // The floor read sees 1.0123, the note is stamped +5 ms and handed over on time; the clock
+      // then steps 11.6 ms (one 512-frame callback at 44.1 kHz) before start().
+      jump.to = 1.0123 + 0.0116;
+      const event = scheduler.push('t', 'out', { channel: 0 });
+      expect(starts).toEqual([{ when: event!.time, at: 1.0123 + 0.0116 }]);
+      expect(scheduler.stats).toMatchObject({ lateImmediate: 1, lateScheduled: 0, lateCaughtUp: 0 });
+      expect(scheduler.stats.lateImmediateMaxMs).toBeCloseTo(lateness(starts) * 1000, 9);
+      expect(scheduler.stats.lateImmediateMaxMs).toBeCloseTo(6.6, 9);
+    });
+
+    it('counts a caught-up t=0 note whose start() came after the step in lateCaughtUp', () => {
+      const { clock, scheduler, starts, jump } = build(patch([node('m', 'metro', { period: 0.5 }), node('j', 'jumpy')], [cable('m', 'j')]));
+      clock.isRunning = false;
+      scheduler.wake();
+      clock.isRunning = true;
+      clock.set(0.003);
+      jump.to = 0.003 + 0.0116;
+      scheduler.wake();
+      // Handed over at the wake's now plus the 5 ms lead, 0.008, which the floor read agreed with; start() came
+      // 11.6 ms after the wake, a 512-frame burst, so 6.6 ms after its time.
+      expect(starts[0]).toEqual({ when: 0.003 + IMMEDIATE_OFFSET, at: 0.003 + 0.0116 });
+      expect(scheduler.stats).toMatchObject({ caughtUp: 1, lateCaughtUp: 1, lateScheduled: 0, lateImmediate: 0 });
+      expect(scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(lateness(starts) * 1000, 9);
+      expect(scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(6.6, 9);
+    });
+
+    it('does not count a caught-up note late when the clock steps less than the lead before its start()', () => {
+      const { clock, scheduler, starts, jump } = build(patch([node('m', 'metro', { period: 0.5 }), node('j', 'jumpy')], [cable('m', 'j')]));
+      clock.isRunning = false;
+      scheduler.wake();
+      clock.isRunning = true;
+      clock.set(0.003);
+      // One 128-frame quantum at 44.1 kHz, 2.9 ms, between the floor read and start(): inside the 5 ms lead.
+      jump.to = 0.003 + 0.0029;
+      scheduler.wake();
+      expect(starts[0]).toEqual({ when: 0.003 + IMMEDIATE_OFFSET, at: 0.003 + 0.0029 });
+      expect(scheduler.stats).toMatchObject({ caughtUp: 1, lateCaughtUp: 0, lateCaughtUpMaxMs: 0, lateScheduled: 0 });
+    });
+
+    it('gives a t=0 note the lead at a resume that reads exactly 0: a step within it isn\'t late, a longer one is late by less', () => {
+      for (const [step, late] of [[0.0029, 0], [0.0116, 6.6]] as const) {
+        const { clock, scheduler, starts, jump } = build(patch([node('m', 'metro', { period: 0.5 }), node('j', 'jumpy')], [cable('m', 'j')]));
+        clock.isRunning = false;
+        scheduler.wake();
+        clock.isRunning = true;
+        // The first running wake reads exactly 0: [0, 0] is caught up, moved to 0 + 5 ms.
+        jump.to = step;
+        scheduler.wake();
+        expect(starts[0]).toEqual({ when: IMMEDIATE_OFFSET, at: step });
+        expect(scheduler.stats).toMatchObject({ caughtUp: 1, catchUps: 0, lateCaughtUp: late ? 1 : 0, lateScheduled: 0 });
+        expect(scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(late, 9);
+      }
+    });
+
+    it('counts a first-wake t=0 event the step left behind start() in lateCaughtUp when the clock ran from the start: it had no lead', () => {
+      const { clock, scheduler, starts, jump } = build(patch([node('m', 'metro', { period: 0.025 }), node('j', 'jumpy')], [cable('m', 'j')]));
+      // A clock that runs from the start (headless, no resume) and a first wake at exactly 0: nothing is caught
+      // up, so the tick at 0 is on time at the floor read, with no lead, then the clock steps 3 ms before start().
+      jump.to = 0.003;
+      scheduler.wake();
+      expect(starts[0]).toEqual({ when: 0, at: 0.003 });
+      expect(scheduler.stats).toMatchObject({ caughtUp: 0, lateCaughtUp: 1, lateScheduled: 0, lateImmediate: 0 });
+      expect(scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(3, 9);
+      // A step during a later wake can't reach events queried 120 ms ahead.
+      clock.set(0.025);
+      jump.to = 0.025 + 0.0116;
+      scheduler.wake();
+      expect(scheduler.stats).toMatchObject({ lateCaughtUp: 1, lateScheduled: 0 });
+    });
+
+    it('counts a scheduled event queried ahead that the step left behind start() in lateScheduled', () => {
+      const { scheduler, starts, jump } = build(patch([node('m', 'metro', { period: 0.025 }), node('j', 'jumpy')], [cable('m', 'j')]));
+      // The first wake reads 0; its ticks at 0 and 25 ms go over in one schedule(), which steps the clock 30 ms.
+      jump.to = 0.03;
+      scheduler.wake();
+      expect(starts.slice(0, 2)).toEqual([{ when: 0, at: 0.03 }, { when: 0.025, at: 0.03 }]);
+      // The tick at 25 ms was 25 ms ahead of the wake's now: lateScheduled. The one at 0 had no lead.
+      expect(scheduler.stats).toMatchObject({ lateScheduled: 1, lateCaughtUp: 1 });
+    });
+
+    it('a swap whose instance build takes 20 ms picks a boundary past the clock after it, so nothing it re-runs is late (#97)', () => {
+      // A recorder whose build moves the clock on by `build.time` (a Reverb rendering its impulse).
+      const build = { clock: null as ManualClock | null, time: 0 };
+      const deliveries: Delivery[] = [];
+      const slowBuild: NodeDefinition = {
+        type: 'slow-build', version: 1, label: 'Slow build', category: 'instruments', description: '',
+        ports: [{ name: 'in', type: 'event', direction: 'in' }],
+        params: [{ name: 'tone', kind: 'number', min: 0, max: 1, default: 0 }],
+        audio: () => {
+          build.clock?.set(build.clock.audio + build.time);
+          // Set once setup has made the clock, before the first wake hands anything over.
+          const clock = () => build.clock!;
+          return {
+            schedule: (_port, events) => deliveries.push(...events.map((event) => ({ event, at: clock().audio, cancelled: false }))),
+            cancel: (_port, events) => {
+              for (const event of events) {
+                const delivery = deliveries.find((d) => d.event === event && !d.cancelled)!;
+                // Never withdraws what may already be playing.
+                expect(delivery.event.time).toBeGreaterThanOrEqual(clock().audio);
+                delivery.cancelled = true;
+              }
+            },
+          };
+        },
+      };
+      const p = (tone: number) => patch([node('m', 'metro', { period: 0.005 }), node('r', 'slow-build', { tone })], [cable('m', 'r')]);
+      const run = setup(p(0), {}, [slowBuild]);
+      build.clock = run.clock;
+      run.wakeEvery(0, 0.5);
+      // The edit at 0.49: windows start at 0.495, 0.52, …. The build moves the clock to 0.51, past 0.495.
+      run.clock.set(0.49);
+      build.time = 0.02;
+      const report = run.scheduler.swap(run.compile(p(1)));
+      build.time = 0;
+      expect(run.clock.audio).toBeCloseTo(0.51, 12);
+      // The first boundary at or after 0.51 + SWAP_MARGIN.
+      expect(SWAP_MARGIN).toBe(0.015);
+      expect(report.time).toBeCloseTo(0.545, 9);
+      expect(report.time).toBeGreaterThanOrEqual(run.clock.audio + SWAP_MARGIN - 1e-12);
+      run.wakeEvery(0.525, 0.8);
+      const stats = run.scheduler.stats;
+      expect(stats).toMatchObject({ lateScheduled: 0, lateImmediate: 0, lateCaughtUp: 0, skipped: 0, stalls: 0 });
+      // Every tick was handed over once, on time: none skipped, none twice (the old instance's from the swap on withdrawn).
+      const live = deliveries.filter((d) => !d.cancelled);
+      expect(live.map((d) => Math.round(d.event.time * 1000))).toEqual(Array.from({ length: Math.round((0.8 + LOOKAHEAD - 0.025) / 0.005) }, (_, k) => k * 5));
+      expect(live.every((d) => d.event.time >= d.at)).toBe(true);
+      expect(deliveries.filter((d) => d.cancelled).every((d) => d.event.time >= report.time)).toBe(true);
+    });
+
+    it('keeps a push\'s event at its own now in lateImmediate, though it has no lead', () => {
+      // Lead classifies scheduled events only (ADR 0033): a push's whole re-run stays on the immediate path.
+      const run = setup(patch([node('m', 'metro', { period: 0.025 }), node('t', 'tap'), node('c', 'counter'), node('r', 'recorder')], [cable('m', 'c'), cable('t', 'c'), cable('c', 'r')]));
+      run.wakeEvery(0, 0.1);
+      // A live event at the push's own now, 0.05 (a push can't be stamped before now). The clock has moved to
+      // 0.06 by the hand-over. The counter's re-run re-delivers the metro's tick at 0.075 with a new count,
+      // ahead of the clock, so not late.
+      run.clock.set(0.06);
+      run.runtime.push('t', 'out', { time: 0.05, channel: 0 }, { now: 0.05, currentTime: () => run.clock.audio, path: 'immediate' });
+      const handed = run.live().filter((d) => d.at === 0.06 && d.event.time < 0.08).map((d) => [d.event.count, Math.round(d.event.time * 1e9) / 1e9]);
+      expect(handed).toEqual([[4, 0.06], [5, 0.075]]);
+      expect(run.scheduler.stats).toMatchObject({ lateImmediate: 1, lateCaughtUp: 0, lateScheduled: 0 });
+      expect(run.scheduler.stats.lateImmediateMaxMs).toBeCloseTo(10, 9);
+    });
+
+    it('counts nothing when the clock holds still through schedule()', () => {
+      const { clock, scheduler } = build(patch([node('t', 'tap'), node('j', 'jumpy')], [cable('t', 'j')]));
+      scheduler.wake();
+      clock.set(0.5);
+      scheduler.push('t', 'out', { channel: 0 });
+      expect(scheduler.stats).toMatchObject({ delivered: 1, lateImmediate: 0, lateImmediateMaxMs: 0, lateScheduled: 0, lateCaughtUp: 0 });
+    });
   });
 });
 
@@ -1069,7 +1286,7 @@ describe('scheduler', () => {
     expect(part.scheduler.stats.catchUpMaxMs).toBeCloseTo(20, 6);
     const shifted = part.deliveries.filter((d) => d.at === 0.15 && (d.event.index as number) * 0.005 < 0.15);
     expect(shifted.length).toBeGreaterThan(0);
-    for (const d of shifted) expect(d.event.time).toBeCloseTo((d.event.index as number) * 0.005 + 0.02, 9);
+    for (const d of shifted) expect(d.event.time).toBeCloseTo((d.event.index as number) * 0.005 + 0.02 + IMMEDIATE_OFFSET, 9);
     // All of it queried already: no catch-up at all.
     const all = setup(metroPatch());
     all.wakeAt(0);
@@ -1142,8 +1359,8 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     run.runtime.query = (t0, t1, timing) => (windows.push([t0, t1]), query(t0, t1, timing));
     coldStart(run, 0.003);
     expect(windows).toEqual([[0, 0.003 + LOOKAHEAD]]);
-    // The t=0 tick, moved by the 3 ms catch-up; the rest at their own times.
-    expect(deliveredAt(run)).toEqual([[0.003, 0.003, 0], [0.003, 0.05, 1], [0.003, 0.1, 2]]);
+    // The t=0 tick, moved by the 3 ms catch-up plus the immediate offset's lead; the rest at their own times.
+    expect(deliveredAt(run)).toEqual([[0.003, 0.003 + IMMEDIATE_OFFSET, 0], [0.003, 0.05, 1], [0.003, 0.1, 2]]);
     expect(run.scheduler.stats).toMatchObject({ catchUps: 1, caughtUp: 1, stalls: 0, skipped: 0, lateScheduled: 0 });
     expect(run.scheduler.stats.catchUpMaxMs).toBeCloseTo(3, 9);
     expect(run.scheduler.stats.firstWake).toBe(0.003);
@@ -1155,13 +1372,40 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     expect(upTo(run.scheduler.events())).toBe(upTo(reference.scheduler.events()));
   });
 
+  it('catches up [0, 0] at a resume that reads exactly 0, so the t=0 event has the lead there too', () => {
+    const run = setup(metroPatch(0.05));
+    coldStart(run, 0);
+    expect(deliveredAt(run)).toEqual([[0, IMMEDIATE_OFFSET, 0], [0, 0.05, 1], [0, 0.1, 2]]);
+    // Not a late wake, so not a catch-up in catchUps; its event counts in caughtUp.
+    expect(run.scheduler.stats).toMatchObject({ catchUps: 0, caughtUp: 1, stalls: 0, lateScheduled: 0, lateCaughtUp: 0, firstWake: 0 });
+    // The log keeps the patch's own times.
+    run.wakeEvery(0.025, 1);
+    const reference = setup(metroPatch(0.05));
+    reference.wakeEvery(0, 1);
+    const upTo = (events: LoggedEvent[]) => json(events.filter((e) => e.time < 1));
+    expect(upTo(run.scheduler.events())).toBe(upTo(reference.scheduler.events()));
+    // A clock that runs from the start has no resume: its t=0 event stays at 0.
+    expect(deliveredAt(reference)[0]).toEqual([0, 0, 0]);
+  });
+
+  it('plays events in (0, 5 ms) before the t=0 event a resume at exactly 0 moved to 5 ms: a one-off order inversion', () => {
+    const run = setup(metroPatch(0.002));
+    coldStart(run, 0);
+    const early = run.live().filter((d) => (d.event.index as number) <= 3).map((d) => [d.event.index, Math.round(d.event.time * 1e9) / 1e9]);
+    // Only the event at exactly 0 is caught up; 2 and 4 ms keep their times and sound before it, 6 ms after it.
+    expect(early).toEqual([[0, IMMEDIATE_OFFSET], [1, 0.002], [2, 0.004], [3, 0.006]]);
+    expect(run.scheduler.stats).toMatchObject({ caughtUp: 1, catchUps: 0, lateScheduled: 0, lateCaughtUp: 0 });
+    // The log keeps generated order and times.
+    expect(run.scheduler.events().slice(0, 4).map((e) => e.index)).toEqual([0, 1, 2, 3]);
+  });
+
   it('catches up from 0 up to the catch-up limit; past it, starts at now without a stall', () => {
-    // At the limit: [0, 0.1) moved to start at 0.1, spacing kept.
+    // At the limit: [0, 0.1) moved to start at 0.1 + the offset, spacing kept.
     const atLimit = setup(metroPatch(0.025));
     coldStart(atLimit, 0.1);
     const caught = atLimit.live().filter((d) => (d.event.index as number) * 0.025 < 0.1);
     expect(caught.map((d) => d.event.index)).toEqual([0, 1, 2, 3]);
-    for (const d of caught) expect(d.event.time).toBeCloseTo((d.event.index as number) * 0.025 + 0.1, 9);
+    for (const d of caught) expect(d.event.time).toBeCloseTo((d.event.index as number) * 0.025 + 0.1 + IMMEDIATE_OFFSET, 9);
     expect(atLimit.scheduler.stats).toMatchObject({ catchUps: 1, caughtUp: 4, stalls: 0, skipped: 0, lateScheduled: 0 });
     expect(atLimit.scheduler.stats.catchUpMaxMs).toBeCloseTo(100, 9);
 
@@ -1199,7 +1443,7 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     hidden.clock.isHidden = true;
     coldStart(hidden, 0.003);
     expect(hidden.scheduler.horizon).toBeCloseTo(0.003 + HIDDEN_LOOKAHEAD, 12);
-    expect(deliveredAt(hidden)[0]).toEqual([0.003, 0.003, 0]);
+    expect(deliveredAt(hidden)[0]).toEqual([0.003, 0.003 + IMMEDIATE_OFFSET, 0]);
     expect(hidden.scheduler.stats).toMatchObject({ catchUps: 1, stalls: 0 });
 
     const halted = setup(metroPatch(0.05), { timer: { every: () => () => {} } });
@@ -1208,7 +1452,7 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     halted.scheduler.halt();
     halted.clock.isRunning = true;
     halted.wakeAt(0.003);
-    expect(deliveredAt(halted)[0]).toEqual([0.003, 0.003, 0]);
+    expect(deliveredAt(halted)[0]).toEqual([0.003, 0.003 + IMMEDIATE_OFFSET, 0]);
   });
 
   it('does not catch up at a resume after a suspend or a halt, once a window was queried', () => {
@@ -1238,7 +1482,8 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
       // The first tap: held while suspended.
       expect(run.scheduler.push('t', 'out', { channel: 0 })).toBeNull();
     });
-    expect(deliveredAt(run)).toEqual([[0.003, 0.003, 1], [0.003, 0.003 + IMMEDIATE_OFFSET, 2]]);
+    // Both with the immediate offset's lead, so at one time: the caught-up tick first, then the tap.
+    expect(deliveredAt(run)).toEqual([[0.003, 0.003 + IMMEDIATE_OFFSET, 1], [0.003, 0.003 + IMMEDIATE_OFFSET, 2]]);
     expect(run.scheduler.stats).toMatchObject({ deferredPushes: 1, pushes: 1, catchUps: 1, stalls: 0, lateScheduled: 0, lateImmediate: 0 });
     // The log is the same as a clock that started at 0 and a tap pushed at 0.003.
     run.wakeEvery(0.025, 1.2);
@@ -1254,7 +1499,7 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
   });
 
   it('counts a caught-up event the clock passed during the query in lateCaughtUp, not lateScheduled', () => {
-    // A slow first query: the audio clock steps 8 ms while it runs, after the wake read now.
+    // A slow first query: the audio clock steps 8 ms while it runs, after the wake read now, past the 5 ms lead.
     let clock: ManualClock | null = null;
     const slow: NodeDefinition = { ...metro, type: 'slow', query: (ctx) => (clock && (clock.audio = 0.011), metro.query!(ctx)) };
     const run = setup(patch([node('m', 'slow', { period: 0.05 }), node('r', 'recorder')], [cable('m', 'r')]), {}, [slow]);
@@ -1263,11 +1508,58 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     run.clock.isRunning = true;
     clock = run.clock;
     run.wakeAt(0.003);
-    // The t=0 tick, moved by the catch-up to 0.003 and then to the clock at hand-over.
+    // The t=0 tick, moved by the catch-up to 0.008 and then to the clock at hand-over.
     expect(deliveredAt(run)[0]).toEqual([0.011, 0.011, 0]);
     expect(run.scheduler.stats).toMatchObject({ caughtUp: 1, lateCaughtUp: 1, lateScheduled: 0, lateImmediate: 0, lateImmediateMaxMs: 0 });
-    // Moved 8 ms: how far the clock stepped during the query.
-    expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(8, 9);
+    // 3 ms late: the 8 ms step during the query, less the 5 ms lead.
+    expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(8 - IMMEDIATE_OFFSET * 1000, 9);
+  });
+
+  it('records the main thread\'s time from the wake\'s start to the hand-over that set lateCaughtUpMaxMs, not the whole wake', () => {
+    // Each window's first event is caught up; the query moves the audio clock by `move` and the wall clock by
+    // `wallMs`. A second chunk of work, after the hand-over, moves the wall clock by `after` (the rest of the wake).
+    let clock: ManualClock | null = null, move = 0, wallMs = 0, after = 0;
+    const edge: NodeDefinition = {
+      ...metro, type: 'edge', params: [],
+      query: ({ t0 }) => {
+        if (clock) {
+          clock.audio += move;
+          clock.wall += wallMs;
+          move = wallMs = 0;
+        }
+        return { out: [{ time: t0, channel: 0 }] };
+      },
+    };
+    const run = setup(patch([node('e', 'edge'), node('r', 'recorder')], [cable('e', 'r')]), {}, [edge]);
+    clock = run.clock;
+    // Work after the hand-over: the wake's held pushes run after its query, and snapshots and later chunks after
+    // the first hand-over; a 50 ms one here, after the query returns, must not count.
+    const query = run.runtime.query.bind(run.runtime);
+    run.runtime.query = (t0, t1, timing) => {
+      const events = query(t0, t1, timing);
+      run.clock.wall += after;
+      return events;
+    };
+    run.wakeAt(0, 0.025);
+    expect(run.scheduler.stats.lateCaughtUpWakeMs).toBe(0);
+    // A catch-up wake whose query runs 12 ms of wall time while the clock steps 9 ms: 4 ms late, past the lead.
+    run.clock.set(run.scheduler.horizon! + 0.05);
+    [move, wallMs, after] = [0.009, 12, 50];
+    run.scheduler.wake();
+    expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(4, 6);
+    expect(run.scheduler.stats.lateCaughtUpWakeMs).toBe(12);
+    // A later, less late catch-up (7 ms step, 30 ms wall) doesn't replace the time kept with the worst.
+    run.clock.set(run.scheduler.horizon! + 0.05);
+    [move, wallMs, after] = [0.007, 30, 0];
+    run.scheduler.wake();
+    expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(4, 6);
+    expect(run.scheduler.stats.lateCaughtUpWakeMs).toBe(12);
+    // A worse one (14 ms step, 3 ms wall) sets both.
+    run.clock.set(run.scheduler.horizon! + 0.05);
+    [move, wallMs, after] = [0.014, 3, 50];
+    run.scheduler.wake();
+    expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(9, 6);
+    expect(run.scheduler.stats.lateCaughtUpWakeMs).toBe(3);
   });
 
   it('counts late caught-up events of every catch-up in lateCaughtUp, mid-session too, with the worst in lateCaughtUpMaxMs', () => {
@@ -1287,13 +1579,14 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     clock = run.clock;
     run.wakeAt(0, 0.025);
     expect(run.scheduler.stats).toMatchObject({ catchUps: 0, firstWake: 0 });
-    // Two late wakes within the limit, 50 and 70 ms past the horizon, with the clock stepping 4 and 9 ms during
-    // their queries: each window's first event, caught up to now, is behind the clock at hand-over by that step.
+    // Two late wakes within the limit, 50 and 70 ms past the horizon, with the clock stepping 9 and 14 ms during
+    // their queries: each window's first event, caught up to now + 5 ms, is behind the clock at hand-over by that
+    // step less the lead.
     run.clock.set(run.scheduler.horizon! + 0.05);
-    move = 0.004;
+    move = 0.009;
     run.scheduler.wake();
     run.clock.set(run.scheduler.horizon! + 0.07);
-    move = 0.009;
+    move = 0.014;
     run.scheduler.wake();
     expect(run.scheduler.stats).toMatchObject({ catchUps: 2, stalls: 0, lateCaughtUp: 2, lateScheduled: 0, lateImmediate: 0 });
     expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(9, 6);
@@ -1304,7 +1597,7 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     coldStart(run, 0.003, () => {
       expect(run.scheduler.swap(run.compile(metroPatch(0.05))).windows).toBe(0);
     });
-    expect(deliveredAt(run)[0]).toEqual([0.003, 0.003, 0]);
+    expect(deliveredAt(run)[0]).toEqual([0.003, 0.003 + IMMEDIATE_OFFSET, 0]);
     expect(run.scheduler.stats).toMatchObject({ catchUps: 1, stalls: 0, lateScheduled: 0 });
   });
 });
