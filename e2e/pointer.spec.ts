@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { IMMEDIATE_OFFSET } from '../packages/engine/src/scheduler';
 import type { LivePatch } from '../packages/editor/src/live';
-import { audioCallback } from './audio-clock';
+import { installBurstProbe } from './audio-burst';
+import { audioCallback, stepLog } from './audio-clock';
 
 declare global {
   interface Window {
@@ -16,6 +17,7 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
 
+  await installBurstProbe(page);
   await page.goto('/?patch=pointer-notes');
   await expect(page.getByTestId('compile-status')).toHaveText('4 nodes compiled');
   const canvas = page.getByTestId('performance-canvas');
@@ -36,11 +38,12 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
     await page.waitForTimeout(37);
   }
   const taps = await page.evaluate(() => window.flowPatcher!.taps.filter((tap) => !tap.cold));
-  const { callback, largestStep, runStep } = await audioCallback(page);
+  const steps = await audioCallback(page);
+  const { step } = steps;
   // #97: why a warm tap's note sometimes lands past ±2 ms on CI. Logged before the checks, so a failing run has it.
   const baseLatency = await page.evaluate(() => window.flowPatcher!.clock.baseLatency);
   const msOf = (s: number | null) => (s === null ? 'null' : (s * 1000).toFixed(2));
-  console.log(`[tap timing] baseLatency ${msOf(baseLatency)} ms, callback ${msOf(callback)} ms, largest step ${msOf(largestStep)} ms in a 200 ms sample, ${msOf(runStep)} ms over the run (logged only)`);
+  console.log(`[tap timing] baseLatency ${msOf(baseLatency)} ms, one step ${msOf(step)} ms: ${stepLog(steps)}`);
   for (const tap of taps) {
     // From the push's own clock read (stamp less the offset): past the offset at start(), the note is late.
     // That holds while no push falls back to the horizon (pushFallbacks is checked to be 0 below).
@@ -57,7 +60,7 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
     // push reads currentTime again after the handler did, and an audio callback can land between the
     // two reads. The +5 ms is the lower bound here; the gate's ±2 ms is then measured from push's read.
     expect(tap.stamped! - tap.at).toBeGreaterThanOrEqual(0.005 - 1e-6);
-    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(0.005 + callback + 1e-6);
+    expect(tap.stamped! - tap.at).toBeLessThanOrEqual(0.005 + step + 1e-6);
     expect(tap.note).not.toBeNull();
     expect(Math.abs(tap.note! - tap.stamped!)).toBeLessThanOrEqual(0.002);
   }
