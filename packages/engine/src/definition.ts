@@ -276,6 +276,12 @@ export interface AudioInstance {
 }
 
 export interface AudioSetupContext {
+  /** The node's id, as `NodeContext.nodeId`. */
+  readonly nodeId: string;
+  /** The patch seed, as `NodeContext.seed`. With `nodeId`, it keys randomness drawn at setup, such as a generated
+   *  impulse response: `rngAt(seed, nodeId, ...keys)` for a stream, `randomAt(seed, nodeId, ...keys)` for one value.
+   *  Never Math.random. A seed change rebuilds the instance, so both are fixed for its life. */
+  readonly seed: number;
   readonly audio: AudioContextLike;
   /** The resolved params as the instance was built. An in-place edit hands the new ones to `AudioInstance.update`. */
   readonly params: ParamValues;

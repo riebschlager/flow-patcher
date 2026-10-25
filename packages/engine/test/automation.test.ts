@@ -594,4 +594,22 @@ describe('AudioSetupContext.value and signal', () => {
     runtime.query(0.3, 0.4);
     expect(reads.at(-1)).toEqual({ t0: 0.3, value: { id: 2, t: 0.3, chunk: [0.3, 0.4] }, signal: 5 });
   });
+
+  it('gives the audio setup the node id and the patch seed, and a seed change rebuilds with the new one', () => {
+    const seen: [string, number][] = [];
+    const keyed: NodeDefinition = { ...effect, type: 'keyed', audio: (ctx) => (seen.push([ctx.nodeId, ctx.seed]), effect.audio!(ctx)) };
+    const defs = new Map([meter, keyed].map((d) => [d.type, d]));
+    const compileSeed = (seed: number): Plan => {
+      const compiled = compilePatch({ format: 'flowpatch', version: 1, seed, nodes: [node('verb', 'keyed')], cables: [] }, defs);
+      if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+      return compiled.plan;
+    };
+    const runtime = new Runtime(compileSeed(41));
+    runtime.keepHistory();
+    runtime.attachAudio({} as AudioContextLike);
+    expect(seen).toEqual([['verb', 41]]);
+    runtime.query(0, 0.1);
+    runtime.swap(compileSeed(42), { now: 0.05 });
+    expect(seen).toEqual([['verb', 41], ['verb', 42]]);
+  });
 });
