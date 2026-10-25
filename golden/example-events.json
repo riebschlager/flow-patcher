@@ -4820,6 +4820,118 @@
    "index": 7
   }
  ],
+ "delay-orbit.flowpatch": [
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "orbit",
+   "port": "tick",
+   "time": 0,
+   "channel": 0,
+   "index": 0
+  },
+  {
+   "node": "pattern",
+   "port": "hit",
+   "time": 0,
+   "channel": 0,
+   "index": 0,
+   "velocity": 1
+  },
+  {
+   "node": "tone",
+   "port": "note",
+   "time": 0,
+   "channel": 0,
+   "index": 0,
+   "velocity": 0.75,
+   "pitch": 57,
+   "duration": 0.15
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 0.625,
+   "channel": 0,
+   "index": 1
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.25,
+   "channel": 0,
+   "index": 2
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 1.875,
+   "channel": 0,
+   "index": 3
+  },
+  {
+   "node": "pattern",
+   "port": "hit",
+   "time": 1.875,
+   "channel": 0,
+   "index": 3,
+   "velocity": 0.65
+  },
+  {
+   "node": "tone",
+   "port": "note",
+   "time": 1.875,
+   "channel": 0,
+   "index": 3,
+   "velocity": 0.75,
+   "pitch": 67,
+   "duration": 0.15
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 2.5,
+   "channel": 0,
+   "index": 4
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.125,
+   "channel": 0,
+   "index": 5
+  },
+  {
+   "node": "clock",
+   "port": "tick",
+   "time": 3.75,
+   "channel": 0,
+   "index": 6
+  },
+  {
+   "node": "pattern",
+   "port": "hit",
+   "time": 3.75,
+   "channel": 0,
+   "index": 6,
+   "velocity": 0.65
+  },
+  {
+   "node": "tone",
+   "port": "note",
+   "time": 3.75,
+   "channel": 0,
+   "index": 6,
+   "velocity": 0.75,
+   "pitch": 76,
+   "duration": 0.15
+  }
+ ],
  "drag-notes.flowpatch": [
   {
    "node": "pointer",
