@@ -1,0 +1,24 @@
+# 0033 · The first wake catches up from 0, within the catch-up limit
+
+Status: Accepted · 2026-10-25 · Amends [0017](0017-immediate-offset-and-catch-up.md), [0027](0027-immediate-notes-within-one-clock-step.md)
+
+## Context
+In the editor the AudioContext stays suspended until the first tap, so the scheduler queries nothing before it. By the first running wake after the resume, `currentTime` has already moved a few ms past 0, and that wake started its window at `now`. An event at exactly t=0, such as a Clock's first tick, was never queried and never played (#105). Headless runs wake at exactly 0, so they never showed it.
+
+The fix catches up [0, now) with 0017's mechanism. In the e2e that checks it, the catch-up then ran into 0027's rule that scheduled events are never late. A catch-up moves its stretch to start at the wake's `now`, with no lead. Before, only rare late wakes did that, but now nearly every cold start does it for the t=0 event. The first wake's query is the slowest of a session, because it builds the audio instances, so `currentTime` often steps during it. In 30 Chromium runs on macOS the step left the t=0 note behind the clock at hand-over in about one run in ten, and behind it at `start()` in a few more, by at most one step (5.3 ms).
+
+## Decision
+- The first running wake, the one before any window has been queried, treats 0 as its horizon. If `now` is within the catch-up limit (100 ms), it catches up [0, now): moved to start at `now`, keeping its spacing, as 0017 does. So a t=0 event sounds at the resume.
+- Past the limit, the first wake starts at `now`, as before #105, and doesn't count a stall. A t=0 note is lost only after a startup slower than 100 ms. Nothing in [0, now) was ever heard, so a stall count would report a slow startup as a dropped window. 0017's no-burst rule holds for every catch-up, the first included: none is longer than the limit, even when something else queried part of [0, now) first.
+- A resume after a suspend or `halt`, once a window has been queried, is unchanged: it carries on from the horizon, or from `now` if the clock has passed the horizon, and doesn't catch up.
+- Held pushes, such as the first tap, are replayed after that wake's catch-up and stamped `currentTime + 5 ms`. The t=0 note goes first, and the tap's note follows at least 5 ms later.
+- A caught-up event that is still behind the clock at hand-over is moved to the clock, like any other late event. This applies to every catch-up, not just the first. It is counted in `lateCaughtUp`, not in `lateScheduled`, and `lateCaughtUpMaxMs` records the most such an event was moved, as `lateImmediateMaxMs` does for a tap (0027). A caught-up event is late by design, and `caughtUp` already counts it. It may reach Web Audio up to one audio clock step behind `currentTime`, the same bound 0027 sets for a tap's own note.
+- 0027's "scheduled events must never be late" now covers events queried ahead of the clock: `lateScheduled` stays 0.
+- The M1 gate box **No late events** (milestones.md) reads with that split. Over the e2e edit run, no event queried ahead is handed to Web Audio before `currentTime` (`lateScheduled` is 0). A tap's own note and a caught-up event are each at most one audio clock step late (`lateImmediateMaxMs` and `lateCaughtUpMaxMs` are each at most one step). The edit run asserts all three. The box's wording stays as it is.
+
+## Consequences
+- The first note of a patch sounds at the first tap instead of one period later, unless startup took more than 100 ms. The event log keeps the patch's own times, the same as a clock that started at 0. Headless runs and the golden logs don't change.
+- As with any catch-up, [0, now) overlaps [now, 2·now) by up to 100 ms, once: a flam at most.
+- Visual nodes see caught-up events at their own times (design.md, Lifetimes), so the t=0 splash can lead its sound by up to the catch-up, at most 100 ms.
+- Signal automation in the first chunk moves by the shift, like any catch-up chunk (0031).
+- `RuntimeCounters.lateCaughtUp` and `lateCaughtUpMaxMs` are new. The first-note e2e and the e2e edit run both bound `lateCaughtUpMaxMs` by one clock step.

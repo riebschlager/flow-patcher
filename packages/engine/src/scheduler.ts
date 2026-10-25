@@ -1,4 +1,4 @@
-// The one scheduler (design.md, Timing and evaluation; ADRs 0008, 0017, 0019, 0032).
+// The one scheduler (design.md, Timing and evaluation; ADRs 0008, 0017, 0019, 0033).
 //
 // Every 25 ms it asks the runtime for the events from its horizon to
 // now + 120 ms (1.25 s while the page is hidden). Windows are contiguous, so
