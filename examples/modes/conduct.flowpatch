@@ -1,0 +1,577 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261025,
+  "nodes": [
+    {
+      "id": "pointer",
+      "type": "pointer",
+      "typeVersion": 2,
+      "params": {},
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "active",
+      "type": "math",
+      "typeVersion": 1,
+      "params": {
+        "constant": 1,
+        "op": "min"
+      },
+      "position": {
+        "x": 240,
+        "y": 260
+      }
+    },
+    {
+      "id": "depth",
+      "type": "math",
+      "typeVersion": 1,
+      "params": {
+        "op": "multiply"
+      },
+      "position": {
+        "x": 480,
+        "y": 160
+      }
+    },
+    {
+      "id": "closing",
+      "type": "smooth",
+      "typeVersion": 1,
+      "params": {
+        "fall": 0.4,
+        "rise": 0.12
+      },
+      "position": {
+        "x": 720,
+        "y": 160
+      }
+    },
+    {
+      "id": "side",
+      "type": "map-range",
+      "typeVersion": 1,
+      "params": {
+        "outMax": 0.325,
+        "outMin": -0.325
+      },
+      "position": {
+        "x": 240,
+        "y": 400
+      }
+    },
+    {
+      "id": "steer",
+      "type": "math",
+      "typeVersion": 1,
+      "params": {
+        "op": "multiply"
+      },
+      "position": {
+        "x": 480,
+        "y": 360
+      }
+    },
+    {
+      "id": "panning",
+      "type": "smooth",
+      "typeVersion": 1,
+      "params": {
+        "fall": 0.4,
+        "rise": 0.12
+      },
+      "position": {
+        "x": 720,
+        "y": 360
+      }
+    },
+    {
+      "id": "clock",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 84,
+        "division": "1/8"
+      },
+      "position": {
+        "x": 0,
+        "y": 520
+      }
+    },
+    {
+      "id": "bar",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 84,
+        "division": "1/1",
+        "rate": 0.5
+      },
+      "position": {
+        "x": 0,
+        "y": 700
+      }
+    },
+    {
+      "id": "chords",
+      "type": "progression",
+      "typeVersion": 1,
+      "params": {
+        "beats": 8,
+        "chords": "Am9, Fmaj9, Cmaj9, G6"
+      },
+      "position": {
+        "x": 240,
+        "y": 700
+      }
+    },
+    {
+      "id": "pattern",
+      "type": "euclidean",
+      "typeVersion": 1,
+      "params": {
+        "hits": 5,
+        "steps": 8
+      },
+      "position": {
+        "x": 240,
+        "y": 520
+      }
+    },
+    {
+      "id": "tone",
+      "type": "chord-tone",
+      "typeVersion": 1,
+      "params": {
+        "down": 0,
+        "length": 0.6,
+        "up": 2,
+        "velocity": 0.5
+      },
+      "position": {
+        "x": 480,
+        "y": 520
+      }
+    },
+    {
+      "id": "root",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 84,
+        "division": "1/2"
+      },
+      "position": {
+        "x": 0,
+        "y": 880
+      }
+    },
+    {
+      "id": "bass",
+      "type": "chord-tone",
+      "typeVersion": 1,
+      "params": {
+        "down": 1,
+        "length": 1.4,
+        "up": 0,
+        "velocity": 0.55
+      },
+      "position": {
+        "x": 480,
+        "y": 760
+      }
+    },
+    {
+      "id": "voice",
+      "type": "sampled-voice",
+      "typeVersion": 2,
+      "params": {
+        "instrument": "rhodes",
+        "level": 1.6
+      },
+      "position": {
+        "x": 720,
+        "y": 600
+      }
+    },
+    {
+      "id": "filter",
+      "type": "filter",
+      "typeVersion": 2,
+      "params": {
+        "cutoff": 18000,
+        "q": 0.9
+      },
+      "position": {
+        "x": 960,
+        "y": 600
+      }
+    },
+    {
+      "id": "pan",
+      "type": "pan",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 1200,
+        "y": 600
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 1440,
+        "y": 600
+      }
+    },
+    {
+      "id": "push",
+      "type": "force",
+      "typeVersion": 1,
+      "params": {
+        "mode": "push",
+        "radius": 0.17,
+        "strength": 0.6
+      },
+      "position": {
+        "x": 1200,
+        "y": 100
+      }
+    },
+    {
+      "id": "drops",
+      "type": "splat",
+      "typeVersion": 1,
+      "params": {
+        "size": 0.035
+      },
+      "position": {
+        "x": 1200,
+        "y": 260
+      }
+    },
+    {
+      "id": "fluid",
+      "type": "fluid",
+      "typeVersion": 3,
+      "params": {},
+      "position": {
+        "x": 1440,
+        "y": 100
+      }
+    },
+    {
+      "id": "renderer",
+      "type": "renderer",
+      "typeVersion": 2,
+      "params": {},
+      "position": {
+        "x": 1680,
+        "y": 100
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "pointer",
+        "port": "count"
+      },
+      "to": {
+        "node": "active",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "y"
+      },
+      "to": {
+        "node": "depth",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "active",
+        "port": "out"
+      },
+      "to": {
+        "node": "depth",
+        "port": "b"
+      }
+    },
+    {
+      "from": {
+        "node": "depth",
+        "port": "out"
+      },
+      "to": {
+        "node": "closing",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "x"
+      },
+      "to": {
+        "node": "side",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "side",
+        "port": "out"
+      },
+      "to": {
+        "node": "steer",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "active",
+        "port": "out"
+      },
+      "to": {
+        "node": "steer",
+        "port": "b"
+      }
+    },
+    {
+      "from": {
+        "node": "steer",
+        "port": "out"
+      },
+      "to": {
+        "node": "panning",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "clock",
+        "port": "tick"
+      },
+      "to": {
+        "node": "pattern",
+        "port": "tick"
+      }
+    },
+    {
+      "from": {
+        "node": "clock",
+        "port": "transport"
+      },
+      "to": {
+        "node": "chords",
+        "port": "transport"
+      }
+    },
+    {
+      "from": {
+        "node": "pattern",
+        "port": "hit"
+      },
+      "to": {
+        "node": "tone",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "bar",
+        "port": "phase"
+      },
+      "to": {
+        "node": "tone",
+        "port": "position"
+      }
+    },
+    {
+      "from": {
+        "node": "chords",
+        "port": "chord"
+      },
+      "to": {
+        "node": "tone",
+        "port": "chord"
+      }
+    },
+    {
+      "from": {
+        "node": "root",
+        "port": "tick"
+      },
+      "to": {
+        "node": "bass",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "chords",
+        "port": "chord"
+      },
+      "to": {
+        "node": "bass",
+        "port": "chord"
+      }
+    },
+    {
+      "from": {
+        "node": "tone",
+        "port": "note"
+      },
+      "to": {
+        "node": "voice",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "bass",
+        "port": "note"
+      },
+      "to": {
+        "node": "voice",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "voice",
+        "port": "audio"
+      },
+      "to": {
+        "node": "filter",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "closing",
+        "port": "out"
+      },
+      "to": {
+        "node": "filter",
+        "port": "cutoff"
+      },
+      "depth": -3.7
+    },
+    {
+      "from": {
+        "node": "panning",
+        "port": "out"
+      },
+      "to": {
+        "node": "pan",
+        "port": "pan"
+      },
+      "depth": 1
+    },
+    {
+      "from": {
+        "node": "filter",
+        "port": "out"
+      },
+      "to": {
+        "node": "pan",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "pan",
+        "port": "out"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "x"
+      },
+      "to": {
+        "node": "push",
+        "port": "x"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "y"
+      },
+      "to": {
+        "node": "push",
+        "port": "y"
+      }
+    },
+    {
+      "from": {
+        "node": "active",
+        "port": "out"
+      },
+      "to": {
+        "node": "push",
+        "port": "active"
+      }
+    },
+    {
+      "from": {
+        "node": "pattern",
+        "port": "hit"
+      },
+      "to": {
+        "node": "drops",
+        "port": "at"
+      }
+    },
+    {
+      "from": {
+        "node": "fluid",
+        "port": "field"
+      },
+      "to": {
+        "node": "renderer",
+        "port": "field"
+      }
+    },
+    {
+      "from": {
+        "node": "push",
+        "port": "write"
+      },
+      "to": {
+        "node": "fluid",
+        "port": "writers"
+      }
+    },
+    {
+      "from": {
+        "node": "drops",
+        "port": "write"
+      },
+      "to": {
+        "node": "fluid",
+        "port": "writers"
+      }
+    }
+  ]
+}

@@ -46,7 +46,7 @@ declare global {
 const GRID = 20;
 
 
-/** `?patch=<name>` opens examples/<name>.flowpatch, `?patch=new` an empty patch; clock-blips by default. Read once per page load. */
+/** `?patch=<name>` opens examples/<name>.flowpatch (`modes/paint` for one in a folder), `?patch=new` an empty patch; clock-blips by default. Read once per page load. */
 function initialPatch(): { doc: Patch; error: string | null } {
   const name = new URLSearchParams(location.search).get('patch') ?? 'clock-blips';
   if (name === 'new') return { doc: emptyPatch(), error: null };

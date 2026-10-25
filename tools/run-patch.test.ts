@@ -13,7 +13,7 @@ const EXAMPLE = join(ROOT, 'examples/clock-blips.flowpatch');
 describe('headless runner', () => {
   // M1 gate: Determinism. Two fresh runs in one process, so module-level state
   // or unseeded randomness would show up as a difference.
-  for (const file of readdirSync(join(ROOT, 'examples')).filter((f) => f.endsWith('.flowpatch')).sort()) {
+  for (const file of readdirSync(join(ROOT, 'examples'), { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.flowpatch')).sort()) {
     it(`${file}: the same patch and seed give byte-identical event logs run to run`, async () => {
       const path = join(ROOT, 'examples', file);
       const run = async () => formatEvents((await runPatch(loadPatch(path), { seconds: 4, fps: 0, audio: false }, { inputs: loadInputs(path) })).events);
