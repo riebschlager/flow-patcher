@@ -137,10 +137,9 @@ function audioTypes(clock: ManualClock, log: AudioLog): NodeDefinition[] {
       };
     },
   };
-  // Records which node each instance was built for.
   /** An Output stand-in: a sink that reads no seed, so a seed change keeps it (ADR 0035). */
   const out: NodeDefinition = { ...sink, type: 'out', ignoresSeed: true };
-  return [voice, sink, fx, out].map((d) => ({
+  return [voice, sink, fx, out].map((d) => ({ // Records which node each instance was built for.
     ...d,
     audio: (ctx) => {
       log.owners.set(log.built + 1, ctx.nodeId);
@@ -625,6 +624,56 @@ describe('retired audio chains', () => {
     expect(a).toBeGreaterThanOrEqual(v + 0.5 - EPS);
     expect(a).toBeLessThan(v + 0.5 + WAKE + EPS);
     expect(run.disposedAt('a', 1)).toBeNull();
+  });
+
+  it('adds one chain per seed change, and two retired chains don\'t hold each other', () => {
+    const run = setup(patch(
+      [node('m', 'metro', { period: 0.05 }), node('v', 'voice'), node('a', 'fx', { tail: 0.5 }), node('o', 'out')],
+      [cable('m', 'v'), cable('v', 'a'), cable('a', 'o')],
+    ));
+    run.wakeEvery(0, 0.5);
+    run.reseed(0.49, 2);
+    run.wakeEvery(0.5, 0.75);
+    // The first old chain still rings (its effect goes about 1.05 s) when the second change comes.
+    expect(run.disposedAt('a', 0)).toBeNull();
+    run.reseed(0.74, 3);
+    run.wakeEvery(0.75, 2.5);
+
+    const instances = (id: string) => [...run.audio.owners].filter(([, owner]) => owner === id).length;
+    expect([instances('v'), instances('a'), instances('o')]).toEqual([3, 3, 1]);
+    // Each old effect goes a tail after its own voice, whatever the other chain does.
+    for (const nth of [0, 1]) {
+      const v = run.disposedAt('v', nth)!, a = run.disposedAt('a', nth)!;
+      expect(a).toBeGreaterThanOrEqual(v + 0.5 - EPS);
+      expect(a).toBeLessThan(v + 0.5 + WAKE + EPS);
+    }
+    expect(run.disposedAt('v', 0)!).toBeLessThan(run.disposedAt('v', 1)!);
+    expect([run.disposedAt('v', 2), run.disposedAt('a', 2), run.disposedAt('o')]).toEqual([null, null, null]);
+  });
+
+  it('holds an Output replaced in the same swap as its upstream until the last instance feeding it goes', () => {
+    const run = setup(patch(
+      [node('m', 'metro', { period: 0.05 }), node('v', 'voice'), node('a', 'fx', { tail: 0.5 }), node('o', 'out')],
+      [cable('m', 'v'), cable('v', 'a'), cable('a', 'o')],
+    ));
+    run.wakeEvery(0, 0.5);
+    // One swap rebuilds the voice and the effect, and replaces the Output with another.
+    const swap = run.edit(0.49,
+      { op: 'set-param', node: 'v', param: 'tone', value: 0.9 },
+      { op: 'set-param', node: 'a', param: 'tail', value: 0.4 },
+      { op: 'remove-node', node: 'o' },
+      { op: 'add-node', node: node('o2', 'out') },
+      { op: 'add-cable', cable: cable('a', 'o2') },
+    );
+    expect(swap.removed).toEqual(['o']);
+    run.wakeEvery(0.5, 2);
+
+    const v = run.disposedAt('v')!, a = run.disposedAt('a')!, o = run.disposedAt('o')!;
+    // The old effect keeps its own tail (0.5 s) from the old voice; the old Output, with no tail, goes with it.
+    expect(a).toBeGreaterThanOrEqual(v + 0.5 - EPS);
+    expect(a).toBeLessThan(v + 0.5 + WAKE + EPS);
+    expect(o).toBe(a);
+    expect([run.disposedAt('v', 1), run.disposedAt('a', 1), run.disposedAt('o2')]).toEqual([null, null, null]);
   });
 
   it('retires an audio cycle together, once every instance in it is idle, and never holds it forever', () => {

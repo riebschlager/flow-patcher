@@ -2194,7 +2194,6 @@ interface Tap {
   reach: ReadonlySet<string>;
 }
 
-/** How many chunks `forChunks` splits a window `width` seconds wide into, for a plan's `maxWindow`. */
 /** The nodes reachable from `start` along `edges` (index → indices it feeds), `start` itself only through a cycle. */
 function reachable(edges: readonly (readonly number[])[], start: number): Set<number> {
   const seen = new Set<number>();
@@ -2239,6 +2238,7 @@ function feedbackGroups(edges: readonly (readonly number[])[]): number[][] {
   return groups.reverse();
 }
 
+/** How many chunks `forChunks` splits a window `width` seconds wide into, for a plan's `maxWindow`. */
 function chunkCount(width: number, maxWindow: number): number {
   // A hair under the shortest delay; see forChunks.
   const step = maxWindow * (1 - 1e-6);

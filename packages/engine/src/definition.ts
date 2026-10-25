@@ -403,7 +403,8 @@ export interface NodeDefinition {
   unique?: boolean;
   /** The node reads no seed (ADR 0035): a swap that only changes the patch seed leaves it as it is,
    *  its audio instance included. Output sets it, so a seed change never puts a second Output
-   *  stage (and limiter) beside the first while the old chain rings out into it. */
+   *  stage (and limiter) beside the first while the old chain rings out into it.
+   *  Only for nodes whose output doesn't depend on `seed` anywhere (audio setup or queries): a node that reads it would keep old randomness. */
   ignoresSeed?: boolean;
   /** A source behind a browser permission. The editor asks the first time a patch
    *  containing the node plays, and passes the answer to `status` as

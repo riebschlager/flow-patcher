@@ -8,6 +8,10 @@
 // on a stand-in stage. The second's are hot swaps (#22): knob changes on every
 // node, which rebuild Simple Synth and Output, and a Make Note added and
 // removed on a second cable into the synth.
+//
+// The seed-change test (#115, ADR 0035): a seed change mid-echo rebuilds Delay
+// and Reverb but keeps Output, and the old chain rings out into it sample for
+// sample as if nothing changed.
 import { describe, expect, it } from 'vitest';
 import { compilePatch, createOutputStage, OUTPUT_CEILING, parsePatch, type NodeDefinition, type OutputStage, type Patch, type PatchEdit } from '@flow-patcher/engine';
 import { nodeRegistry, output } from '@flow-patcher/nodes';
