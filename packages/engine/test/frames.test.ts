@@ -109,6 +109,9 @@ describe('frames and the immediate path (ADR 0020)', () => {
     const clock = new ManualClock();
     const scheduler = new Scheduler(runtime, { clock });
     runtime.attachAudio({} as AudioContextLike);
+    // The patch starts at 0, and the tests begin at 1: the jump there is a stall, which skips
+    // [0.12, 1) (a first wake at 1 would catch all of [0, 1) up instead).
+    scheduler.wake();
     const loop = new FrameLoop(runtime, { clock: { audioTime: () => clock.audio, wallTime: () => clock.wall, outputLatency: () => 0.2 } });
     /** Moves the clock to `t`, wakes the scheduler and runs a frame. */
     const step = (t: number) => {

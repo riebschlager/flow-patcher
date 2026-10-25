@@ -1,10 +1,14 @@
-// The one scheduler (design.md, Timing and evaluation; ADRs 0008, 0017, 0019).
+// The one scheduler (design.md, Timing and evaluation; ADRs 0008, 0017, 0019, 0032).
 //
 // Every 25 ms it asks the runtime for the events from its horizon to
 // now + 120 ms (1.25 s while the page is hidden). Windows are contiguous, so
 // each moment is queried once. A wake up to 100 ms past its horizon still
 // queries the stretch it missed, moved to start now so its events keep their
-// spacing; a later wake is a stall and skips the missed windows. Live input
+// spacing; a later wake is a stall and skips the missed windows. The first
+// running wake starts the patch at 0: if the clock is already past it (the
+// AudioContext started before the wake, as on the first tap), [0, now) is
+// caught up the same way, however long it is, and never counts as a stall.
+// A resume after a suspend or `halt` carries on from the horizon. Live input
 // takes the immediate path: `push` stamps it currentTime + 5 ms and sends it
 // down its cables at once, rewinding the nodes downstream of it.
 //
@@ -38,7 +42,8 @@ export interface SchedulerClock {
   wallTime(): number;
   /** False while the audio clock is suspended: wakes do nothing, pushes are held,
    *  and the next running wake resumes from the horizon (or from now, if the
-   *  clock has passed it) without counting a stall. Default true. */
+   *  clock has passed it) without counting a stall. The very first running wake
+   *  starts from 0 instead, catching up [0, now). Default true. */
   running?(): boolean;
   /** True while the page is hidden, for the long lookahead. Default false. The
    *  host should also call `wake()` when visibility changes. */
@@ -189,7 +194,8 @@ export class Scheduler {
     this.wake();
   }
 
-  /** Stops the timer. The next wake resumes like after a suspend: from the horizon, or from now if that has passed. */
+  /** Stops the timer. The next wake resumes like after a suspend: from the horizon, or from now if that has passed
+   *  (before any window was queried, it is still the first wake, which starts from 0). */
   halt(): void {
     this.stop?.();
     this.stop = null;
@@ -200,8 +206,9 @@ export class Scheduler {
   /**
    * One wake: query from the horizon to now + lookahead. A wake up to
    * catchUpLimit past the horizon still queries what it missed, moved later
-   * to start now; a later one skips the missed windows. A window never starts
-   * before the runtime's horizon, so no stretch is queried twice.
+   * to start now; a later one skips the missed windows. The first running
+   * wake queries from 0, catching up [0, now) whatever its length. A window
+   * never starts before the runtime's horizon, so no stretch is queried twice.
    */
   wake(): void {
     if (this.clock.running && !this.clock.running()) {
@@ -215,9 +222,16 @@ export class Scheduler {
     this.last = { wall, audio: now };
     let t0: number;
     let catchUp: { until: number; shift: number } | undefined;
-    if (this.fresh || this.next === null) {
-      // First wake, or resuming: carry on from the horizon, or from now if the clock has moved past it.
-      t0 = Math.max(now, this.next ?? -Infinity);
+    if (this.next === null) {
+      // The first running wake: nothing has been queried, so the patch starts at 0. If the clock
+      // is already past 0 (it started before this wake: the first tap resumed the AudioContext),
+      // [0, now) is caught up below, so a t=0 event sounds at the resume. Not a stall, however
+      // late: nothing was ever heard from that stretch, so nothing plays twice or is skipped.
+      t0 = 0;
+      this.fresh = false;
+    } else if (this.fresh) {
+      // Resuming after a suspend or halt: carry on from the horizon, or from now if the clock has moved past it.
+      t0 = Math.max(now, this.next);
       this.fresh = false;
     } else {
       t0 = this.next;
@@ -240,8 +254,9 @@ export class Scheduler {
     // Whoever queried the runtime last, never query a stretch twice.
     t0 = Math.max(t0, this.runtime.horizon ?? -Infinity);
     // What's still missed after that, [t0, now), is caught up: moved to start now.
-    // (A fresh start and a stall both begin at now or later, so they never catch up;
-    // within the limit, `late` was at most catchUpLimit, and the clamp only shrinks it.)
+    // (A resume and a stall both begin at now or later, so they never catch up; within
+    // the limit, `late` was at most catchUpLimit, and the clamp only shrinks it. The
+    // first wake catches up all of [0, now), past the limit too.)
     if (t0 < now) {
       catchUp = { until: now, shift: now - t0 };
       this.own.catchUps++;
