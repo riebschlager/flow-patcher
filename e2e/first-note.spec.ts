@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { IMMEDIATE_OFFSET } from '../packages/engine/src/scheduler';
+import { CATCH_UP_LIMIT, IMMEDIATE_OFFSET } from '../packages/engine/src/scheduler';
 import type { LivePatch } from '../packages/editor/src/live';
 import { audioCallback } from './audio-clock';
 
@@ -71,31 +71,37 @@ test('the first tap starts audio, and the t=0 Clock note sounds at once, before 
 
   await page.getByTestId('performance-canvas').click({ position: { x: 40, y: 40 } });
   await expect(page.getByTestId('audio-state')).toHaveText('live');
-  // Both notes, long before the Clock's second tick at 1 s.
-  await expect.poll(async () => (await starts(page)).length).toBeGreaterThanOrEqual(2);
+  // The tap's note, and the first running wake (when the resume let the scheduler query).
+  await expect.poll(async () => (await starts(page)).some((s) => Math.abs(s.hz - TAP_HZ) < 1)).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.flowPatcher!.stats.firstWake)).not.toBeNull();
+  // Both notes, if the first wake caught up, long before the Clock's second tick at 1 s.
+  await page.waitForTimeout(100);
   const seen = await starts(page);
   const stats = await page.evaluate(() => window.flowPatcher!.stats);
   const tap = await page.evaluate(() => window.flowPatcher!.taps[0]!);
-  const ms = (s: number) => (s * 1000).toFixed(2);
-  console.log(`[first note] starts ${seen.map((s) => `${Math.round(s.hz)} Hz at ${ms(s.when)} (called at ${ms(s.at)})`).join(', ')}; ` +
-    `catch-ups ${stats.catchUps} (worst ${stats.catchUpMaxMs.toFixed(2)} ms), caught up ${stats.caughtUp}, ` +
-    `late ${stats.lateCaughtUp} caught up (worst ${stats.lateCaughtUpMaxMs.toFixed(2)} ms), ${stats.lateScheduled} scheduled, ${stats.lateImmediate} immediate; stalls ${stats.stalls}`);
-
   // One clock step: the callback (baseLatency) or the largest step seen, whichever is longer (ADR 0027).
   const { callback, largestStep } = await audioCallback(page);
   const step = Math.max(callback, largestStep);
-  const [clockNote, tapNote] = seen;
-  // The t=0 tick, caught up: it reached Web Audio on the resume's first wake, at the clock then, not 1 s later.
+  const ms = (s: number) => (s * 1000).toFixed(2);
+  console.log(`[first note] first wake at ${ms(stats.firstWake!)} ms; starts ${seen.map((s) => `${Math.round(s.hz)} Hz at ${ms(s.when)} (called at ${ms(s.at)})`).join(', ')}; ` +
+    `catch-ups ${stats.catchUps} (worst ${stats.catchUpMaxMs.toFixed(2)} ms), caught up ${stats.caughtUp}, ` +
+    `late ${stats.lateCaughtUp} caught up (worst ${stats.lateCaughtUpMaxMs.toFixed(2)} ms), ${stats.lateScheduled} scheduled, ${stats.lateImmediate} immediate; stalls ${stats.stalls}; one step ${ms(step)} ms`);
+
+  // A startup slower than the catch-up limit starts the patch at the first wake and drops the t=0 tick by design.
+  expect(stats.firstWake!, `first wake ${ms(stats.firstWake!)} ms past 0, beyond the ${ms(CATCH_UP_LIMIT)} ms catch-up limit; t=0 dropped by design (ADR 0033)`)
+    .toBeLessThanOrEqual(CATCH_UP_LIMIT);
+  const clockNote = seen.find((s) => Math.abs(s.hz - CLOCK_HZ) < 1);
+  const tapNote = seen.find((s) => Math.abs(s.hz - TAP_HZ) < 1);
+  // The t=0 tick, caught up: the first wake moved it to its own clock reading, the resume, not 1 s later.
   // A catch-up has no lead, so a clock step during that wake can leave it behind currentTime, by up to a step
   // (the runtime moves it to the clock at hand-over and counts it in lateCaughtUp; Web Audio plays it at once).
-  expect(clockNote!.hz).toBeCloseTo(CLOCK_HZ, 1);
+  expect(clockNote, 'the t=0 Clock note was never started').toBeDefined();
+  expect(clockNote!.when).toBeGreaterThanOrEqual(stats.firstWake! - 1e-9);
+  expect(clockNote!.when - stats.firstWake!).toBeLessThanOrEqual(step + 1e-6);
   expect(clockNote!.at - clockNote!.when).toBeLessThanOrEqual(step + 1e-6);
-  expect(clockNote!.when).toBeLessThan(0.5);
-  expect(stats.caughtUp).toBeGreaterThanOrEqual(1);
-  expect(stats.catchUps).toBeGreaterThanOrEqual(1);
+  expect(seen.indexOf(clockNote!)).toBeLessThan(seen.indexOf(tapNote!));
   // The tap, held while audio was stopped, is stamped currentTime + 5 ms by the same wake, after the catch-up.
   expect(tap.cold).toBe(true);
-  expect(tapNote!.hz).toBeCloseTo(TAP_HZ, 1);
   // Its push read the clock after that wake handed the t=0 note over, so it follows by at least the 5 ms offset.
   expect(tapNote!.at - tapNote!.when).toBeLessThanOrEqual(step + 1e-6);
   expect(tapNote!.when - clockNote!.when).toBeGreaterThanOrEqual(IMMEDIATE_OFFSET - 1e-6);
@@ -105,8 +111,7 @@ test('the first tap starts audio, and the t=0 Clock note sounds at once, before 
   expect(stats.lateCaughtUpMaxMs).toBeLessThanOrEqual(step * 1000 + 1e-3);
 
   // And it keeps time from there: the next tick at 1 s. That holds because the first wake was within the
-  // catch-up limit (the clock 100 ms or less past 0, asserted above by the t=0 note being caught up); a
-  // slower start begins at now and its first tick would be this one.
+  // catch-up limit (asserted above); a slower start begins at now and its first tick would be this one.
   await expect.poll(async () => (await starts(page)).filter((s) => Math.abs(s.hz - CLOCK_HZ) < 1).length, { timeout: 5000 }).toBeGreaterThanOrEqual(2);
   const ticks = (await starts(page)).filter((s) => Math.abs(s.hz - CLOCK_HZ) < 1);
   expect(ticks[1]!.when).toBeCloseTo(1, 9);

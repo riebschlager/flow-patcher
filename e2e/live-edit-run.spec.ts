@@ -161,7 +161,7 @@ test('scripted edits on the playing demo hand no scheduled event late, and no ta
   expect(final.lateScheduled).toBe(0);
   // A tap's notes may reach Web Audio behind the clock, by at most one step (ADR 0027); Web Audio plays them at the next quantum.
   expect(final.lateImmediateMaxMs).toBeLessThanOrEqual(step * 1000 + 1e-3);
-  // A caught-up event (the first tap's catch-up of [0, now), ADR 0033) may land behind the clock by a step too.
+  // A caught-up event (any catch-up, the first tap's included; ADR 0033) may land behind the clock by a step too.
   expect(final.lateCaughtUpMaxMs).toBeLessThanOrEqual(step * 1000 + 1e-3);
   expect(worstLate).toBeLessThanOrEqual(step + 1e-6);
   expect(final.skipped).toBe(0);

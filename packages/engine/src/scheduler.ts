@@ -135,6 +135,9 @@ export interface SchedulerStats extends RuntimeCounters {
   pushFallbacks: number;
   /** Smoothed wall-clock milliseconds per query of the rewinds while visible and while hidden; null before the first. */
   msPerQuery: { visible: number | null; hidden: number | null };
+  /** The audio clock at the first running wake, the one before any window was queried; null before it. Within
+   *  catchUpLimit, that wake caught up [0, firstWake); past it, it started at firstWake and a t=0 event was dropped (ADR 0033). */
+  firstWake: number | null;
 }
 
 /** The scheduler. One per running patch. */
@@ -152,6 +155,7 @@ export class Scheduler {
    *  hidden, where windows are wider, so one average would mispredict after a visibility change. */
   private readonly msPerQuery: { visible: number | null; hidden: number | null } = { visible: null, hidden: null };
   private next: number | null = null;
+  private firstWake: number | null = null;
   private last: { wall: number; audio: number } | null = null;
   /** The next running wake resumes rather than catching up or counting a stall. */
   private fresh = true;
@@ -183,7 +187,7 @@ export class Scheduler {
   }
 
   get stats(): SchedulerStats {
-    return { ...this.runtime.counters, ...this.own, msPerQuery: { ...this.msPerQuery } };
+    return { ...this.runtime.counters, ...this.own, msPerQuery: { ...this.msPerQuery }, firstWake: this.firstWake };
   }
 
   /** Wakes now and then every wakeInterval on the injected timer. */
@@ -231,6 +235,7 @@ export class Scheduler {
       // catchUpLimit, as for any late wake (ADR 0017: no bursts). Past it, the patch starts at
       // now, without counting a stall: nothing was ever heard, so nothing was dropped mid-play.
       t0 = now <= this.catchUpLimit ? 0 : now;
+      this.firstWake = now;
       this.fresh = false;
     } else if (this.fresh) {
       // Resuming after a suspend or halt: carry on from the horizon, or from now if the clock has moved past it.

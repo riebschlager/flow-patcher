@@ -1146,6 +1146,7 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     expect(deliveredAt(run)).toEqual([[0.003, 0.003, 0], [0.003, 0.05, 1], [0.003, 0.1, 2]]);
     expect(run.scheduler.stats).toMatchObject({ catchUps: 1, caughtUp: 1, stalls: 0, skipped: 0, lateScheduled: 0 });
     expect(run.scheduler.stats.catchUpMaxMs).toBeCloseTo(3, 9);
+    expect(run.scheduler.stats.firstWake).toBe(0.003);
     // The log keeps the patch's own times: the same as a run whose clock started at 0.
     run.wakeEvery(0.025, 1);
     const reference = setup(metroPatch(0.05));
@@ -1174,7 +1175,10 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     expect(windows).toEqual([[0.5, 0.5 + LOOKAHEAD]]);
     expect(run.live().map((d) => [d.at, d.event.index])).toEqual([[0.5, 10], [0.5, 11], [0.5, 12]]);
     expect(run.live()[0]!.event.time).toBe(0.5);
-    expect(run.scheduler.stats).toMatchObject({ catchUps: 0, caughtUp: 0, stalls: 0, skipped: 0, lateScheduled: 0 });
+    expect(run.scheduler.stats).toMatchObject({ catchUps: 0, caughtUp: 0, stalls: 0, skipped: 0, lateScheduled: 0, firstWake: 0.5 });
+    // Only the first running wake counts: later wakes leave it.
+    run.wakeAt(0.525);
+    expect(run.scheduler.stats.firstWake).toBe(0.5);
   });
 
   it('never catches up more than the limit at the first wake, even if someone else queried part of [0, now)', () => {
@@ -1264,6 +1268,35 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     expect(run.scheduler.stats).toMatchObject({ caughtUp: 1, lateCaughtUp: 1, lateScheduled: 0, lateImmediate: 0, lateImmediateMaxMs: 0 });
     // Moved 8 ms: how far the clock stepped during the query.
     expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(8, 9);
+  });
+
+  it('counts late caught-up events of every catch-up in lateCaughtUp, mid-session too, with the worst in lateCaughtUpMaxMs', () => {
+    // Emits one event at the start of each window, and moves the clock by `move` while it runs when set.
+    let clock: ManualClock | null = null, move = 0;
+    const edge: NodeDefinition = {
+      ...metro, type: 'edge', params: [],
+      query: ({ t0 }) => {
+        if (clock && move) {
+          clock.audio += move;
+          move = 0;
+        }
+        return { out: [{ time: t0, channel: 0 }] };
+      },
+    };
+    const run = setup(patch([node('e', 'edge'), node('r', 'recorder')], [cable('e', 'r')]), {}, [edge]);
+    clock = run.clock;
+    run.wakeAt(0, 0.025);
+    expect(run.scheduler.stats).toMatchObject({ catchUps: 0, firstWake: 0 });
+    // Two late wakes within the limit, 50 and 70 ms past the horizon, with the clock stepping 4 and 9 ms during
+    // their queries: each window's first event, caught up to now, is behind the clock at hand-over by that step.
+    run.clock.set(run.scheduler.horizon! + 0.05);
+    move = 0.004;
+    run.scheduler.wake();
+    run.clock.set(run.scheduler.horizon! + 0.07);
+    move = 0.009;
+    run.scheduler.wake();
+    expect(run.scheduler.stats).toMatchObject({ catchUps: 2, stalls: 0, lateCaughtUp: 2, lateScheduled: 0, lateImmediate: 0 });
+    expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(9, 6);
   });
 
   it('plays the t=0 event of a patch swapped in before the first tap', () => {
