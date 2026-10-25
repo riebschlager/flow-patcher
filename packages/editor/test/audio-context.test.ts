@@ -69,6 +69,31 @@ describe('observeStarts', () => {
     expect(like.largestStep).toBeCloseTo(0.0116, 12);
   });
 
+  it('does not take a clock move as a step when the thread was descheduled between a clock read and its wall reading', () => {
+    // currentTime is read between two wall readings; a stall can fall between them.
+    const fake = { currentTime: 0 };
+    let wall = 0, stallAfterClock = 0;
+    const like = observeStarts(fake as unknown as AudioContext, () => {}, () => {
+      const now = wall;
+      wall += stallAfterClock;
+      stallAfterClock = 0;
+      return now;
+    });
+    void like.currentTime;
+    // Read 2: wall 0, clock 0, then a 20 ms stall before its wall reading after (20).
+    stallAfterClock = 20;
+    void like.currentTime;
+    // Read 3, right after: the clock moved 20 ms during the stall. Its wall readings (20, 20) sit next to
+    // read 2's last one, but read 2's clock read came at wall 0: 20 ms apart, so not a step.
+    fake.currentTime = 0.02;
+    void like.currentTime;
+    expect(like.largestStep).toBe(0);
+    // Reads with no stall between them still measure a step.
+    fake.currentTime = 0.0229;
+    void like.currentTime;
+    expect(like.largestStep).toBeCloseTo(0.0029, 12);
+  });
+
   it('builds a working convolver, delay and buffer on a real context', async () => {
     const rate = 48000;
     const context = new OfflineAudioContext(1, rate / 10, rate);

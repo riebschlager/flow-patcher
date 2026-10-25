@@ -15,7 +15,8 @@ export const STEP_GAP_MS = 1;
 /** The AudioContext as the runtime sees it, plus what its clock reads have shown of it. */
 export interface ObservedContext extends AudioContextLike {
   /** The largest move of currentTime between two of its reads (through this wrapper) at most
-   *  STEP_GAP_MS apart in wall time, in seconds: one clock step, as the code reading it met it.
+   *  STEP_GAP_MS apart in wall time (from a wall reading just before the first to one just after
+   *  the second), in seconds: one clock step, as the code reading it met it.
    *  Reads further apart are left out, so a main-thread stall between them isn't counted as a step. */
   readonly largestStep: number;
 }
@@ -23,12 +24,15 @@ export interface ObservedContext extends AudioContextLike {
 /** Wraps `context` for the runtime, telling `onStart` about every oscillator and buffer source start.
  *  Every currentTime read goes through `read`, which also keeps `largestStep`. `wall` is the wall clock in ms. */
 export function observeStarts(context: AudioContext, onStart: StartListener, wall: () => number = () => performance.now()): ObservedContext {
-  let largestStep = 0, lastClock = NaN, lastWall = NaN;
+  let largestStep = 0, lastClock = NaN, lastBefore = NaN;
+  // Wall readings on both sides of each clock read: the span from before the last read to after
+  // this one bounds the wall time between the two clock reads, whatever descheduled the thread
+  // between a clock read and its wall reading.
   const read = (): number => {
-    const clock = context.currentTime, at = wall();
-    if (at - lastWall <= STEP_GAP_MS && clock - lastClock > largestStep) largestStep = clock - lastClock;
+    const before = wall(), clock = context.currentTime, after = wall();
+    if (after - lastBefore <= STEP_GAP_MS && clock - lastClock > largestStep) largestStep = clock - lastClock;
     lastClock = clock;
-    lastWall = at;
+    lastBefore = before;
     return clock;
   };
   return {
