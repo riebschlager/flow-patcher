@@ -161,11 +161,17 @@ export interface CableEnd {
   port: PortSpec;
 }
 
-/** The port on `definition` a cable from `end` would connect to: the first compatible one facing it. */
+/** The port on `definition` a cable from `end` would connect to: the first compatible one facing it,
+ *  else, for a cable from an output, the first knob that takes it. */
 export function matchingPort(definition: NodeDefinition, end: CableEnd): PortSpec | undefined {
   const from = end.port.direction === 'out';
-  return portsOf(definition, from ? 'in' : 'out').find((p) => (from ? portsCompatible(end.port, p) : portsCompatible(p, end.port)));
+  const port = portsOf(definition, from ? 'in' : 'out').find((p) => (from ? portsCompatible(end.port, p) : portsCompatible(p, end.port)));
+  if (port || !from) return port;
+  return definition.params.filter(isModulatable).map(paramPort).find((p) => portsCompatible(end.port, p));
 }
+
+/** The Signal input a modulatable knob stands for, on its param handle. */
+const paramPort = (spec: NumberParamSpec): PortSpec => ({ name: paramHandle(spec.name), type: 'signal', direction: 'in', label: spec.label ?? spec.name });
 
 /** The port a handle stands for. A param handle stands for a Signal input named by its handle id. */
 export function handlePort(patch: Patch, registry: Registry, node: string, handle: string | null, direction: 'in' | 'out'): PortSpec | undefined {
@@ -173,5 +179,5 @@ export function handlePort(patch: Patch, registry: Registry, node: string, handl
   const param = direction === 'in' ? handleParam(handle) : undefined;
   if (param === undefined) return portOf(registry, type, direction, handle);
   const spec = modulatableParam(registry, type, param);
-  return spec && { name: paramHandle(spec.name), type: 'signal', direction: 'in', label: spec.label ?? spec.name };
+  return spec && paramPort(spec);
 }

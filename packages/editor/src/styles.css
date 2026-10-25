@@ -153,6 +153,9 @@ html, body, #root { height: 100%; margin: 0; background: var(--fp-surface-canvas
 .palette__accepts { height: 20px; display: flex; align-items: center; gap: var(--fp-space-2); padding: 0 var(--fp-space-3); border-radius: var(--fp-radius-full); font-size: var(--fp-text-micro); white-space: nowrap; }
 .palette__accepts-mark { width: var(--fp-space-3); height: var(--fp-space-3); background: currentColor; transform: rotate(45deg); }
 .palette__list { display: grid; gap: 1px; padding: var(--fp-space-3); max-height: 300px; overflow: auto; }
+.palette__group { padding: var(--fp-space-4) var(--fp-space-4) var(--fp-space-2); font-family: var(--fp-font-mono); font-size: var(--fp-text-micro); color: var(--fp-fg-4); }
+.palette__family { display: grid; gap: 1px; }
+.palette__family + .palette__family { margin-top: var(--fp-space-3); border-top: 1px solid var(--fp-line-1); }
 .palette__item { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: var(--fp-space-5); align-items: center; padding: 7px var(--fp-space-4); border-radius: var(--fp-radius-md); cursor: pointer; }
 .palette__item--active { background: var(--fp-bg-3); }
 .palette__item--disabled { cursor: not-allowed; }

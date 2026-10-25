@@ -1,9 +1,9 @@
 // Param cables in the graph: handles that can't collide with ports, and the editor's connection rules for them.
 import { describe, expect, it } from 'vitest';
-import { parsePatch, type Patch, type PortSpec } from '@flow-patcher/engine';
+import { applyPatchEdits, defaultParams, parsePatch, type Patch, type PortSpec } from '@flow-patcher/engine';
 import { nodeRegistry } from '@flow-patcher/nodes';
 import { readFileSync } from 'node:fs';
-import { adaptersBetween, cableFor, handleParam, handlePort, loadErrors, paramHandle, patchToGraph } from '../src/patch-graph';
+import { adaptersBetween, cableFor, handleParam, handlePort, loadErrors, matchingPort, paramHandle, patchToGraph } from '../src/patch-graph';
 import { snapTo } from '../src/drag-edit';
 import { formatParam, parseTyped } from '../src/param-format';
 
@@ -57,6 +57,29 @@ describe('cableFor into a param', () => {
   it('names a param handle as a Signal input, so a cable dragged from it finds Signal sources', () => {
     expect(handlePort(patch, nodeRegistry, 'note', 'param:pitch', 'in')).toMatchObject({ name: 'param:pitch', type: 'signal', direction: 'in' });
     expect(handlePort(patch, nodeRegistry, 'note', 'param:pitch', 'out')).toBeUndefined();
+  });
+});
+
+describe('palette for a dropped cable', () => {
+  const end = (type: PortSpec['type'], direction: PortSpec['direction']) => ({ node: 'a', port: { name: 'p', type, direction } });
+  const filter = nodeRegistry.get('filter')!;
+
+  it('offers a node whose only Signal input is a knob, wired to its first knob', () => {
+    expect(matchingPort(filter, end('signal', 'out'))).toMatchObject({ name: 'param:cutoff', type: 'signal', direction: 'in' });
+    // An Audio port still comes before any knob.
+    expect(matchingPort(filter, end('audio', 'out'))?.type).toBe('audio');
+  });
+
+  it('wires the knob it matched on the new node as a param cable', () => {
+    const synth = nodeRegistry.get('simple-synth')!;
+    const patch = applyPatchEdits(example('pointer-notes'), [{ op: 'add-node', node: { id: 'synth2', type: synth.type, typeVersion: synth.version, params: defaultParams(synth), position: { x: 0, y: 0 } } }]);
+    const port = matchingPort(synth, { node: 'pointer', port: handlePort(patch, nodeRegistry, 'pointer', 'x', 'out')! })!;
+    expect(cableFor(patch, nodeRegistry, { source: 'pointer', sourceHandle: 'x', target: 'synth2', targetHandle: port.name })).toEqual({ from: { node: 'pointer', port: 'x' }, to: { node: 'synth2', port: 'attack' } });
+  });
+
+  it('never offers a knob for an Event, or as a source for a dragged input', () => {
+    expect(matchingPort(filter, end('event', 'out'))).toBeUndefined();
+    expect(matchingPort(filter, end('signal', 'in'))).toBeUndefined();
   });
 });
 
