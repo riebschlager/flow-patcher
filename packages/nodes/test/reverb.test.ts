@@ -72,16 +72,33 @@ function largestStep(audio: RenderedAudio, t: number, width: number): number {
   return max;
 }
 
+/**
+ * Whether two impulses are the same, sample for sample: as many channels, each as long, with the same
+ * bytes. Exact like `toEqual`, but a byte compare: `toEqual` walks every element of each channel, and
+ * at 48 kHz that is hundreds of thousands per impulse (CI run 148 timed out on it).
+ */
+function sameSamples(a: Float32Array[], b: Float32Array[]): boolean {
+  const bytes = (data: Float32Array) => Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  return a.length === b.length && a.every((data, ch) => data.length === b[ch]!.length && bytes(data).equals(bytes(b[ch]!)));
+}
+
+/** A low sample rate for checks that only compare impulses: 8 s is 32k samples. */
+const LOW_RATE = 4000;
+
 describe('reverbImpulse', () => {
   it('is deterministic: the same seed, node and options give the same samples; another seed, node or Variant other noise', () => {
     const a = reverbImpulse(RATE, KEY, DEFAULTS), b = reverbImpulse(RATE, { ...KEY }, { ...DEFAULTS });
-    expect(a).toEqual(b);
+    expect(sameSamples(a, b)).toBe(true);
     for (const other of [reverbImpulse(RATE, KEY, { ...DEFAULTS, variant: 1 }), reverbImpulse(RATE, { ...KEY, seed: 2 }, DEFAULTS), reverbImpulse(RATE, { ...KEY, nodeId: 'm' }, DEFAULTS)]) {
       expect(other[0]!.length).toBe(a[0]!.length);
-      expect(other[0]).not.toEqual(a[0]);
+      expect(sameSamples([other[0]!], [a[0]!])).toBe(false);
     }
     // Two independent streams, so a mono input comes back wide.
-    expect(a[1]).not.toEqual(a[0]);
+    expect(sameSamples([a[1]!], [a[0]!])).toBe(false);
+    // The compare itself: a single sample off is a difference.
+    const nudged = b.map((data) => data.slice());
+    nudged[1]![1000]! += 1e-6;
+    expect(sameSamples(a, nudged)).toBe(false);
   });
 
   it('runs Predelay + Decay, starting silent, fading in over 20 ms and falling to nothing', () => {
@@ -106,12 +123,13 @@ describe('reverbImpulse', () => {
   });
 
   it('gives a defined impulse for bad options: clamped to the ranges, NaN takes the default', () => {
-    expect(reverbImpulse(RATE, KEY, { decay: NaN, damping: NaN, predelay: NaN, variant: NaN })).toEqual(reverbImpulse(RATE, KEY, DEFAULTS));
-    expect(reverbImpulse(RATE, KEY, { decay: 100, damping: 5, predelay: -1, variant: 0 })).toEqual(reverbImpulse(RATE, KEY, { decay: 8, damping: 0.95, predelay: 0, variant: 0 }));
-    expect(reverbImpulse(RATE, KEY, { ...DEFAULTS, decay: 0 })[0]!.length).toBe(Math.round(0.3 * RATE));
-    // A bad sample rate falls back to 48 kHz.
-    expect(reverbImpulse(NaN, KEY, DEFAULTS)).toEqual(reverbImpulse(RATE, KEY, DEFAULTS));
-    for (const channel of reverbImpulse(RATE, KEY, { decay: Infinity, damping: -Infinity, predelay: Infinity, variant: 1e12 })) expect(channel.every(Number.isFinite)).toBe(true);
+    expect(sameSamples(reverbImpulse(LOW_RATE, KEY, { decay: NaN, damping: NaN, predelay: NaN, variant: NaN }), reverbImpulse(LOW_RATE, KEY, DEFAULTS))).toBe(true);
+    expect(sameSamples(reverbImpulse(LOW_RATE, KEY, { decay: 100, damping: 5, predelay: -1, variant: 0 }), reverbImpulse(LOW_RATE, KEY, { decay: 8, damping: 0.95, predelay: 0, variant: 0 }))).toBe(true);
+    expect(reverbImpulse(LOW_RATE, KEY, { ...DEFAULTS, decay: 0 })[0]!.length).toBe(Math.round(0.3 * LOW_RATE));
+    // A bad sample rate falls back to 48 kHz (at the shortest Decay, 14.4k samples).
+    const short = { ...DEFAULTS, decay: 0.3 };
+    for (const bad of [NaN, 0, -1, Infinity]) expect(sameSamples(reverbImpulse(bad, KEY, short), reverbImpulse(RATE, KEY, short))).toBe(true);
+    for (const channel of reverbImpulse(LOW_RATE, KEY, { decay: Infinity, damping: -Infinity, predelay: Infinity, variant: 1e12 })) expect(channel.every(Number.isFinite)).toBe(true);
   });
 });
 
