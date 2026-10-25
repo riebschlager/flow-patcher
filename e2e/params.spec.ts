@@ -322,9 +322,14 @@ test('a log-scaled knob turns by ratio, types and reads in Hz, and its cable dep
   await page.locator('.react-flow__node[data-id="filter"] .patch-node__title').click();
   await expect(page.locator('.react-flow__node[data-id="filter"]')).toHaveClass(/selected/);
   await cutoff.focus();
+  // Still selected with the knob focused, so the delete key is armed.
+  await expect(page.locator('.react-flow__node[data-id="filter"]')).toHaveClass(/selected/);
   await page.keyboard.press('Backspace');
   await page.keyboard.press('Delete');
+  // Two animation frames: xyflow's delete runs in an effect after the key.
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
   await expect(page.locator('.react-flow__node[data-id="filter"]')).toHaveCount(1);
+  await expect(page.locator('.react-flow__node[data-id="filter"]')).toHaveClass(/selected/);
   await expect(page.getByTestId('compile-status')).toHaveText('6 nodes compiled');
   await expect(cutoff).toHaveAttribute('data-value', '1200');
 

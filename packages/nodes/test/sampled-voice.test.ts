@@ -72,6 +72,25 @@ describe('sampled-voice', () => {
     expect(rms(audio, 1.2, 0.1) / rms(audio, 0.2, 0.1)).toBeCloseTo(1, 2);
   });
 
+  it('has a log-scaled cutoff: depth is in octaves (ADR 0032), so 1 × 1 on a base of 1000 Hz starts the filter at 2000 Hz', async () => {
+    expect(sampledVoice.params.find((p) => p.name === 'cutoff')).toMatchObject({ scale: 'log', min: 80, max: 20000, unit: 'Hz' });
+    // The frequency each note's filter starts at (synthstrings has no tone sweep, so it is the cutoff itself).
+    const starts: number[] = [];
+    await render(0.6, (ctx) => {
+      const create = ctx.createBiquadFilter.bind(ctx);
+      ctx.createBiquadFilter = () => {
+        const filter = create();
+        const set = filter.frequency.setValueAtTime.bind(filter.frequency);
+        filter.frequency.setValueAtTime = (value: number, time: number) => (starts.push(value), set(value, time));
+        return filter;
+      };
+      voice(ctx, { cutoff: 1000 }, { mods: { cutoff: [{ depth: 1, signal: () => 1 }] } }).schedule!('note', [note(0.1)]);
+      voice(ctx, { cutoff: 1000 }, { mods: { cutoff: [{ depth: -2, signal: () => 1 }] } }).schedule!('note', [note(0.1)]);
+    });
+    // Read as Hz, the first would be 1001 Hz.
+    expect(starts).toEqual([2000, 250]);
+  });
+
   it('glides playbackRate from the previous note on the channel', async () => {
     const sources: [string, number, number][][] = [];
     await render(1, (ctx) => {

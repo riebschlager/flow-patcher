@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { NumberParamSpec } from '@flow-patcher/engine';
 import { filter } from '@flow-patcher/nodes';
-import { depthScale, formatDepth, formatParam, keyedDepth, keyedParam, keyedValue, parseParam, snapParam, turnBy } from '../src/param-format';
+import { depthScale, formatDepth, formatParam, keyedDepth, keyedParam, parseParam, snapParam, turnBy } from '../src/param-format';
 
 const cutoff = filter.params.find((p) => p.name === 'cutoff') as NumberParamSpec;
 const time: NumberParamSpec = { name: 'time', kind: 'number', min: 0.001, max: 4, default: 0.25, unit: 's', scale: 'log' };
@@ -97,7 +97,8 @@ describe('log-scaled params in the inspector', () => {
     for (let i = 0; i < 50; i++) depth = keyedDepth(cutoff, 'ArrowDown', true, depth)!;
     expect(depth).toBe(2.67);
     // A linear param's depth keys over ±its range, as before.
-    expect(keyedDepth(q, 'ArrowUp', false, 3)).toBe(keyedValue('ArrowUp', false, 3, -19.9, 19.9));
+    // A hundredth of the reach (0.398) from 3, snapped to a thousandth of it (0.0398): 85 × 0.0398.
+    expect(keyedDepth(q, 'ArrowUp', false, 3)).toBe(3.383);
     // A linear param's depth is in its unit.
     expect(depthScale(q)).toEqual({ range: 19.9, step: undefined });
     expect(formatDepth(q, 3)).toBe('+3.00');
