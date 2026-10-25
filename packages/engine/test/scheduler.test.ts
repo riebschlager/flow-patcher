@@ -315,6 +315,92 @@ describe('late counters read the audio clock at hand-over', () => {
     expect(scheduler.stats.lateImmediateMaxMs).toBeCloseTo(5, 9);
     expect(scheduler.events().map((e) => [e.node, e.time])).toEqual([['t', event!.time], ['s', event!.time]]);
   });
+
+  // #97: an audio node calls start() inside schedule(), after the runtime read the clock for the
+  // hand-over. A clock step there reaches Web Audio as lateness the floor read can't see.
+  describe('a clock step inside schedule(), between the floor read and start()', () => {
+    /** Like the recorder, but while armed its first schedule() steps the clock to `to` before "calling start()". */
+    function jumpy(clock: ManualClock, starts: { when: number; at: number }[], jump: { to: number | null }): NodeDefinition {
+      return {
+        type: 'jumpy', version: 1, label: 'Jumpy', category: 'instruments', description: '',
+        ports: [{ name: 'in', type: 'event', direction: 'in' }],
+        params: [],
+        audio: () => ({
+          schedule: (_port, events) => {
+            if (jump.to !== null) {
+              clock.set(Math.max(clock.audio, jump.to));
+              jump.to = null;
+            }
+            starts.push(...events.map((event) => ({ when: event.time, at: clock.audio })));
+          },
+          cancel: () => {},
+        }),
+      };
+    }
+    const build = (p: Patch) => {
+      const clock = new ManualClock();
+      const starts: { when: number; at: number }[] = [], jump = { to: null as number | null };
+      const compiled = compilePatch(p, new Map([metro, tap, jumpy(clock, starts, jump)].map((d) => [d.type, d])));
+      if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+      const runtime = new Runtime(compiled.plan);
+      runtime.attachAudio({} as AudioContextLike);
+      return { clock, scheduler: new Scheduler(runtime, { clock, record: true }), starts, jump };
+    };
+    const lateness = (starts: { when: number; at: number }[]) => Math.max(...starts.map((s) => s.at - s.when));
+
+    it('counts a pushed note whose start() came after the step in lateImmediate, by how far start() was behind', () => {
+      const { clock, scheduler, starts, jump } = build(patch([node('t', 'tap'), node('j', 'jumpy')], [cable('t', 'j')]));
+      for (let k = 0; k * 0.025 < 1; k++) {
+        clock.set(k * 0.025);
+        scheduler.wake();
+      }
+      clock.set(1.0123);
+      // The floor read sees 1.0123, the note is stamped +5 ms and handed over on time; the clock
+      // then steps 11.6 ms (one 512-frame callback at 44.1 kHz) before start().
+      jump.to = 1.0123 + 0.0116;
+      const event = scheduler.push('t', 'out', { channel: 0 });
+      expect(starts).toEqual([{ when: event!.time, at: 1.0123 + 0.0116 }]);
+      expect(scheduler.stats).toMatchObject({ lateImmediate: 1, lateScheduled: 0, lateCaughtUp: 0 });
+      expect(scheduler.stats.lateImmediateMaxMs).toBeCloseTo(lateness(starts) * 1000, 9);
+      expect(scheduler.stats.lateImmediateMaxMs).toBeCloseTo(6.6, 9);
+    });
+
+    it('counts a caught-up t=0 note whose start() came after the step in lateCaughtUp', () => {
+      const { clock, scheduler, starts, jump } = build(patch([node('m', 'metro', { period: 0.5 }), node('j', 'jumpy')], [cable('m', 'j')]));
+      clock.isRunning = false;
+      scheduler.wake();
+      clock.isRunning = true;
+      clock.set(0.003);
+      jump.to = 0.003 + 0.0116;
+      scheduler.wake();
+      // Handed over at the wake's now, 0.003, which the floor read agreed with; start() came 11.6 ms later.
+      expect(starts[0]).toEqual({ when: 0.003, at: 0.003 + 0.0116 });
+      expect(scheduler.stats).toMatchObject({ caughtUp: 1, lateCaughtUp: 1, lateScheduled: 0, lateImmediate: 0 });
+      expect(scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(lateness(starts) * 1000, 9);
+    });
+
+    it('counts a scheduled event the step left behind start() in lateScheduled, and none a step can\'t reach', () => {
+      const { clock, scheduler, starts, jump } = build(patch([node('m', 'metro', { period: 0.025 }), node('j', 'jumpy')], [cable('m', 'j')]));
+      // The first wake reads 0: the tick at 0 is on time at the floor read, then the clock steps 3 ms.
+      jump.to = 0.003;
+      scheduler.wake();
+      expect(starts[0]).toEqual({ when: 0, at: 0.003 });
+      expect(scheduler.stats.lateScheduled).toBe(1);
+      // A step during a later wake can't reach events queried 120 ms ahead.
+      clock.set(0.025);
+      jump.to = 0.025 + 0.0116;
+      scheduler.wake();
+      expect(scheduler.stats.lateScheduled).toBe(1);
+    });
+
+    it('counts nothing when the clock holds still through schedule()', () => {
+      const { clock, scheduler } = build(patch([node('t', 'tap'), node('j', 'jumpy')], [cable('t', 'j')]));
+      scheduler.wake();
+      clock.set(0.5);
+      scheduler.push('t', 'out', { channel: 0 });
+      expect(scheduler.stats).toMatchObject({ delivered: 1, lateImmediate: 0, lateImmediateMaxMs: 0, lateScheduled: 0, lateCaughtUp: 0 });
+    });
+  });
 });
 
 describe('rewind and re-query', () => {

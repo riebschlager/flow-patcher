@@ -332,8 +332,10 @@ export interface DeliveryTiming {
   now: number;
   /** A live read of the audio clock (the scheduler's `audioTime`). The clock keeps
    *  moving while a long call runs (a push's rewind, a swap re-running windows), so
-   *  each hand-over clamps and counts against the later of `now` and this reading:
-   *  an audio node is never handed a time before the clock at hand-over. Without
+   *  each hand-over clamps against the later of `now` and this reading: an audio
+   *  node is never handed a time before the clock at hand-over. It counts late
+   *  events against a second reading taken after the node's schedule() returns,
+   *  so a step before the node's start() calls is counted too (#97). Without
    *  it (headless, tests), `now` is the clock throughout. */
   currentTime?: () => number;
   /** A late wake's missed stretch (ADR 0017): events before `until` move `shift`
@@ -355,17 +357,21 @@ export interface RuntimeCounters {
    *  wake's `now`, with no lead, so a clock step during the wake's query makes its
    *  first events late. Counted here, not in lateScheduled (ADR 0033). */
   lateCaughtUp: number;
-  /** The most any of those was moved, in ms: how far the clock stepped during the catch-up's query (ADR 0033). */
+  /** The most any of those was behind the clock, in ms: how far the clock stepped during the catch-up's query and hand-over (ADR 0033). */
   lateCaughtUpMaxMs: number;
   /** Scheduled events (a wake's window, a swap's re-run) that were before the audio
-   *  clock at hand-over, read then (`DeliveryTiming.currentTime`) and not just as
-   *  the call began, and were moved to it. Caught-up events count in lateCaughtUp. */
+   *  clock at hand-over, and were moved to it (or reached start() behind it). The clock
+   *  is read at hand-over (`DeliveryTiming.currentTime`), not just as the call began,
+   *  and again once the node's schedule() returns: a node calls start() inside
+   *  schedule(), so a step between the two reads makes an event late at start() that
+   *  the first read saw on time (#97). Each event counts against the later reading.
+   *  Caught-up events count in lateCaughtUp. */
   lateScheduled: number;
   /** Events a push handed over (its rewind's re-run) that were before the audio
    *  clock at hand-over, read as for lateScheduled, and were moved to it. This covers the
    *  push's whole re-run, so Clock-driven events it re-delivers count too. */
   lateImmediate: number;
-  /** The most any of those was moved, in ms: how late a push's notes reached Web Audio (ADR 0027). */
+  /** The most any of those was behind the clock, in ms: how late a push's notes reached Web Audio (ADR 0027). */
   lateImmediateMaxMs: number;
   /** Events withdrawn from audio nodes because a rewind replaced them. */
   cancelled: number;
@@ -1645,8 +1651,19 @@ export class Runtime {
   private send(instance: AudioInstance, port: string, events: readonly EngineEvent[], timing: DeliveryTiming | undefined): void {
     // The clock at hand-over: a long re-run may have moved it past `now`.
     const floor = timing && clockAt(timing);
-    const sent = events.map((event) => this.timed(event, timing, floor!));
+    const moved = events.map((event) => this.moved(event, timing));
+    const sent = events.map((event, i) => {
+      // Never before `floor`; a NaN time goes to it too.
+      const time = moved[i]!.time >= floor! ? moved[i]!.time : floor!;
+      return !timing || time === event.time ? event : { ...event, time };
+    });
     instance.schedule!(port, sent);
+    // The node calls start() inside schedule(), so the clock may have stepped after `floor`
+    // was read and before Web Audio got the time (#97). Read it again now that schedule()
+    // has returned, and count lateness against the later reading: a step in that gap
+    // can't go uncounted. The times handed over stay clamped to `floor`; Web Audio plays
+    // a past start() at the next render quantum.
+    if (timing) this.countLate(moved, Math.max(floor!, clockAt(timing)), timing);
     this.counters.delivered += sent.length;
     if (!this.history) return;
     let ports = this.sent.get(instance);
@@ -1656,26 +1673,27 @@ export class Runtime {
     ports.set(port, list);
   }
 
-  /** The time an audio node gets: moved by a catch-up, never before `floor`, the clock at hand-over. */
-  private timed(event: EngineEvent, timing: DeliveryTiming | undefined, floor: number): EngineEvent {
-    if (!timing) return event;
-    let time = event.time;
-    const caught = timing.catchUp !== undefined && time < timing.catchUp.until;
-    if (caught) {
-      time += timing.catchUp!.shift;
-      this.counters.caughtUp++;
-    }
-    if (!(time >= floor)) {
+  /** An event's time moved by a catch-up (and whether it was), before the clock clamps it. */
+  private moved(event: EngineEvent, timing: DeliveryTiming | undefined): { time: number; caught: boolean } {
+    const caught = timing?.catchUp !== undefined && event.time < timing.catchUp.until;
+    if (caught) this.counters.caughtUp++;
+    return { time: caught ? event.time + timing!.catchUp!.shift : event.time, caught };
+  }
+
+  /** Counts the events behind `clock`, the latest clock reading around their hand-over, per path. */
+  private countLate(moved: readonly { time: number; caught: boolean }[], clock: number, timing: DeliveryTiming): void {
+    const counters = this.counters;
+    for (const { time, caught } of moved) {
+      if (time >= clock) continue;
+      const ms = Number.isFinite(time) ? (clock - time) * 1000 : 0;
       if (caught) {
-        this.counters.lateCaughtUp++;
-        if (Number.isFinite(time)) this.counters.lateCaughtUpMaxMs = Math.max(this.counters.lateCaughtUpMaxMs, (floor - time) * 1000);
+        counters.lateCaughtUp++;
+        counters.lateCaughtUpMaxMs = Math.max(counters.lateCaughtUpMaxMs, ms);
       } else if (timing.path === 'immediate') {
-        this.counters.lateImmediate++;
-        if (Number.isFinite(time)) this.counters.lateImmediateMaxMs = Math.max(this.counters.lateImmediateMaxMs, (floor - time) * 1000);
-      } else this.counters.lateScheduled++;
-      time = floor;
+        counters.lateImmediate++;
+        counters.lateImmediateMaxMs = Math.max(counters.lateImmediateMaxMs, ms);
+      } else counters.lateScheduled++;
     }
-    return time === event.time ? event : { ...event, time };
   }
 
   private record(id: string, result: PortEvents): void {
