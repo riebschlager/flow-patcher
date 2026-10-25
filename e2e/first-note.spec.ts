@@ -96,19 +96,20 @@ test('the first tap starts audio, and the t=0 Clock note sounds at once, before 
   const clockNote = seen.find((s) => Math.abs(s.hz - CLOCK_HZ) < 1);
   const tapNote = seen.find((s) => Math.abs(s.hz - TAP_HZ) < 1);
   // The t=0 tick, caught up: the first wake moved it to its own clock reading plus the 5 ms lead (ADR 0033), not
-  // 1 s later. A first wake at exactly 0 has nothing to catch up, and the tick is at 0 in its ordinary window.
-  // A clock burst during that wake longer than the lead can leave it behind currentTime, by up to a step (the
-  // runtime moves it to the clock at hand-over and counts it in lateCaughtUp; Web Audio plays it at once).
+  // 1 s later, also when that reading is exactly 0 (a catch-up of [0, 0]). A clock burst during that wake longer
+  // than the lead can leave it behind currentTime, by up to a step (the runtime moves it to the clock at hand-over
+  // and counts it in lateCaughtUp; Web Audio plays it at once).
   expect(clockNote, 'the t=0 Clock note was never started').toBeDefined();
-  const lead = stats.caughtUp > 0 ? IMMEDIATE_OFFSET : 0;
+  expect(stats.caughtUp).toBeGreaterThanOrEqual(1);
+  const lead = IMMEDIATE_OFFSET;
   expect(clockNote!.when).toBeGreaterThanOrEqual(stats.firstWake! + lead - 1e-9);
   expect(clockNote!.when - (stats.firstWake! + lead)).toBeLessThanOrEqual(step + 1e-6);
   expect(clockNote!.at - clockNote!.when).toBeLessThanOrEqual(step + 1e-6);
   expect(seen.indexOf(clockNote!)).toBeLessThan(seen.indexOf(tapNote!));
   // The tap, held while audio was stopped, is stamped currentTime + 5 ms by the same wake, after the catch-up.
   expect(tap.cold).toBe(true);
-  // Its push read the clock after that wake handed the t=0 note over, so it follows by at least the 5 ms offset less
-  // the caught-up note's own 5 ms lead: at the same time or after it.
+  // Its push read the clock after that wake handed the t=0 note over, and both have the 5 ms lead: the tap's note
+  // is at the same time or after it.
   expect(tapNote!.at - tapNote!.when).toBeLessThanOrEqual(step + 1e-6);
   expect(tapNote!.when - clockNote!.when).toBeGreaterThanOrEqual(IMMEDIATE_OFFSET - lead - 1e-6);
   // At least the pointerdown was held (the context may already run by the pointerup, under load).

@@ -419,10 +419,25 @@ describe('late counters read the audio clock at hand-over', () => {
       expect(scheduler.stats).toMatchObject({ caughtUp: 1, lateCaughtUp: 0, lateCaughtUpMaxMs: 0, lateScheduled: 0 });
     });
 
-    it('counts a first-wake t=0 event the step left behind start() in lateCaughtUp: it had no lead', () => {
+    it('gives a t=0 note the lead at a resume that reads exactly 0: a step within it isn\'t late, a longer one is late by less', () => {
+      for (const [step, late] of [[0.0029, 0], [0.0116, 6.6]] as const) {
+        const { clock, scheduler, starts, jump } = build(patch([node('m', 'metro', { period: 0.5 }), node('j', 'jumpy')], [cable('m', 'j')]));
+        clock.isRunning = false;
+        scheduler.wake();
+        clock.isRunning = true;
+        // The first running wake reads exactly 0: [0, 0] is caught up, moved to 0 + 5 ms.
+        jump.to = step;
+        scheduler.wake();
+        expect(starts[0]).toEqual({ when: IMMEDIATE_OFFSET, at: step });
+        expect(scheduler.stats).toMatchObject({ caughtUp: 1, catchUps: 0, lateCaughtUp: late ? 1 : 0, lateScheduled: 0 });
+        expect(scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(late, 9);
+      }
+    });
+
+    it('counts a first-wake t=0 event the step left behind start() in lateCaughtUp when the clock ran from the start: it had no lead', () => {
       const { clock, scheduler, starts, jump } = build(patch([node('m', 'metro', { period: 0.025 }), node('j', 'jumpy')], [cable('m', 'j')]));
-      // The first wake reads exactly 0, so nothing is caught up: the tick at 0 is on time at the floor read,
-      // with no lead, then the clock steps 3 ms before start().
+      // A clock that runs from the start (headless, no resume) and a first wake at exactly 0: nothing is caught
+      // up, so the tick at 0 is on time at the floor read, with no lead, then the clock steps 3 ms before start().
       jump.to = 0.003;
       scheduler.wake();
       expect(starts[0]).toEqual({ when: 0, at: 0.003 });
@@ -1355,6 +1370,22 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     reference.wakeEvery(0, 1);
     const upTo = (events: LoggedEvent[]) => json(events.filter((e) => e.time < 1));
     expect(upTo(run.scheduler.events())).toBe(upTo(reference.scheduler.events()));
+  });
+
+  it('catches up [0, 0] at a resume that reads exactly 0, so the t=0 event has the lead there too', () => {
+    const run = setup(metroPatch(0.05));
+    coldStart(run, 0);
+    expect(deliveredAt(run)).toEqual([[0, IMMEDIATE_OFFSET, 0], [0, 0.05, 1], [0, 0.1, 2]]);
+    // Not a late wake, so not a catch-up in catchUps; its event counts in caughtUp.
+    expect(run.scheduler.stats).toMatchObject({ catchUps: 0, caughtUp: 1, stalls: 0, lateScheduled: 0, lateCaughtUp: 0, firstWake: 0 });
+    // The log keeps the patch's own times.
+    run.wakeEvery(0.025, 1);
+    const reference = setup(metroPatch(0.05));
+    reference.wakeEvery(0, 1);
+    const upTo = (events: LoggedEvent[]) => json(events.filter((e) => e.time < 1));
+    expect(upTo(run.scheduler.events())).toBe(upTo(reference.scheduler.events()));
+    // A clock that runs from the start has no resume: its t=0 event stays at 0.
+    expect(deliveredAt(reference)[0]).toEqual([0, 0, 0]);
   });
 
   it('catches up from 0 up to the catch-up limit; past it, starts at now without a stall', () => {

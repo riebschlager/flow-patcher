@@ -159,6 +159,8 @@ export class Scheduler {
   private last: { wall: number; audio: number } | null = null;
   /** The next running wake resumes rather than catching up or counting a stall. */
   private fresh = true;
+  /** A wake found the clock suspended before the first running one: the patch starts at a resume (the editor's first tap). */
+  private startsSuspended = false;
   /** Pushes held while the audio clock is suspended. */
   private readonly deferred: (readonly PushTarget[])[] = [];
   /** A live clock read for the runtime's hand-overs (`DeliveryTiming.currentTime`). */
@@ -220,6 +222,7 @@ export class Scheduler {
     if (this.clock.running && !this.clock.running()) {
       // Suspended: not a stall. The first running wake resumes without counting one.
       this.fresh = true;
+      if (this.next === null) this.startsSuspended = true;
       this.last = null;
       return;
     }
@@ -228,6 +231,7 @@ export class Scheduler {
     this.last = { wall, audio: now };
     let t0: number;
     let catchUp: { until: number; shift: number } | undefined;
+    const first = this.next === null;
     if (this.next === null) {
       // The first running wake: nothing has been queried, so the patch starts at 0. If the clock
       // is already past 0 (it started before this wake: the first tap resumed the AudioContext),
@@ -271,6 +275,13 @@ export class Scheduler {
       catchUp = { until: now, shift: now - t0 + this.immediateOffset };
       this.own.catchUps++;
       this.own.catchUpMaxMs = Math.max(this.own.catchUpMaxMs, (now - t0) * 1000);
+    } else if (first && this.startsSuspended && t0 === 0 && now === 0) {
+      // The first wake at a resume that reads exactly 0 catches up [0, 0] the same way, so a t=0 event
+      // gets the lead whatever the clock read at the resume (ADR 0033): `until` is the smallest double
+      // past 0, so only events at 0 move. It isn't counted in catchUps, which counts wakes that were
+      // late; its events count in caughtUp. A run whose clock runs from the start (headless, tests)
+      // has no resume, nothing in flight during its first query, and keeps t=0 events at 0.
+      catchUp = { until: Number.MIN_VALUE, shift: this.immediateOffset };
     }
     const t1 = now + (this.clock.hidden?.() ? this.hiddenLookahead : this.lookahead);
     // An extra wake (a visibility change, a push, a resume) may find the window already queried.
