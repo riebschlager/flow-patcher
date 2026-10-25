@@ -458,6 +458,21 @@ describe('late counters read the audio clock at hand-over', () => {
       expect(deliveries.filter((d) => d.cancelled).every((d) => d.event.time >= report.time)).toBe(true);
     });
 
+    it('keeps a push\'s event at its own now in lateImmediate, though it has no lead', () => {
+      // Lead classifies scheduled events only (ADR 0033): a push's whole re-run stays on the immediate path.
+      const run = setup(patch([node('m', 'metro', { period: 0.025 }), node('t', 'tap'), node('c', 'counter'), node('r', 'recorder')], [cable('m', 'c'), cable('t', 'c'), cable('c', 'r')]));
+      run.wakeEvery(0, 0.1);
+      // A live event at the push's own now, 0.05 (a push can't be stamped before now). The clock has moved to
+      // 0.06 by the hand-over. The counter's re-run re-delivers the metro's tick at 0.075 with a new count,
+      // ahead of the clock, so not late.
+      run.clock.set(0.06);
+      run.runtime.push('t', 'out', { time: 0.05, channel: 0 }, { now: 0.05, currentTime: () => run.clock.audio, path: 'immediate' });
+      const handed = run.live().filter((d) => d.at === 0.06 && d.event.time < 0.08).map((d) => [d.event.count, Math.round(d.event.time * 1e9) / 1e9]);
+      expect(handed).toEqual([[4, 0.06], [5, 0.075]]);
+      expect(run.scheduler.stats).toMatchObject({ lateImmediate: 1, lateCaughtUp: 0, lateScheduled: 0 });
+      expect(run.scheduler.stats.lateImmediateMaxMs).toBeCloseTo(10, 9);
+    });
+
     it('counts nothing when the clock holds still through schedule()', () => {
       const { clock, scheduler } = build(patch([node('t', 'tap'), node('j', 'jumpy')], [cable('t', 'j')]));
       scheduler.wake();

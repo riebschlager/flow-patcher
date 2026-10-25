@@ -604,4 +604,40 @@ describe('audio setup reads across a swap', () => {
     expect(before.every(([, v]) => (v as { bpm: number }).bpm === 120)).toBe(true);
     expect(after.every(([, v]) => (v as { bpm: number }).bpm === 150)).toBe(true);
   });
+
+  it('abandons a swap whose new node\'s audio() throws mid-build, and restores the running plan for reads', () => {
+    const { log, compile } = make();
+    const broken: NodeDefinition = {
+      type: 'broken', version: 1, label: 'Broken', category: 'effects-mix', description: '',
+      ports: [{ name: 'in', type: 'value', direction: 'in' }],
+      params: [],
+      audio: () => {
+        throw new Error('no audio for you');
+      },
+    };
+    const definitions = new Map([tempo, echoType(log), broken].map((d) => [d.type, d]));
+    const compileWith = (p: Patch): Plan => {
+      const compiled = compilePatch(p, definitions);
+      if (!compiled.ok) throw new Error(compiled.errors.join('\n'));
+      return compiled.plan;
+    };
+    const runtime = new Runtime(compile(wired(120)));
+    runtime.attachAudio({} as AudioContextLike);
+    runtime.query(0, 0.1);
+    const plan = runtime.plan;
+    // The kept Echo is built already; the new node after it throws while the incoming plan is active.
+    const next = wired(150);
+    const failing = patch([...next.nodes, node('bad', 'broken')], [...next.cables, cable('clock', 'bad', 'transport', 'in')]);
+    expect(() => runtime.swap(compileWith(failing), { now: 0.05 })).toThrow('no audio for you');
+    // Nothing changed: the old plan runs, and the kept instance's reads resolve in it, not the abandoned one.
+    expect(runtime.plan).toBe(plan);
+    runtime.query(0.1, 0.2);
+    const after = log.chunks.filter(([t]) => t >= 0.1);
+    expect(after.length).toBeGreaterThan(0);
+    expect(after.every(([, v]) => (v as { bpm: number }).bpm === 120)).toBe(true);
+    // A later swap goes through as usual.
+    runtime.swap(compile(wired(150)));
+    runtime.query(0.2, 0.3);
+    expect(log.chunks.filter(([t]) => t >= 0.2).every(([, v]) => (v as { bpm: number }).bpm === 150)).toBe(true);
+  });
 });
