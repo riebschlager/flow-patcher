@@ -162,6 +162,9 @@ export const delay: NodeDefinition = {
      * mid-glide when changes come quicker than that, as a modulated tempo's ticks can). A pure function
      * of t and the readings, so re-runs and rewinds give the same course. Null with no transport.
      */
+    // It reads the transport before t: up to MAX_CHAIN glides back, about 640 ms before the chunk's t0. That is
+    // outside value()'s "t0 ≤ t < t1" contract (NodeState); it relies on Clock keeping TRANSPORT_HISTORY (2 s) of
+    // anchors behind its window, so those reads stay exact.
     const synced = (t: number, depth = 0): number | null => {
       const tempo = transportTempo({ value }, 'transport', t);
       if (!tempo) return null;
@@ -171,7 +174,8 @@ export const delay: NodeDefinition = {
       const before = tempo.since - BEFORE_CHANGE, previous = transportTempo({ value }, 'transport', before);
       // The transport's first tempo (a Clock starting) has nothing before it to glide from.
       if (!previous || !(previous.since < tempo.since)) return target;
-      const from = synced(before, depth + 1) ?? free(before);
+      // Not null: `previous` is a usable reading at `before`.
+      const from = synced(before, depth + 1)!;
       return from + ((target - from) * into) / DELAY_GLIDE;
     };
     /** The delay at t from the tempo or the free time, before any switch between the two. */
@@ -220,7 +224,7 @@ export const delay: NodeDefinition = {
           scheduled.set(t, v);
         }
         // Always: the tempo on the transport can change whatever the cables into params.
-        automation.time.follow(t0, t1, (t) => scheduled.get(t) ?? course(t).value, clock);
+        automation.time.follow(t0, t1, (t) => scheduled.get(t)!, clock);
         // A bus has no event channels: modulation is read on channel 0.
         if (cabled.feedback) automation.feedback.follow(t0, t1, (t) => cappedFeedback(param('feedback', t)), clock);
         if (cabled.tone) automation.tone.follow(t0, t1, (t) => param('tone', t), clock);

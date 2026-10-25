@@ -291,11 +291,17 @@ describe('reverb', () => {
     const fake = fakeContext();
     const instance = reverb.audio!(audioSetup(reverb, fake.context, { params: { decay: 1 } }));
     // Seven edits a crossfade apart: eight impulses, so the oldest four fade out on their returns.
-    for (let i = 0; i < 7; i++) instance.update!({ ...DEFAULTS, decay: 1.1 + i * 0.1 }, 0.1 * i);
+    // After each edit, at most MAX_TAILS sound, plus at most one fading out on its return.
+    const returns = () => fake.gains.filter((g) => g.kind === 'ret');
+    for (let i = 0; i < 7; i++) {
+      const time = 0.1 * i;
+      instance.update!({ ...DEFAULTS, decay: 1.1 + i * 0.1 }, time);
+      const evicted = returns().filter((g) => g.ramps.some((r) => r.value === 0));
+      expect(fake.convolvers.length - evicted.length).toBeLessThanOrEqual(MAX_TAILS);
+      expect(evicted.filter((g) => g.ramps.some((r) => r.value === 0 && r.time > time))).toHaveLength(Math.min(1, evicted.length));
+    }
     expect(fake.convolvers).toHaveLength(8);
-    const returns = fake.gains.filter((g) => g.kind === 'ret' && g.ramps.some((r) => r.value === 0));
-    expect(returns).toHaveLength(8 - MAX_TAILS);
-    // At no time do more than MAX_TAILS sound, plus the one fading out on its return for one crossfade.
+    expect(returns().filter((g) => g.ramps.some((r) => r.value === 0))).toHaveLength(8 - MAX_TAILS);
     // Past every evicted fade but inside the ringing tails: only the evicted are gone.
     fake.now = 0.7;
     instance.automate!(0.7, 0.725, 0.7);
@@ -308,7 +314,7 @@ describe('reverb', () => {
   });
 
   it('rings out its tail after a rebuild: a cable into Mix mid-tail doesn\'t cut it', async () => {
-    // A burst at 0.05 s into a 4 s Reverb; at 0.31 s a cable into Mix rebuilds the node.
+    // A burst at 0.05 s into a 4 s Reverb; at 0.21 s a cable into Mix rebuilds the node.
     const { reports, built, audio } = await tailRun(reverb, { mix: 1, decay: 4 }, 'mix', 2);
     expect(reports[0]!.updated).toEqual([]);
     expect(built).toBe(2);
@@ -337,7 +343,7 @@ describe('reverb', () => {
 
 interface FakeParam extends AudioParamLike {
   kind: string;
-  ramps: { value: number }[];
+  ramps: { value: number; time: number }[];
 }
 
 /** A context that builds nothing audible, recording convolvers and gain ramps, with a settable clock. */
@@ -353,7 +359,7 @@ function fakeContext() {
     const p: FakeParam = {
       value: 1, kind, ramps: [],
       setValueAtTime: () => p,
-      linearRampToValueAtTime: (value: number) => (p.ramps.push({ value }), p),
+      linearRampToValueAtTime: (value: number, time: number) => (p.ramps.push({ value, time }), p),
       exponentialRampToValueAtTime: () => p,
       setTargetAtTime: () => p,
       cancelScheduledValues: () => p,
