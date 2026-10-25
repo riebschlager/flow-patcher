@@ -358,7 +358,7 @@ Generated material goes through the scheduler's 120 ms lookahead. Canvas input t
 
 ### Hot patching
 
-An edit produces a new plan. The scheduler swaps plans at the next window boundary: the first one at least a render lead (15 ms) past currentTime, re-running the windows already queried from there ([ADR 0023](decisions/0023-hot-swap-reruns-from-next-boundary.md)). Nodes keep their state when their id survives the edit: arpeggio position, held notes, per-channel recognizer state. Future events already scheduled from removed or changed nodes are cancelled; notes already sounding finish their release. Live input cancels and replaces scheduled events the same way when it rewinds a node's state (Timing).
+An edit produces a new plan. The scheduler swaps plans at the next window boundary: the first one at least `SWAP_MARGIN` (20 ms) past currentTime, re-running the windows already queried from there ([ADR 0023](decisions/0023-hot-swap-reruns-from-next-boundary.md)). Nodes keep their state when their id survives the edit: arpeggio position, held notes, per-channel recognizer state. Future events already scheduled from removed or changed nodes are cancelled; notes already sounding finish their release. Live input cancels and replaces scheduled events the same way when it rewinds a node's state (Timing).
 
 ### Budgets
 

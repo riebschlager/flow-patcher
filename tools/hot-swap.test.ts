@@ -61,11 +61,12 @@ describe('a knob change across a rewind (ADR 0021)', () => {
     [cable('clock', 'tick', 'read', 'in'), cable('pusher', 'out', 'read', 'in'), cable('clock', 'transport', 'read', 'transport'), cable('clock', 'phase', 'read', 'phase')],
   );
 
-  /** The swap at 1.001 s takes effect at the window boundary 1.02 s; the tap at 1.002 s lands at 1.007 s, before it. */
+  /** The swap at 0.999 s takes effect at the window boundary 1.02 s (the first at least SWAP_MARGIN past it);
+   *  the tap at 1.002 s lands at 1.007 s, before it. */
   async function run(withTap: boolean) {
     const seen: { swapAt?: number; tapAt?: number; anchors?: number[] } = {};
     const anchors = (runtime: Runtime) => ((runtime.stateOf('clock') as { transport: Transport }).transport.anchors.map((a) => a.time));
-    const edits: RunEdit[] = [{ time: 1.001, apply: (r) => void (seen.swapAt = r.edit([{ op: 'set-param', node: 'clock', param: 'bpm', value: 90 }]).time) }];
+    const edits: RunEdit[] = [{ time: 0.999, apply: (r) => void (seen.swapAt = r.edit([{ op: 'set-param', node: 'clock', param: 'bpm', value: 90 }]).time) }];
     if (withTap) {
       edits.push({
         time: 1.002,

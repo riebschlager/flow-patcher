@@ -174,9 +174,9 @@ describe('hot swap', () => {
     const report = run.edit(0.49, { op: 'set-param', node: 'm', param: 'period', value: 0.04 });
     run.wakeEvery(0.5, 1.2);
 
-    // Windows end at wake + 120 ms: 0.47, 0.495, 0.52, …; the first at or after 0.49 + 15 ms starts at 0.52.
+    // Windows end at wake + 120 ms: 0.47, 0.495, 0.52, …; the first at or after 0.49 + 20 ms starts at 0.52.
     // 0.495 is ahead of the clock, but not by the render lead (#97).
-    expect(SWAP_MARGIN).toBe(0.015);
+    expect(SWAP_MARGIN).toBe(0.02);
     expect(report.time).toBeCloseTo(0.52, 9);
     expect(report.windows).toBe(3);
     expect(report.changed).toEqual(['m']);
@@ -391,8 +391,8 @@ describe('hot swap', () => {
     // A tick every 10 ms, so one lands exactly on the swap's boundary, 0.47.
     const run = setup(patch([node('m', 'metro', { period: 0.01 }), node('r', 'counter'), node('d', 'counter'), node('u', 'counter')], [cable('m', 'r'), cable('m', 'd'), cable('m', 'u')]));
     run.wakeEvery(0, 0.46);
-    // 0.455 + SWAP_MARGIN = 0.47.
-    const report = run.edit(0.455, { op: 'remove-node', node: 'r' }, { op: 'add-cable', cable: cable('u', 'd') });
+    // 0.45 + SWAP_MARGIN = 0.47.
+    const report = run.edit(0.45, { op: 'remove-node', node: 'r' }, { op: 'add-cable', cable: cable('u', 'd') });
     const T = report.time;
     expect(T).toBeCloseTo(0.47, 12);
     expect(run.of('m').some((e) => e.time === T)).toBe(true);

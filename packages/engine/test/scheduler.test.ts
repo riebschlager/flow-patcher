@@ -445,7 +445,7 @@ describe('late counters read the audio clock at hand-over', () => {
       build.time = 0;
       expect(run.clock.audio).toBeCloseTo(0.51, 12);
       // The first boundary at or after 0.51 + SWAP_MARGIN.
-      expect(SWAP_MARGIN).toBe(0.015);
+      expect(SWAP_MARGIN).toBe(0.02);
       expect(report.time).toBeCloseTo(0.545, 9);
       expect(report.time).toBeGreaterThanOrEqual(run.clock.audio + SWAP_MARGIN - 1e-12);
       run.wakeEvery(0.525, 0.8);
@@ -725,7 +725,8 @@ describe('a node that throws during a rewind', () => {
     [node('m', 'metro', { period: 0.02 }), node('t', 'tap'), node('f', 'fragile'), node('c', 'counter'), node('d', 'delay', { time: 0.03 }), node('r', 'recorder')],
     [cable('m', 'f'), cable('t', 'f'), cable('f', 'c'), cable('c', 'd'), cable('d', 'r'), cable('c', 'r')],
   );
-  /** Wakes every 25 ms to 1 s; at 0.4012 s runs `before` and pushes the `boom` event when asked, and a plain one at 0.6 s. */
+  /** Wakes every 25 ms to 1 s; at the 0.4 s wake runs `before` (its swap lands at 0.42, 0.4 + SWAP_MARGIN), then at
+   *  0.4012 s pushes the `boom` event when asked, and a plain one at 0.6 s. */
   function perform(boom: boolean, costs: PushCost[] = [], { at = p, extra = [fragile], before }: { at?: Patch; extra?: NodeDefinition[]; before?: (run: ReturnType<typeof setup>) => void } = {}) {
     const run = setup(at, { onPush: (cost) => costs.push(cost) }, extra);
     const heard: unknown[] = [];
@@ -733,8 +734,8 @@ describe('a node that throws during a rewind', () => {
     for (let k = 0; k * 0.025 < 1; k++) {
       run.wakeAt(k * 0.025);
       if (k === 16) {
-        run.clock.set(0.4012);
         before?.(run);
+        run.clock.set(0.4012);
         if (boom) run.scheduler.push('t', 'out', { channel: 0, boom: true });
       }
       if (k === 24) {
@@ -1041,9 +1042,9 @@ describe('rewind cost', () => {
     const after = patch([...before.nodes, node('d', 'delay', { time: 0.01 })], [cable('m', 'c'), cable('t', 'c'), cable('c', 'd'), cable('d', 'r')]);
     const run = setup(before);
     run.wakeEvery(0, 0.425);
-    run.clock.set(0.4012);
-    // Windows before the boundary run whole, those after it in 10 ms chunks.
+    // Windows before the boundary run whole, those after it in 10 ms chunks. Swapped at the 0.4 wake: 0.4 + SWAP_MARGIN = 0.42.
     expect(run.scheduler.swap(run.compile(after)).time).toBeCloseTo(0.42, 9);
+    run.clock.set(0.4012);
     let checked = 0;
     for (let k = 0; k < 8; k++) {
       if (k) run.wakeAt(0.4 + k * 0.025);
