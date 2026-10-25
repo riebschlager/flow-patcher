@@ -7,8 +7,9 @@
 // spacing; a later wake is a stall and skips the missed windows. The first
 // running wake starts the patch at 0: if the clock is already past it (the
 // AudioContext started before the wake, as on the first tap), [0, now) is
-// caught up the same way, however long it is, and never counts as a stall.
-// A resume after a suspend or `halt` carries on from the horizon. Live input
+// caught up the same way when it is within the limit. Past it, the patch
+// starts at now, which doesn't count as a stall. A resume after a suspend
+// or `halt` carries on from the horizon. Live input
 // takes the immediate path: `push` stamps it currentTime + 5 ms and sends it
 // down its cables at once, rewinding the nodes downstream of it.
 //
@@ -43,7 +44,7 @@ export interface SchedulerClock {
   /** False while the audio clock is suspended: wakes do nothing, pushes are held,
    *  and the next running wake resumes from the horizon (or from now, if the
    *  clock has passed it) without counting a stall. The very first running wake
-   *  starts from 0 instead, catching up [0, now). Default true. */
+   *  starts from 0 instead, catching up [0, now) if that is within the catch-up limit. Default true. */
   running?(): boolean;
   /** True while the page is hidden, for the long lookahead. Default false. The
    *  host should also call `wake()` when visibility changes. */
@@ -195,7 +196,7 @@ export class Scheduler {
   }
 
   /** Stops the timer. The next wake resumes like after a suspend: from the horizon, or from now if that has passed
-   *  (before any window was queried, it is still the first wake, which starts from 0). */
+   *  (before any window was queried, it is still the first wake, which starts from 0 within the catch-up limit). */
   halt(): void {
     this.stop?.();
     this.stop = null;
@@ -207,7 +208,8 @@ export class Scheduler {
    * One wake: query from the horizon to now + lookahead. A wake up to
    * catchUpLimit past the horizon still queries what it missed, moved later
    * to start now; a later one skips the missed windows. The first running
-   * wake queries from 0, catching up [0, now) whatever its length. A window
+   * wake treats 0 as its horizon: up to catchUpLimit past it, it catches up
+   * [0, now); later, it starts at now without counting a stall. A window
    * never starts before the runtime's horizon, so no stretch is queried twice.
    */
   wake(): void {
@@ -225,9 +227,10 @@ export class Scheduler {
     if (this.next === null) {
       // The first running wake: nothing has been queried, so the patch starts at 0. If the clock
       // is already past 0 (it started before this wake: the first tap resumed the AudioContext),
-      // [0, now) is caught up below, so a t=0 event sounds at the resume. Not a stall, however
-      // late: nothing was ever heard from that stretch, so nothing plays twice or is skipped.
-      t0 = 0;
+      // [0, now) is caught up below, so a t=0 event sounds at the resume, but only up to
+      // catchUpLimit, as for any late wake (ADR 0017: no bursts). Past it, the patch starts at
+      // now, without counting a stall: nothing was ever heard, so nothing was dropped mid-play.
+      t0 = now <= this.catchUpLimit ? 0 : now;
       this.fresh = false;
     } else if (this.fresh) {
       // Resuming after a suspend or halt: carry on from the horizon, or from now if the clock has moved past it.
@@ -254,9 +257,9 @@ export class Scheduler {
     // Whoever queried the runtime last, never query a stretch twice.
     t0 = Math.max(t0, this.runtime.horizon ?? -Infinity);
     // What's still missed after that, [t0, now), is caught up: moved to start now.
-    // (A resume and a stall both begin at now or later, so they never catch up; within
-    // the limit, `late` was at most catchUpLimit, and the clamp only shrinks it. The
-    // first wake catches up all of [0, now), past the limit too.)
+    // (A resume, a stall and a first wake past the limit all begin at now or later, so they
+    // never catch up; within the limit, `late` was at most catchUpLimit, and the clamp only
+    // shrinks it. So no catch-up is ever longer than catchUpLimit, whoever queried before.)
     if (t0 < now) {
       catchUp = { until: now, shift: now - t0 };
       this.own.catchUps++;

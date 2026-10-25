@@ -348,8 +348,10 @@ export interface RuntimeCounters {
   /** Of those, the ones still before the audio clock at hand-over, read as for
    *  lateScheduled, and moved to it. A catch-up moves its stretch to start at the
    *  wake's `now`, with no lead, so a clock step during the wake's query makes its
-   *  first events late. Counted here, not in lateScheduled (ADR 0017, #105). */
+   *  first events late. Counted here, not in lateScheduled (ADR 0033). */
   lateCaughtUp: number;
+  /** The most any of those was moved, in ms: how far the clock stepped during the catch-up's query (ADR 0033). */
+  lateCaughtUpMaxMs: number;
   /** Scheduled events (a wake's window, a swap's re-run) that were before the audio
    *  clock at hand-over, read then (`DeliveryTiming.currentTime`) and not just as
    *  the call began, and were moved to it. Caught-up events count in lateCaughtUp. */
@@ -597,7 +599,7 @@ interface Retiring {
 }
 
 export class Runtime {
-  readonly counters: RuntimeCounters = { delivered: 0, caughtUp: 0, lateCaughtUp: 0, lateScheduled: 0, lateImmediate: 0, lateImmediateMaxMs: 0, cancelled: 0, uncancelled: 0, outOfWindow: 0, droppedNodeLimit: 0, droppedPatchLimit: 0, queries: 0, snapshots: 0, snapshotMs: 0, voiceSteals: 0, droppedPushes: 0 };
+  readonly counters: RuntimeCounters = { delivered: 0, caughtUp: 0, lateCaughtUp: 0, lateCaughtUpMaxMs: 0, lateScheduled: 0, lateImmediate: 0, lateImmediateMaxMs: 0, cancelled: 0, uncancelled: 0, outOfWindow: 0, droppedNodeLimit: 0, droppedPatchLimit: 0, queries: 0, snapshots: 0, snapshotMs: 0, voiceSteals: 0, droppedPushes: 0 };
   /** The latest plan: what the next window runs. */
   private stage: Stage;
   /** The plan the chunk being run belongs to: `stage`, except while a rewind replays older windows. */
@@ -1656,8 +1658,10 @@ export class Runtime {
       this.counters.caughtUp++;
     }
     if (!(time >= floor)) {
-      if (caught) this.counters.lateCaughtUp++;
-      else if (timing.path === 'immediate') {
+      if (caught) {
+        this.counters.lateCaughtUp++;
+        if (Number.isFinite(time)) this.counters.lateCaughtUpMaxMs = Math.max(this.counters.lateCaughtUpMaxMs, (floor - time) * 1000);
+      } else if (timing.path === 'immediate') {
         this.counters.lateImmediate++;
         if (Number.isFinite(time)) this.counters.lateImmediateMaxMs = Math.max(this.counters.lateImmediateMaxMs, (floor - time) * 1000);
       } else this.counters.lateScheduled++;

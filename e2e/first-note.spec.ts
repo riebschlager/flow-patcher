@@ -79,7 +79,7 @@ test('the first tap starts audio, and the t=0 Clock note sounds at once, before 
   const ms = (s: number) => (s * 1000).toFixed(2);
   console.log(`[first note] starts ${seen.map((s) => `${Math.round(s.hz)} Hz at ${ms(s.when)} (called at ${ms(s.at)})`).join(', ')}; ` +
     `catch-ups ${stats.catchUps} (worst ${stats.catchUpMaxMs.toFixed(2)} ms), caught up ${stats.caughtUp}, ` +
-    `late ${stats.lateCaughtUp} caught up, ${stats.lateScheduled} scheduled, ${stats.lateImmediate} immediate; stalls ${stats.stalls}`);
+    `late ${stats.lateCaughtUp} caught up (worst ${stats.lateCaughtUpMaxMs.toFixed(2)} ms), ${stats.lateScheduled} scheduled, ${stats.lateImmediate} immediate; stalls ${stats.stalls}`);
 
   // One clock step: the callback (baseLatency) or the largest step seen, whichever is longer (ADR 0027).
   const { callback, largestStep } = await audioCallback(page);
@@ -99,11 +99,14 @@ test('the first tap starts audio, and the t=0 Clock note sounds at once, before 
   // Its push read the clock after that wake handed the t=0 note over, so it follows by at least the 5 ms offset.
   expect(tapNote!.at - tapNote!.when).toBeLessThanOrEqual(step + 1e-6);
   expect(tapNote!.when - clockNote!.when).toBeGreaterThanOrEqual(IMMEDIATE_OFFSET - 1e-6);
-  // The click's pointerdown and pointerup, both held.
-  expect(stats.deferredPushes).toBe(2);
+  // At least the pointerdown was held (the context may already run by the pointerup, under load).
+  expect(stats.deferredPushes).toBeGreaterThanOrEqual(1);
   expect(stats.lateScheduled).toBe(0);
+  expect(stats.lateCaughtUpMaxMs).toBeLessThanOrEqual(step * 1000 + 1e-3);
 
-  // And it keeps time from there: the next tick at 1 s.
+  // And it keeps time from there: the next tick at 1 s. That holds because the first wake was within the
+  // catch-up limit (the clock 100 ms or less past 0, asserted above by the t=0 note being caught up); a
+  // slower start begins at now and its first tick would be this one.
   await expect.poll(async () => (await starts(page)).filter((s) => Math.abs(s.hz - CLOCK_HZ) < 1).length, { timeout: 5000 }).toBeGreaterThanOrEqual(2);
   const ticks = (await starts(page)).filter((s) => Math.abs(s.hz - CLOCK_HZ) < 1);
   expect(ticks[1]!.when).toBeCloseTo(1, 9);

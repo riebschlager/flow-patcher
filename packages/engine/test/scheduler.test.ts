@@ -1123,7 +1123,7 @@ describe('scheduler', () => {
   });
 });
 
-describe('First wake: the patch starts at 0, even when the clock is already past it (#105)', () => {
+describe('First wake: the patch starts at 0, even when the clock is a little past it (#105, ADR 0033)', () => {
   /** The editor's cold start: the AudioContext is suspended at 0 until the first tap resumes it, and its clock has
    *  moved on to `resume` by the first running wake. */
   const coldStart = (run: ReturnType<typeof setup>, resume: number, beforeResume: () => void = () => {}) => {
@@ -1154,16 +1154,40 @@ describe('First wake: the patch starts at 0, even when the clock is already past
     expect(upTo(run.scheduler.events())).toBe(upTo(reference.scheduler.events()));
   });
 
-  it('catches up from 0 past the catch-up limit too, without counting a stall', () => {
+  it('catches up from 0 up to the catch-up limit; past it, starts at now without a stall', () => {
+    // At the limit: [0, 0.1) moved to start at 0.1, spacing kept.
+    const atLimit = setup(metroPatch(0.025));
+    coldStart(atLimit, 0.1);
+    const caught = atLimit.live().filter((d) => (d.event.index as number) * 0.025 < 0.1);
+    expect(caught.map((d) => d.event.index)).toEqual([0, 1, 2, 3]);
+    for (const d of caught) expect(d.event.time).toBeCloseTo((d.event.index as number) * 0.025 + 0.1, 9);
+    expect(atLimit.scheduler.stats).toMatchObject({ catchUps: 1, caughtUp: 4, stalls: 0, skipped: 0, lateScheduled: 0 });
+    expect(atLimit.scheduler.stats.catchUpMaxMs).toBeCloseTo(100, 9);
+
+    // Past it (a startup slower than 100 ms): the patch starts at now, so the t=0 tick is lost, and
+    // nothing is caught up or counted as a stall.
     const run = setup(metroPatch(0.05));
+    const windows: [number, number][] = [];
+    const query = run.runtime.query.bind(run.runtime);
+    run.runtime.query = (t0, t1, timing) => (windows.push([t0, t1]), query(t0, t1, timing));
     coldStart(run, 0.5);
-    // [0, 0.5) moved to start at 0.5: every tick of it, spacing kept, none skipped.
-    const caught = run.live().filter((d) => (d.event.index as number) * 0.05 < 0.5);
-    expect(caught.map((d) => d.event.index)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-    for (const d of caught) expect(d.event.time).toBeCloseTo((d.event.index as number) * 0.05 + 0.5, 9);
-    expect(run.scheduler.stats).toMatchObject({ catchUps: 1, caughtUp: 10, stalls: 0, skipped: 0, lateScheduled: 0 });
-    expect(run.scheduler.stats.catchUpMaxMs).toBeCloseTo(500, 9);
-    expect(run.live().every((d) => d.event.time >= d.at)).toBe(true);
+    expect(windows).toEqual([[0.5, 0.5 + LOOKAHEAD]]);
+    expect(run.live().map((d) => [d.at, d.event.index])).toEqual([[0.5, 10], [0.5, 11], [0.5, 12]]);
+    expect(run.live()[0]!.event.time).toBe(0.5);
+    expect(run.scheduler.stats).toMatchObject({ catchUps: 0, caughtUp: 0, stalls: 0, skipped: 0, lateScheduled: 0 });
+  });
+
+  it('never catches up more than the limit at the first wake, even if someone else queried part of [0, now)', () => {
+    const run = setup(metroPatch(0.01));
+    run.runtime.query(0, 0.05);
+    run.wakeAt(0.12);
+    expect(run.scheduler.stats).toMatchObject({ catchUps: 0, stalls: 0 });
+    const part = setup(metroPatch(0.01));
+    part.runtime.query(0, 0.05);
+    part.wakeAt(0.08);
+    // [0.05, 0.08) caught up, moved 30 ms.
+    expect(part.scheduler.stats).toMatchObject({ catchUps: 1, caughtUp: 3, stalls: 0 });
+    expect(part.scheduler.stats.catchUpMaxMs).toBeCloseTo(30, 9);
   });
 
   it('catches up from 0 while hidden, and after a halt before any window', () => {
@@ -1237,7 +1261,9 @@ describe('First wake: the patch starts at 0, even when the clock is already past
     run.wakeAt(0.003);
     // The t=0 tick, moved by the catch-up to 0.003 and then to the clock at hand-over.
     expect(deliveredAt(run)[0]).toEqual([0.011, 0.011, 0]);
-    expect(run.scheduler.stats).toMatchObject({ caughtUp: 1, lateCaughtUp: 1, lateScheduled: 0, lateImmediate: 0 });
+    expect(run.scheduler.stats).toMatchObject({ caughtUp: 1, lateCaughtUp: 1, lateScheduled: 0, lateImmediate: 0, lateImmediateMaxMs: 0 });
+    // Moved 8 ms: how far the clock stepped during the query.
+    expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(8, 9);
   });
 
   it('plays the t=0 event of a patch swapped in before the first tap', () => {
