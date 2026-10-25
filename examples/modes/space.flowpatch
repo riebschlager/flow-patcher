@@ -252,6 +252,19 @@
       }
     },
     {
+      "id": "side",
+      "type": "map-range",
+      "typeVersion": 1,
+      "params": {
+        "outMax": 1,
+        "outMin": -1
+      },
+      "position": {
+        "x": 960,
+        "y": 260
+      }
+    },
+    {
       "id": "drops",
       "type": "splat",
       "typeVersion": 1,
@@ -494,7 +507,7 @@
         "node": "echo",
         "port": "mix"
       },
-      "depth": 0.6
+      "depth": 0.55
     },
     {
       "from": {
@@ -505,7 +518,7 @@
         "node": "space",
         "port": "mix"
       },
-      "depth": 0.7
+      "depth": 0.6
     },
     {
       "from": {
@@ -555,6 +568,26 @@
       "to": {
         "node": "swirl",
         "port": "active"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "x"
+      },
+      "to": {
+        "node": "side",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "side",
+        "port": "out"
+      },
+      "to": {
+        "node": "swirl",
+        "port": "spin"
       }
     },
     {

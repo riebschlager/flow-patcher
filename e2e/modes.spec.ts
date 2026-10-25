@@ -25,18 +25,30 @@ async function open(page: Page, mode: string): Promise<string[]> {
 async function follow(page: Page, outputs: [string, string, 'event' | 'note'][]) {
   await page.evaluate((list) => {
     const seen: Record<string, EngineEvent[]> = (window.modeSeen = {});
+    // Only what comes after this: a probe's history still holds the press that started audio.
+    const since = window.flowPatcher!.clock.currentTime;
     for (const [node, port, type] of list) {
       const key = `${node}.${port}`;
       seen[key] = [];
       window.flowPatcher!.watchProbe(node, port, 'out', type, () => {
         for (const event of window.flowPatcher!.probe(node, port)?.events ?? []) {
-          if (!seen[key]!.some((e) => e.time === event.time && e.channel === event.channel && e.pitch === event.pitch)) seen[key]!.push(event);
+          if (event.time >= since && !seen[key]!.some((e) => e.time === event.time && e.channel === event.channel && e.pitch === event.pitch)) seen[key]!.push(event);
         }
       });
     }
   }, outputs);
 }
 const count = (page: Page, key: string) => page.evaluate((k) => window.modeSeen![k]!.length, key);
+/** The count once it has stopped changing for 300 ms: notes still in the scheduler or the probe are in. */
+async function settled(page: Page, key: string): Promise<number> {
+  let last = -1;
+  for (;;) {
+    const now = await count(page, key);
+    if (now === last) return now;
+    last = now;
+    await page.waitForTimeout(300);
+  }
+}
 const param = (page: Page, node: string, name: string) => page.evaluate(([n, p]) => window.flowPatcher!.paramAt(n!, p!)!, [node, name]);
 
 /** Canvas coordinates (0–1) to page pixels. */
@@ -52,10 +64,16 @@ async function start(page: Page) {
   await expect(page.getByTestId('audio-state')).toHaveText('live');
 }
 
-async function drag(page: Page, from: [number, number], to: [number, number], steps: number, stepMs: number) {
+/** Presses at `from` and moves to `to` in `steps`, `stepMs` apart; `lead` first jumps that far toward `to`. */
+async function drag(page: Page, from: [number, number], to: [number, number], steps: number, stepMs: number, lead = 0) {
   const at = await canvasAt(page);
   await page.mouse.move(...at(...from));
   await page.mouse.down();
+  if (lead > 0) {
+    const length = Math.hypot(to[0] - from[0], to[1] - from[1]);
+    from = [from[0] + ((to[0] - from[0]) * lead) / length, from[1] + ((to[1] - from[1]) * lead) / length];
+    await page.mouse.move(...at(...from));
+  }
   for (let i = 1; i <= steps; i++) {
     await page.mouse.move(...at(from[0] + ((to[0] - from[0]) * i) / steps, from[1] + ((to[1] - from[1]) * i) / steps));
     await page.waitForTimeout(stepMs);
@@ -63,21 +81,30 @@ async function drag(page: Page, from: [number, number], to: [number, number], st
   await page.mouse.up();
 }
 
-test('Paint: a fast stroke keeps playing, a slow one plays only its press, and a held press blooms', async ({ page }) => {
+test('Paint: strokes play a note each Spacing of travel, fast or slow, and a held press blooms', async ({ page }) => {
   const errors = await open(page, 'paint');
   await start(page);
-  await follow(page, [['paint', 'note', 'note'], ['moving', 'out', 'event'], ['bloom1', 'note', 'note']]);
+  await follow(page, [['paint', 'note', 'note'], ['moving', 'out', 'event'], ['bloom1', 'note', 'note'], ['hold', 'release', 'event']]);
+  // Drag Spacing 0.07 in canvas units; the strokes run along x, so travel is in canvas-width units.
+  const SPACING = 0.07;
 
-  await drag(page, [0.15, 0.7], [0.8, 0.35], 30, 16);
-  await expect.poll(() => count(page, 'moving.out')).toBeGreaterThanOrEqual(4);
-  const afterFast = await count(page, 'paint.note');
-  expect(afterFast).toBeGreaterThanOrEqual(5);
+  // Fast: 0.6 across in about half a second.
+  await drag(page, [0.15, 0.6], [0.75, 0.6], 30, 16);
+  const fast = await settled(page, 'moving.out');
+  expect(fast).toBeGreaterThanOrEqual(Math.floor(0.6 / SPACING) - 2);
+  expect(fast).toBeLessThanOrEqual(Math.ceil(0.6 / SPACING));
 
-  const moving = await count(page, 'moving.out');
-  await drag(page, [0.3, 0.8], [0.36, 0.79], 30, 40);
-  await page.waitForTimeout(300);
-  expect(await count(page, 'moving.out')).toBe(moving);
-  expect(await count(page, 'paint.note')).toBe(afterFast + 1);
+  // Slow (Flow's ribbon): 0.4 across in about 3 s, still above the Gate's Level 0.04, so it plays, by distance.
+  // Its first step leaves Hold's 0.025 radius at once: a loaded page that delivers the first moves late
+  // would otherwise leave the press still long enough for Hold to charge and claim it, as it should.
+  await drag(page, [0.2, 0.8], [0.6, 0.8], 75, 40, 0.04);
+  const slow = (await settled(page, 'moving.out')) - fast;
+  // Neither stroke was ever still long enough for Hold to take it.
+  expect(await count(page, 'hold.release')).toBe(0);
+  expect(slow).toBeGreaterThanOrEqual(Math.floor(0.4 / SPACING) - 2);
+  expect(slow).toBeLessThanOrEqual(Math.ceil(0.4 / SPACING));
+  // Each stroke's press plays too.
+  expect(await settled(page, 'paint.note')).toBe(1 + fast + 1 + slow);
 
   const at = await canvasAt(page);
   await page.mouse.move(...at(0.6, 0.55));
@@ -98,9 +125,18 @@ test('Conduct: low on the canvas closes the filter, sideways pans, and letting g
     await page.mouse.move(...at(0.5 + i * 0.02, 0.2 + i * 0.035));
     await page.waitForTimeout(20);
   }
-  // y = 0.9: 350·(18000/350)^0.1 ≈ 520 Hz once Smooth has caught up.
-  await expect.poll(() => param(page, 'filter', 'cutoff')).toBeLessThan(800);
-  await expect.poll(() => param(page, 'pan', 'pan')).toBeGreaterThan(0.3);
+  // At Flow's default Amount: cutoff 18 kHz × 2^(−3.7·y), pan 0.65·(x − 0.5).
+  // Low right, (0.9, 0.9): about 1.8 kHz, pan +0.26.
+  await expect.poll(() => param(page, 'filter', 'cutoff')).toBeLessThan(2500);
+  await expect.poll(() => param(page, 'pan', 'pan')).toBeGreaterThan(0.2);
+  // High left, (0.2, 0.3): about 8.3 kHz, pan −0.2. Cutoff from x or pan from y would fail one of the two.
+  for (let i = 1; i <= 20; i++) {
+    await page.mouse.move(...at(0.9 - i * 0.035, 0.9 - i * 0.03));
+    await page.waitForTimeout(20);
+  }
+  await expect.poll(() => param(page, 'filter', 'cutoff')).toBeGreaterThan(6000);
+  await expect.poll(() => param(page, 'filter', 'cutoff')).toBeLessThan(11000);
+  await expect.poll(() => param(page, 'pan', 'pan')).toBeLessThan(-0.15);
   await page.mouse.up();
   await expect.poll(() => param(page, 'filter', 'cutoff'), { timeout: 4000 }).toBeGreaterThan(15000);
   await expect.poll(() => param(page, 'pan', 'pan').then(Math.abs)).toBeLessThan(0.05);
@@ -115,16 +151,23 @@ test('Space: up adds room, right adds echoes, and both fall away on release', as
   await page.mouse.move(...at(0.9, 0.1));
   await page.mouse.down();
   await page.mouse.move(...at(0.92, 0.1));
-  // Room: 0.05 + 0.7·(1 − y); echoes: 0.6·x.
-  await expect.poll(() => param(page, 'space', 'mix')).toBeGreaterThan(0.5);
-  await expect.poll(() => param(page, 'echo', 'mix')).toBeGreaterThan(0.45);
+  // Room: 0.05 + 0.6·(1 − y); echoes: 0.55·x. Top right, (0.92, 0.1): room 0.59, echoes 0.51.
+  await expect.poll(() => param(page, 'space', 'mix')).toBeGreaterThan(0.45);
+  await expect.poll(() => param(page, 'echo', 'mix')).toBeGreaterThan(0.4);
+  // Bottom right, (0.92, 0.9): echoes stay, the room goes. Swapped axes would fail here.
+  for (let i = 1; i <= 16; i++) {
+    await page.mouse.move(...at(0.92, 0.1 + i * 0.05));
+    await page.waitForTimeout(20);
+  }
+  await expect.poll(() => param(page, 'space', 'mix')).toBeLessThan(0.25);
+  expect(await param(page, 'echo', 'mix')).toBeGreaterThan(0.4);
   await page.mouse.up();
   await expect.poll(() => param(page, 'space', 'mix'), { timeout: 5000 }).toBeLessThan(roomAt + 0.05);
   await expect.poll(() => param(page, 'echo', 'mix'), { timeout: 5000 }).toBeLessThan(echoAt + 0.05);
   expect(errors).toEqual([]);
 });
 
-test('Orbit: circling starts an orbit, adds echoes and room, and raises the resonance', async ({ page }) => {
+test('Orbit: circling starts an orbit and drives echoes and resonance above a still press', async ({ page }) => {
   const errors = await open(page, 'orbit');
   await start(page);
   await follow(page, [['circle', 'start', 'event']]);
@@ -137,15 +180,16 @@ test('Orbit: circling starts an orbit, adds echoes and room, and raises the reso
     const a = (i / 45) * Math.PI * 2;
     await page.mouse.move(cx + r * Math.cos(a), cy + r * Math.sin(a));
     await page.waitForTimeout(16);
-    if (i > 45) {
+    if (i > 45 && i % 5 === 0) {
       echo = Math.max(echo, await param(page, 'echo', 'mix'));
       q = Math.max(q, await param(page, 'filter', 'q'));
     }
   }
   await page.mouse.up();
   await expect.poll(() => count(page, 'circle.start')).toBe(1);
-  // orbit = 0.5 + 0.5·energy, smoothed: echoes 0.6·orbit, Q 0.4 + 0.6·orbit.
-  expect(echo).toBeGreaterThan(0.25);
-  expect(q).toBeGreaterThan(0.65);
+  // orbit = 0.5 + 0.5·energy, smoothed: echoes 0.52·orbit, Q 0.4 + 0.39·orbit. A still press (orbit 0.5)
+  // gives 0.26 and 0.6; circling at about one turn a second must get past both.
+  expect(echo).toBeGreaterThan(0.33);
+  expect(q).toBeGreaterThan(0.66);
   expect(errors).toEqual([]);
 });

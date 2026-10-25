@@ -74,7 +74,7 @@
       "type": "gate",
       "typeVersion": 1,
       "params": {
-        "level": 0.3
+        "level": 0.04
       },
       "position": {
         "x": 1200,
@@ -307,7 +307,7 @@
       "type": "filter",
       "typeVersion": 2,
       "params": {
-        "cutoff": 15600,
+        "cutoff": 16700,
         "q": 0.7
       },
       "position": {
@@ -348,6 +348,19 @@
       "position": {
         "x": 2640,
         "y": 600
+      }
+    },
+    {
+      "id": "held",
+      "type": "smooth",
+      "typeVersion": 1,
+      "params": {
+        "fall": 0.85,
+        "rise": 0.12
+      },
+      "position": {
+        "x": 720,
+        "y": 460
       }
     },
     {
@@ -678,6 +691,16 @@
     },
     {
       "from": {
+        "node": "pinch",
+        "port": "end"
+      },
+      "to": {
+        "node": "bloom1",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
         "node": "pointer",
         "port": "x"
       },
@@ -720,6 +743,16 @@
       "from": {
         "node": "pinch",
         "port": "spread"
+      },
+      "to": {
+        "node": "bloom2",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "pinch",
+        "port": "end"
       },
       "to": {
         "node": "bloom2",
@@ -778,6 +811,16 @@
     },
     {
       "from": {
+        "node": "pinch",
+        "port": "end"
+      },
+      "to": {
+        "node": "bloom3",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
         "node": "pointer",
         "port": "x"
       },
@@ -820,6 +863,16 @@
       "from": {
         "node": "pinch",
         "port": "spread"
+      },
+      "to": {
+        "node": "bloom4",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "pinch",
+        "port": "end"
       },
       "to": {
         "node": "bloom4",
@@ -858,6 +911,16 @@
     },
     {
       "from": {
+        "node": "hold",
+        "port": "charge"
+      },
+      "to": {
+        "node": "held",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
         "node": "closing",
         "port": "out"
       },
@@ -865,29 +928,29 @@
         "node": "filter",
         "port": "cutoff"
       },
-      "depth": -4.58
+      "depth": -2.98
     },
     {
       "from": {
-        "node": "hold",
-        "port": "charge"
+        "node": "held",
+        "port": "out"
       },
       "to": {
         "node": "level",
         "port": "gain"
       },
-      "depth": -0.2
+      "depth": -0.13
     },
     {
       "from": {
-        "node": "hold",
-        "port": "charge"
+        "node": "held",
+        "port": "out"
       },
       "to": {
         "node": "room",
         "port": "mix"
       },
-      "depth": 0.6
+      "depth": 0.585
     },
     {
       "from": {
@@ -1051,6 +1114,16 @@
     },
     {
       "from": {
+        "node": "pinch",
+        "port": "end"
+      },
+      "to": {
+        "node": "blooms",
+        "port": "at"
+      }
+    },
+    {
+      "from": {
         "node": "pointer",
         "port": "x"
       },
@@ -1101,14 +1174,14 @@
     },
     {
       "from": {
-        "node": "hold",
-        "port": "charge"
+        "node": "held",
+        "port": "out"
       },
       "to": {
         "node": "gathering",
         "port": "strength"
       },
-      "depth": 0.8
+      "depth": 0.52
     },
     {
       "from": {

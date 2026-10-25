@@ -41,7 +41,7 @@
       "type": "map-range",
       "typeVersion": 1,
       "params": {
-        "inMax": 2,
+        "inMax": 1.5,
         "outMax": 1,
         "outMin": 0.5
       },
@@ -227,7 +227,7 @@
       "type": "filter",
       "typeVersion": 2,
       "params": {
-        "cutoff": 9000,
+        "cutoff": 18000,
         "q": 0.4
       },
       "position": {
@@ -551,7 +551,7 @@
         "node": "filter",
         "port": "q"
       },
-      "depth": 0.6
+      "depth": 0.39
     },
     {
       "from": {
@@ -583,7 +583,7 @@
         "node": "echo",
         "port": "mix"
       },
-      "depth": 0.6
+      "depth": 0.52
     },
     {
       "from": {
@@ -594,7 +594,7 @@
         "node": "space",
         "port": "mix"
       },
-      "depth": 0.3
+      "depth": 0.2
     },
     {
       "from": {
