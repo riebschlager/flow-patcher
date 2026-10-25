@@ -93,7 +93,8 @@ interface Voice {
 
 export const sampledVoice: NodeDefinition = {
   type: 'sampled-voice',
-  version: 1,
+  // 2: cutoff is log-scaled, so a cable's depth into it is in octaves (ADR 0032).
+  version: 2,
   label: 'Sampled Voice',
   category: 'instruments',
   description: "One of Flow's 28 sampled instruments, with a per-note envelope, glide and filter.",
@@ -109,7 +110,8 @@ export const sampledVoice: NodeDefinition = {
     { name: 'release', kind: 'number', min: 0, max: 8, default: 0.3, unit: 's', label: 'Release' },
     { name: 'glideTime', kind: 'number', min: 0, max: 2, default: 0.18, unit: 's', label: 'Glide time' },
     { name: 'glide', kind: 'number', min: 0, max: 1, default: 0, label: 'Glide' },
-    { name: 'cutoff', kind: 'number', min: 80, max: 20000, default: 11000, unit: 'Hz', label: 'Cutoff' },
+    // Log-scaled: every octave gets the same knob travel, and cable depth is in octaves (ADR 0032).
+    { name: 'cutoff', kind: 'number', min: 80, max: 20000, default: 11000, unit: 'Hz', label: 'Cutoff', scale: 'log' },
     { name: 'q', kind: 'number', min: 0.1, max: 20, default: 0.55, label: 'Q' },
     { name: 'level', kind: 'number', min: 0, max: 2, default: 1, label: 'Level' },
   ],

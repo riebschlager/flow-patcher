@@ -75,7 +75,7 @@
     {
       "id": "vibes",
       "type": "sampled-voice",
-      "typeVersion": 1,
+      "typeVersion": 2,
       "params": {
         "attack": 0.005,
         "cutoff": 9000,
