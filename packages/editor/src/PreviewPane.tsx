@@ -6,7 +6,8 @@ const MIN = { width: 200, height: 120 };
 const DEFAULT = { width: 248, height: 156 };
 
 /** The performance canvas in Patch view: a floating pane, resized from its lower-left corner. */
-export function PreviewPane({ live }: { live: LivePatch | null }) {
+/** `full`: the canvas fills the window (`?canvas=full`), for playing a patch on a phone or tablet before Play view (M4). */
+export function PreviewPane({ live, full = false }: { live: LivePatch | null; full?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState(DEFAULT);
   const subscribe = useCallback((listener: () => void) => live?.subscribe(listener) ?? (() => {}), [live]);
@@ -279,13 +280,13 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
   };
 
   return (
-    <section className="preview" data-testid="preview" style={{ width: size.width }}>
+    <section className={`preview${full ? ' preview--full' : ''}`} data-testid="preview" style={full ? undefined : { width: size.width }}>
       <header className="preview__bar">
         <span className={`preview__led${running ? ' preview__led--live' : ''}`} />
         Preview
         <span className="preview__state" data-testid="audio-state">{running ? 'live' : 'tap to start'}</span>
       </header>
-      <div className="preview__body" style={{ height: size.height }}>
+      <div className="preview__body" style={full ? undefined : { height: size.height }}>
         <canvas
           ref={canvas}
           className="preview__canvas"
@@ -314,7 +315,7 @@ export function PreviewPane({ live }: { live: LivePatch | null }) {
         />
         {live && !pointers && <span className="preview__hint">No canvas input in this patch</span>}
       </div>
-      <div className="preview__grip" onPointerDown={resize} aria-label="Resize preview" role="separator" />
+      {!full && <div className="preview__grip" onPointerDown={resize} aria-label="Resize preview" role="separator" />}
     </section>
   );
 }

@@ -198,3 +198,24 @@ test('Orbit: circling starts an orbit and drives echoes and resonance above a st
   expect(q).toBeGreaterThan(qStill + 0.0195);
   expect(errors).toEqual([]);
 });
+
+test('?canvas=full: a mode fills a phone-sized window and plays from a touch', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  // Compile status lives in the editor's bar, which this mode hides.
+  await page.goto('/?patch=modes/paint&canvas=full');
+  const canvas = page.getByTestId('performance-canvas');
+  await expect(canvas).toBeVisible();
+  const box = (await canvas.boundingBox())!;
+  // The whole window but the preview's status bar.
+  expect(box.width).toBe(390);
+  expect(box.height).toBeGreaterThan(844 - 40);
+  await expect(page.locator('.app__bar')).toBeHidden();
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page.getByTestId('audio-state')).toHaveText('live');
+  await follow(page, [['paint', 'note', 'note']]);
+  await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.7);
+  await expect.poll(() => count(page, 'paint.note')).toBe(1);
+  expect(errors).toEqual([]);
+});

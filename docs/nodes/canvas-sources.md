@@ -18,7 +18,7 @@ Later, each behind a permission and not in v1: Gamepad (buttons and axes, polled
 
 ## Event payload
 
-Every input event carries these base fields, so any node can read them through Get Field.
+Every pointer event (Pointer, Pointer (high rate), Pen and Touch extras' sizes) carries these base fields, so any node can read them through Get Field. Click, Wheel, Key, Canvas, Touch extras' Gesture and MIDI events carry `time` and `channel` and the fields their paragraphs below list.
 
 | Field | Meaning |
 | --- | --- |
@@ -32,7 +32,7 @@ Every input event carries these base fields, so any node can read them through G
 | `shift`, `alt`, `ctrl`, `meta` | Modifier keys held |
 | `age` | Seconds since this channel's down event |
 | `coalesced` | On a pointermove sample from `getCoalescedEvents()`: Pointer (high rate) reads these, Pointer the plain moves |
-| `interval` | Seconds since this pointer's previous sample, from the browser's `timeStamp`s (left out on its first). Motion is measured over it |
+| `interval` | Seconds since this pointer's previous sample, from the browser's `timeStamp`s (left out on its first sample, and on its first since each up or cancel, a hover move included). Motion is measured over it |
 
 `dx` and `dy` are velocity components; `angle` is atan2(dy, dx) in radians (0 to the right, π/2 down) and holds its last value while the pointer is still. A channel's first sample after it's taken has no motion, and `age` is 0 on a hover move.
 

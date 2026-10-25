@@ -19,6 +19,7 @@ pnpm e2e     # Playwright
 pnpm run-patch <file.json>  # headless engine run, output in out/
 pnpm golden:update          # only when output is meant to change
 pnpm spike                  # M0 spike dev server on :5174, reachable on the LAN
+pnpm dev:lan                # the editor, reachable on the LAN; /?patch=<name>&canvas=full plays a patch full-window on a phone or tablet
 
 ## Rules
 - engine/ has no DOM or React imports.
