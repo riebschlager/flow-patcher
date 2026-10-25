@@ -361,23 +361,27 @@ export interface RuntimeCounters {
   delivered: number;
   /** Events a catch-up moved later. */
   caughtUp: number;
-  /** Of those, the ones still before the audio clock at hand-over, read as for
-   *  lateScheduled, and moved to it. A catch-up moves its stretch to start at the
-   *  wake's `now`, with no lead, so a clock step during the wake's query makes its
-   *  first events late. Counted here, not in lateScheduled (ADR 0033). */
+  /** Of those, the ones behind the audio clock at hand-over, read as for
+   *  lateScheduled. A catch-up moves its stretch to start at the wake's `now`, with
+   *  no lead, so a clock step during the wake's query makes its first events late.
+   *  Counted here, not in lateScheduled (ADR 0033). So is any other event with no
+   *  lead, one at or before the wake's `now` (the first wake at now == 0, a window
+   *  resuming at now): lateness is classified by lead, not by path. */
   lateCaughtUp: number;
   /** The most any of those was behind the clock, in ms: how far the clock stepped during the catch-up's query and hand-over (ADR 0033). */
   lateCaughtUpMaxMs: number;
-  /** Scheduled events (a wake's window, a swap's re-run) that were before the audio
-   *  clock at hand-over, and were moved to it (or reached start() behind it). The clock
-   *  is read at hand-over (`DeliveryTiming.currentTime`), not just as the call began,
-   *  and again once the node's schedule() returns: a node calls start() inside
-   *  schedule(), so a step between the two reads makes an event late at start() that
-   *  the first read saw on time (#97). Each event counts against the later reading.
-   *  Caught-up events count in lateCaughtUp. */
+  /** Scheduled events (a wake's window, a swap's re-run) queried ahead of the clock
+   *  (after the call's `now`) that were behind it around hand-over. The clock is read
+   *  at hand-over (`DeliveryTiming.currentTime`), not just as the call began, and the
+   *  handed times are clamped to that; it is read again once the node's schedule()
+   *  returns, and each event counts against the later reading (#97). A node calls
+   *  start() inside schedule(), so a step between the two reads can leave an event
+   *  behind at start() that the first read saw on time. The count is an upper bound:
+   *  it may include events whose start() came before the step. Events with no lead
+   *  count in lateCaughtUp. */
   lateScheduled: number;
-  /** Events a push handed over (its rewind's re-run) that were before the audio
-   *  clock at hand-over, read as for lateScheduled, and were moved to it. This covers the
+  /** Events a push handed over (its rewind's re-run) that were behind the audio
+   *  clock around hand-over, read and bounded as for lateScheduled. This covers the
    *  push's whole re-run, so Clock-driven events it re-delivers count too. */
   lateImmediate: number;
   /** The most any of those was behind the clock, in ms: how late a push's notes reached Web Audio (ADR 0027). */
@@ -1701,13 +1705,18 @@ export class Runtime {
     return { time: caught ? event.time + timing!.catchUp!.shift : event.time, caught };
   }
 
-  /** Counts the events behind `clock`, the latest clock reading around their hand-over, per path. */
+  /**
+   * Counts the events behind `clock`, the latest clock reading around their hand-over. A push's
+   * count in lateImmediate. The rest go by their lead (ADR 0033): one with none, caught up or at
+   * or before the call's `now` (the first wake at now == 0, a window resuming at now), counts in
+   * lateCaughtUp; only one queried ahead of the clock counts in lateScheduled.
+   */
   private countLate(moved: readonly { time: number; caught: boolean }[], clock: number, timing: DeliveryTiming): void {
     const counters = this.counters;
     for (const { time, caught } of moved) {
       if (time >= clock) continue;
       const ms = Number.isFinite(time) ? (clock - time) * 1000 : 0;
-      if (caught) {
+      if (caught || (timing.path !== 'immediate' && time <= timing.now)) {
         counters.lateCaughtUp++;
         counters.lateCaughtUpMaxMs = Math.max(counters.lateCaughtUpMaxMs, ms);
       } else if (timing.path === 'immediate') {

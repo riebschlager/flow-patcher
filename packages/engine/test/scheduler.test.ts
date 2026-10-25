@@ -286,7 +286,7 @@ describe('late counters read the audio clock at hand-over', () => {
   };
   const arm = (clock: ManualClock, to: number) => Object.assign(stall, { clock, to });
 
-  it('clamps and counts a wake\'s event the clock passed while the window ran', () => {
+  it('clamps and counts a wake\'s event the clock passed while the window ran, by its lead', () => {
     const { scheduler, clock, deliveries, wakeAt } = setup(
       patch([node('m', 'metro'), node('s', 'slow'), node('r', 'recorder')], [cable('m', 's'), cable('s', 'r')]), {}, [slow]);
     // The wake reads 0; the query moves the clock to 30 ms, past the ticks at 0 and 25 ms.
@@ -296,7 +296,10 @@ describe('late counters read the audio clock at hand-over', () => {
     expect(deliveries.slice(0, 2).map((d) => [d.event.index, d.event.time])).toEqual([[0, 0.03], [1, 0.03]]);
     expect(deliveries[2]!.event.time).toBe(0.05);
     expect(deliveries.every((d) => d.event.time >= d.at)).toBe(true);
-    expect(scheduler.stats).toMatchObject({ lateScheduled: 2, lateImmediate: 0 });
+    // The tick at 0 had no lead (it is at the wake's now): lateCaughtUp (ADR 0033). The one at 25 ms was
+    // queried ahead of the clock: lateScheduled.
+    expect(scheduler.stats).toMatchObject({ lateScheduled: 1, lateCaughtUp: 1, lateImmediate: 0 });
+    expect(scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(30, 9);
     // The log keeps the generated times: only the hand-over moves.
     expect(scheduler.events().filter((e) => e.node === 's').slice(0, 2).map((e) => e.time)).toEqual([0, 0.025]);
   });
@@ -380,18 +383,30 @@ describe('late counters read the audio clock at hand-over', () => {
       expect(scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(lateness(starts) * 1000, 9);
     });
 
-    it('counts a scheduled event the step left behind start() in lateScheduled, and none a step can\'t reach', () => {
+    it('counts a first-wake t=0 event the step left behind start() in lateCaughtUp: it had no lead', () => {
       const { clock, scheduler, starts, jump } = build(patch([node('m', 'metro', { period: 0.025 }), node('j', 'jumpy')], [cable('m', 'j')]));
-      // The first wake reads 0: the tick at 0 is on time at the floor read, then the clock steps 3 ms.
+      // The first wake reads exactly 0, so nothing is caught up: the tick at 0 is on time at the floor read,
+      // with no lead, then the clock steps 3 ms before start().
       jump.to = 0.003;
       scheduler.wake();
       expect(starts[0]).toEqual({ when: 0, at: 0.003 });
-      expect(scheduler.stats.lateScheduled).toBe(1);
+      expect(scheduler.stats).toMatchObject({ caughtUp: 0, lateCaughtUp: 1, lateScheduled: 0, lateImmediate: 0 });
+      expect(scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(3, 9);
       // A step during a later wake can't reach events queried 120 ms ahead.
       clock.set(0.025);
       jump.to = 0.025 + 0.0116;
       scheduler.wake();
-      expect(scheduler.stats.lateScheduled).toBe(1);
+      expect(scheduler.stats).toMatchObject({ lateCaughtUp: 1, lateScheduled: 0 });
+    });
+
+    it('counts a scheduled event queried ahead that the step left behind start() in lateScheduled', () => {
+      const { scheduler, starts, jump } = build(patch([node('m', 'metro', { period: 0.025 }), node('j', 'jumpy')], [cable('m', 'j')]));
+      // The first wake reads 0; its ticks at 0 and 25 ms go over in one schedule(), which steps the clock 30 ms.
+      jump.to = 0.03;
+      scheduler.wake();
+      expect(starts.slice(0, 2)).toEqual([{ when: 0, at: 0.03 }, { when: 0.025, at: 0.03 }]);
+      // The tick at 25 ms was 25 ms ahead of the wake's now: lateScheduled. The one at 0 had no lead.
+      expect(scheduler.stats).toMatchObject({ lateScheduled: 1, lateCaughtUp: 1 });
     });
 
     it('a swap whose instance build takes 20 ms picks a boundary past the clock after it, so nothing it re-runs is late (#97)', () => {
