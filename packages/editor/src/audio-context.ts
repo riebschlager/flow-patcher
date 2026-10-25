@@ -5,14 +5,38 @@
 import type { AudioContextLike } from '@flow-patcher/engine';
 
 /** Called on every oscillator or buffer source start(): when it starts sounding (never before
- *  the clock), and `clock`, currentTime when start() was called. */
-export type StartListener = (time: number, clock: number) => void;
+ *  the clock), `clock`, currentTime just before start() was called, and `after`, just after it returned. */
+export type StartListener = (time: number, clock: number, after: number) => void;
 
-/** Wraps `context` for the runtime, telling `onStart` about every oscillator and buffer source start. */
-export function observeStarts(context: AudioContext, onStart: StartListener): AudioContextLike {
+/** Two currentTime reads at most this far apart in wall time, ms, see at most one move of the
+ *  clock: less than a 128-frame render quantum at any rate Web Audio runs (2.67 ms at 48 kHz). */
+export const STEP_GAP_MS = 1;
+
+/** The AudioContext as the runtime sees it, plus what its clock reads have shown of it. */
+export interface ObservedContext extends AudioContextLike {
+  /** The largest move of currentTime between two of its reads (through this wrapper) at most
+   *  STEP_GAP_MS apart in wall time, in seconds: one clock step, as the code reading it met it.
+   *  Reads further apart are left out, so a main-thread stall between them isn't counted as a step. */
+  readonly largestStep: number;
+}
+
+/** Wraps `context` for the runtime, telling `onStart` about every oscillator and buffer source start.
+ *  Every currentTime read goes through `read`, which also keeps `largestStep`. `wall` is the wall clock in ms. */
+export function observeStarts(context: AudioContext, onStart: StartListener, wall: () => number = () => performance.now()): ObservedContext {
+  let largestStep = 0, lastClock = NaN, lastWall = NaN;
+  const read = (): number => {
+    const clock = context.currentTime, at = wall();
+    if (at - lastWall <= STEP_GAP_MS && clock - lastClock > largestStep) largestStep = clock - lastClock;
+    lastClock = clock;
+    lastWall = at;
+    return clock;
+  };
   return {
     get currentTime() {
-      return context.currentTime;
+      return read();
+    },
+    get largestStep() {
+      return largestStep;
     },
     get sampleRate() {
       return context.sampleRate;
@@ -37,9 +61,9 @@ export function observeStarts(context: AudioContext, onStart: StartListener): Au
       const osc = context.createOscillator();
       const start = osc.start.bind(osc);
       osc.start = (when = 0) => {
-        const now = context.currentTime;
-        onStart(Math.max(when, now), now);
+        const now = read();
         start(when);
+        onStart(Math.max(when, now), now, read());
       };
       return osc;
     },
@@ -47,9 +71,9 @@ export function observeStarts(context: AudioContext, onStart: StartListener): Au
       const source = context.createBufferSource();
       const start = source.start.bind(source);
       source.start = (when = 0, offset?: number, duration?: number) => {
-        const now = context.currentTime;
-        onStart(Math.max(when, now), now);
+        const now = read();
         start(when, offset, duration);
+        onStart(Math.max(when, now), now, read());
       };
       return source;
     },

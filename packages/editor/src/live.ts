@@ -14,7 +14,6 @@ import {
   outputLatencyOf,
   Runtime,
   Scheduler,
-  type AudioContextLike,
   type EngineEvent,
   type FluidHostStats,
   type HostServices,
@@ -33,7 +32,7 @@ import {
   type VoiceStats,
 } from '@flow-patcher/engine';
 import { nodeRegistry, rendererImage } from '@flow-patcher/nodes';
-import { observeStarts } from './audio-context';
+import { observeStarts, type ObservedContext } from './audio-context';
 import { CANVAS_TYPES, CanvasLifecycle } from './canvas-lifecycle';
 import { EventTrack, PROBE_HISTORY } from './event-track';
 import { HeldKeys, isApplePlatform, keyStartsAudio, type KeyFields } from './keys';
@@ -178,8 +177,13 @@ export interface Tap {
    *  less the immediate offset (the push's own clock read), it is how far the clock moved before the
    *  note reached Web Audio: past the offset, the note is late (ADR 0027). */
   startClock: number | null;
+  /** currentTime right after that start() returned, or null with none (#97). Past `startClock`, the clock
+   *  stepped while Web Audio took the note: start() itself read the later time or the earlier one. */
+  startClockAfter: number | null;
   /** currentTime right after the push, the upper bound on `startClock` (#97). */
   after: number;
+  /** The largest clock step seen so far this session, as of the push's end (`ObservedContext.largestStep`, #97). */
+  largestStep: number;
   /** Wall time the push took, ms, at performance.now()'s resolution (#97). */
   pushMs: number;
   /** The tap's splash (ADR 0020), null until it is drawn, or with no Renderer:
@@ -269,7 +273,7 @@ export class LivePatch {
   readonly midi = new MidiHost((event, timeStamp) => this.input(event, timeStamp));
   private readonly context: AudioContext;
   /** The context as the runtime sees it: the instrument cache is keyed by this object. */
-  private readonly audio: AudioContextLike;
+  private readonly audio: ObservedContext;
   private readonly services: HostServices;
   private readonly runtime: Runtime;
   /** The plan running now: the last document `update` compiled. */
@@ -290,6 +294,7 @@ export class LivePatch {
   private starts: number[] | null = null;
   /** currentTime at the first start() during a push (#97). */
   private startClock: number | null = null;
+  private startClockAfter: number | null = null;
   /** A cold tap still waiting for its held push to run. */
   private coldTap: Tap | null = null;
   private readonly frames: FrameLoop;
@@ -336,13 +341,14 @@ export class LivePatch {
     this.runtime.onWarning = (message) => console.debug(`[live] warning: ${message}`);
     this.context = new AudioContext({ latencyHint: 'interactive' });
     // The context as the runtime sees it, noting oscillator start times while a push runs.
-    this.audio = observeStarts(this.context, (time, clock) => this.noteStart(time, clock));
+    this.audio = observeStarts(this.context, (time, clock, after) => this.noteStart(time, clock, after));
     this.wasRunning = this.context.state === 'running';
     this.runtime.attachAudio(this.audio);
-    const context = this.context;
+    const context = this.context, audio = this.audio;
     this.scheduler = new Scheduler(this.runtime, {
       clock: {
-        audioTime: () => context.currentTime,
+        // Through the wrapper, so the runtime's hand-over reads count towards `largestStep`.
+        audioTime: () => audio.currentTime,
         wallTime: () => performance.now(),
         running: () => context.state === 'running',
         hidden: () => document.hidden,
@@ -481,9 +487,10 @@ export class LivePatch {
     return this.scheduler.stats;
   }
 
-  /** The AudioContext's clock, for e2e: currentTime, and baseLatency (in Chromium, one audio callback's buffer). */
-  get clock(): { currentTime: number; baseLatency: number } {
-    return { currentTime: this.context.currentTime, baseLatency: this.context.baseLatency };
+  /** The AudioContext's clock, for e2e: currentTime, baseLatency (in Chromium, one audio callback's buffer),
+   *  and the largest step of currentTime seen between two close reads this session (#97). */
+  get clock(): { currentTime: number; baseLatency: number; largestStep: number } {
+    return { currentTime: this.audio.currentTime, baseLatency: this.context.baseLatency, largestStep: this.audio.largestStep };
   }
 
   /** A number param as the node reads it now, cables included: the knob's modulation ring. It reads the latest
@@ -588,7 +595,7 @@ export class LivePatch {
     }
     const targets = this.router.route(event);
     if (!targets.length || (cold && droppedWhileCold(event.type))) return null;
-    const at = this.context.currentTime;
+    const at = this.audio.currentTime;
     const wall = performance.now();
     const waited = timeStamp !== undefined && timeStamp <= wall ? (wall - timeStamp) / 1000 : 0;
     this.starts = [];
@@ -596,14 +603,14 @@ export class LivePatch {
     try {
       pushed = this.scheduler.pushAll(targets);
     } finally {
-      const after = down ? this.context.currentTime : 0, pushMs = down ? performance.now() - wall : 0;
+      const after = down ? this.audio.currentTime : 0, pushMs = down ? performance.now() - wall : 0;
       this.refreshTracks();
-      const starts = this.starts, startClock = this.startClock;
+      const starts = this.starts, startClock = this.startClock, startClockAfter = this.startClockAfter;
       this.starts = null;
-      this.startClock = null;
+      this.startClock = this.startClockAfter = null;
       if (down) {
         const stamped = pushed?.[0]?.time ?? null;
-        const tap: Tap = { at, down: at - waited, stamped, note: starts.length ? Math.min(...starts) : null, cold, startClock, after, pushMs, splash: null, splashLost: false };
+        const tap: Tap = { at, down: at - waited, stamped, note: starts.length ? Math.min(...starts) : null, cold, startClock, startClockAfter, after, largestStep: this.audio.largestStep, pushMs, splash: null, splashLost: false };
         if (cold && tap.note === null) this.coldTap = tap;
         if (this.renderer && this.hasFluid && stamped !== null) {
           this.splashes.push({ tap, time: stamped, downWall: wall - waited * 1000, frame: this.frameCounts.frames, carried: null });
@@ -840,11 +847,14 @@ export class LivePatch {
     for (const listener of this.listeners) listener();
   }
 
-  /** `clock`: currentTime when start() was called. */
-  private noteStart(time: number, clock: number): void {
+  /** `clock`: currentTime when start() was called; `after`: when it returned. */
+  private noteStart(time: number, clock: number, after: number): void {
     if (this.starts) {
       this.starts.push(time);
-      this.startClock ??= clock;
+      if (this.startClock === null) {
+        this.startClock = clock;
+        this.startClockAfter = after;
+      }
     } else if (this.coldTap) {
       this.coldTap.note = time;
       this.coldTap = null;

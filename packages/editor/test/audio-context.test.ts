@@ -46,6 +46,29 @@ describe('observeStarts', () => {
     expect(calls.at(-1)).toEqual(['createDelay', []]);
   });
 
+  it('keeps the largest clock step between close reads, and reports the clock on both sides of start() (#97)', () => {
+    const fake = { currentTime: 0, createOscillator: () => ({ start: () => void (fake.currentTime += 0.0116) }) };
+    let wall = 0;
+    const seen: number[][] = [];
+    const like = observeStarts(fake as unknown as AudioContext, (time, clock, after) => seen.push([time, clock, after]), () => wall);
+    expect(like.largestStep).toBe(0);
+    // Reads 0.5 ms apart across a 2.9 ms quantum: a step.
+    void like.currentTime;
+    fake.currentTime = 0.0029;
+    wall = 0.5;
+    void like.currentTime;
+    expect(like.largestStep).toBeCloseTo(0.0029, 12);
+    // Reads 25 ms apart (a wake interval, or a main-thread stall) aren't a step, however far the clock moved.
+    fake.currentTime = 0.03;
+    wall = 25.5;
+    void like.currentTime;
+    expect(like.largestStep).toBeCloseTo(0.0029, 12);
+    // A start() during which the clock jumps a 512-frame callback: both readings go to the listener, and the step counts.
+    like.createOscillator().start(0.035);
+    expect(seen).toEqual([[0.035, 0.03, 0.03 + 0.0116]]);
+    expect(like.largestStep).toBeCloseTo(0.0116, 12);
+  });
+
   it('builds a working convolver, delay and buffer on a real context', async () => {
     const rate = 48000;
     const context = new OfflineAudioContext(1, rate / 10, rate);

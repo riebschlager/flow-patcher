@@ -36,16 +36,21 @@ test('a tap on the preview canvas plays a note on the immediate path', async ({ 
     await page.waitForTimeout(37);
   }
   const taps = await page.evaluate(() => window.flowPatcher!.taps.filter((tap) => !tap.cold));
-  const { callback, largestStep } = await audioCallback(page);
+  const { callback, largestStep, sampledStep } = await audioCallback(page);
   // #97: why a warm tap's note sometimes lands past ±2 ms on CI. Logged before the checks, so a failing run has it.
   const baseLatency = await page.evaluate(() => window.flowPatcher!.clock.baseLatency);
   const msOf = (s: number | null) => (s === null ? 'null' : (s * 1000).toFixed(2));
-  console.log(`[tap timing] baseLatency ${msOf(baseLatency)} ms, callback ${msOf(callback)} ms, largest step ${msOf(largestStep)} ms`);
+  console.log(`[tap timing] baseLatency ${msOf(baseLatency)} ms, callback ${msOf(callback)} ms, largest step ${msOf(largestStep)} ms over the run (${msOf(sampledStep)} ms in a 200 ms sample after it)`);
   for (const tap of taps) {
     // From the push's own clock read (stamp less the offset): past the offset at start(), the note is late.
     // That holds while no push falls back to the horizon (pushFallbacks is checked to be 0 below).
     const read = tap.stamped! - IMMEDIATE_OFFSET;
-    console.log(`[tap timing] clock moved ${msOf(read - tap.at)} before the push's read, ${msOf(tap.startClock === null ? null : tap.startClock - read)} by start(), ${msOf(tap.after - read)} by its end; note−stamp ${msOf(tap.note === null ? null : tap.note - tap.stamped!)}; push ${tap.pushMs.toFixed(1)} ms (0.1 ms resolution)`);
+    // Clock readings from the push's read: just before the first start(), just after it, and at the push's end.
+    // A note past ±2 ms with a jump of about one callback between the read and start() is ADR 0027's mechanism;
+    // lateness with the clock still at the read through start() points elsewhere (main-thread stall).
+    const since = (s: number | null) => msOf(s === null ? null : s - read);
+    console.log(`[tap timing] clock moved ${msOf(read - tap.at)} before the push's read, ${since(tap.startClock)} just before start(), ${since(tap.startClockAfter)} just after it, ${msOf(tap.after - read)} by the push's end; ` +
+      `note−stamp ${msOf(tap.note === null ? null : tap.note - tap.stamped!)}; largest step so far ${msOf(tap.largestStep)}; push ${tap.pushMs.toFixed(1)} ms (0.1 ms resolution)`);
   }
   expect(taps).toHaveLength(10);
   for (const tap of taps) {
