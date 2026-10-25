@@ -1,0 +1,1164 @@
+{
+  "format": "flowpatch",
+  "version": 1,
+  "seed": 20261025,
+  "nodes": [
+    {
+      "id": "pointer",
+      "type": "pointer",
+      "typeVersion": 2,
+      "params": {},
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "active",
+      "type": "math",
+      "typeVersion": 1,
+      "params": {
+        "constant": 1,
+        "op": "min"
+      },
+      "position": {
+        "x": 240,
+        "y": 260
+      }
+    },
+    {
+      "id": "pinch",
+      "type": "pinch",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 240,
+        "y": 100
+      }
+    },
+    {
+      "id": "hold",
+      "type": "hold",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 480,
+        "y": 100
+      }
+    },
+    {
+      "id": "flick",
+      "type": "flick",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 720,
+        "y": 100
+      }
+    },
+    {
+      "id": "stroke",
+      "type": "drag",
+      "typeVersion": 2,
+      "params": {
+        "claim": false,
+        "spacing": 0.07
+      },
+      "position": {
+        "x": 960,
+        "y": 100
+      }
+    },
+    {
+      "id": "moving",
+      "type": "gate",
+      "typeVersion": 1,
+      "params": {
+        "level": 0.3
+      },
+      "position": {
+        "x": 1200,
+        "y": 100
+      }
+    },
+    {
+      "id": "clock",
+      "type": "clock",
+      "typeVersion": 3,
+      "params": {
+        "bpm": 84,
+        "division": "1/8"
+      },
+      "position": {
+        "x": 0,
+        "y": 700
+      }
+    },
+    {
+      "id": "chords",
+      "type": "progression",
+      "typeVersion": 1,
+      "params": {
+        "beats": 8,
+        "chords": "Cmaj9, Am9, Fmaj9, G6"
+      },
+      "position": {
+        "x": 240,
+        "y": 700
+      }
+    },
+    {
+      "id": "paint",
+      "type": "chord-tone",
+      "typeVersion": 1,
+      "params": {
+        "down": 0,
+        "length": 0.35,
+        "up": 2,
+        "velocity": 0.45
+      },
+      "position": {
+        "x": 1440,
+        "y": 300
+      }
+    },
+    {
+      "id": "spark",
+      "type": "chord-tone",
+      "typeVersion": 1,
+      "params": {
+        "down": 0,
+        "length": 0.35,
+        "up": 3,
+        "velocity": 1
+      },
+      "position": {
+        "x": 1440,
+        "y": 460
+      }
+    },
+    {
+      "id": "gather",
+      "type": "chord-tone",
+      "typeVersion": 1,
+      "params": {
+        "down": 1,
+        "length": 1.8,
+        "up": 0,
+        "velocity": 0.6
+      },
+      "position": {
+        "x": 1440,
+        "y": 620
+      }
+    },
+    {
+      "id": "spread1",
+      "type": "math",
+      "typeVersion": 1,
+      "params": {
+        "constant": -0.15,
+        "op": "add"
+      },
+      "position": {
+        "x": 1200,
+        "y": 780
+      }
+    },
+    {
+      "id": "bloom1",
+      "type": "chord-tone",
+      "typeVersion": 1,
+      "params": {
+        "down": 0,
+        "length": 2.7,
+        "up": 1,
+        "velocity": 0.55
+      },
+      "position": {
+        "x": 1440,
+        "y": 780
+      }
+    },
+    {
+      "id": "spread2",
+      "type": "math",
+      "typeVersion": 1,
+      "params": {
+        "constant": -0.05,
+        "op": "add"
+      },
+      "position": {
+        "x": 1200,
+        "y": 940
+      }
+    },
+    {
+      "id": "bloom2",
+      "type": "chord-tone",
+      "typeVersion": 1,
+      "params": {
+        "down": 0,
+        "length": 2.7,
+        "up": 1,
+        "velocity": 0.55
+      },
+      "position": {
+        "x": 1440,
+        "y": 940
+      }
+    },
+    {
+      "id": "spread3",
+      "type": "math",
+      "typeVersion": 1,
+      "params": {
+        "constant": 0.05,
+        "op": "add"
+      },
+      "position": {
+        "x": 1200,
+        "y": 1100
+      }
+    },
+    {
+      "id": "bloom3",
+      "type": "chord-tone",
+      "typeVersion": 1,
+      "params": {
+        "down": 0,
+        "length": 2.7,
+        "up": 1,
+        "velocity": 0.55
+      },
+      "position": {
+        "x": 1440,
+        "y": 1100
+      }
+    },
+    {
+      "id": "spread4",
+      "type": "math",
+      "typeVersion": 1,
+      "params": {
+        "constant": 0.15,
+        "op": "add"
+      },
+      "position": {
+        "x": 1200,
+        "y": 1260
+      }
+    },
+    {
+      "id": "bloom4",
+      "type": "chord-tone",
+      "typeVersion": 1,
+      "params": {
+        "down": 0,
+        "length": 2.7,
+        "up": 1,
+        "velocity": 0.55
+      },
+      "position": {
+        "x": 1440,
+        "y": 1260
+      }
+    },
+    {
+      "id": "voice",
+      "type": "sampled-voice",
+      "typeVersion": 2,
+      "params": {
+        "instrument": "piano",
+        "level": 1.4
+      },
+      "position": {
+        "x": 1680,
+        "y": 600
+      }
+    },
+    {
+      "id": "depth",
+      "type": "math",
+      "typeVersion": 1,
+      "params": {
+        "op": "multiply"
+      },
+      "position": {
+        "x": 480,
+        "y": 300
+      }
+    },
+    {
+      "id": "closing",
+      "type": "smooth",
+      "typeVersion": 1,
+      "params": {
+        "fall": 0.85,
+        "rise": 0.12
+      },
+      "position": {
+        "x": 720,
+        "y": 300
+      }
+    },
+    {
+      "id": "filter",
+      "type": "filter",
+      "typeVersion": 2,
+      "params": {
+        "cutoff": 15600,
+        "q": 0.7
+      },
+      "position": {
+        "x": 1920,
+        "y": 600
+      }
+    },
+    {
+      "id": "level",
+      "type": "gain",
+      "typeVersion": 1,
+      "params": {},
+      "position": {
+        "x": 2160,
+        "y": 600
+      }
+    },
+    {
+      "id": "room",
+      "type": "reverb",
+      "typeVersion": 1,
+      "params": {
+        "decay": 3,
+        "mix": 0.12
+      },
+      "position": {
+        "x": 2400,
+        "y": 600
+      }
+    },
+    {
+      "id": "out",
+      "type": "output",
+      "typeVersion": 2,
+      "params": {
+        "level": 0.7
+      },
+      "position": {
+        "x": 2640,
+        "y": 600
+      }
+    },
+    {
+      "id": "drops",
+      "type": "splat",
+      "typeVersion": 1,
+      "params": {
+        "size": 0.04
+      },
+      "position": {
+        "x": 1680,
+        "y": 100
+      }
+    },
+    {
+      "id": "blooms",
+      "type": "splat",
+      "typeVersion": 1,
+      "params": {
+        "size": 0.09
+      },
+      "position": {
+        "x": 1680,
+        "y": 260
+      }
+    },
+    {
+      "id": "push",
+      "type": "force",
+      "typeVersion": 1,
+      "params": {
+        "mode": "push",
+        "radius": 0.07,
+        "strength": 0.5
+      },
+      "position": {
+        "x": 1920,
+        "y": 100
+      }
+    },
+    {
+      "id": "gathering",
+      "type": "force",
+      "typeVersion": 1,
+      "params": {
+        "mode": "whirlpool",
+        "radius": 0.12,
+        "strength": 0
+      },
+      "position": {
+        "x": 1920,
+        "y": 260
+      }
+    },
+    {
+      "id": "fluid",
+      "type": "fluid",
+      "typeVersion": 3,
+      "params": {},
+      "position": {
+        "x": 1440,
+        "y": 100
+      }
+    },
+    {
+      "id": "renderer",
+      "type": "renderer",
+      "typeVersion": 2,
+      "params": {},
+      "position": {
+        "x": 1680,
+        "y": 100
+      }
+    }
+  ],
+  "cables": [
+    {
+      "from": {
+        "node": "pointer",
+        "port": "count"
+      },
+      "to": {
+        "node": "active",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "all"
+      },
+      "to": {
+        "node": "pinch",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "pinch",
+        "port": "pass"
+      },
+      "to": {
+        "node": "hold",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "hold",
+        "port": "pass"
+      },
+      "to": {
+        "node": "flick",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "flick",
+        "port": "pass"
+      },
+      "to": {
+        "node": "stroke",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "stroke",
+        "port": "move"
+      },
+      "to": {
+        "node": "moving",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "speed"
+      },
+      "to": {
+        "node": "moving",
+        "port": "gate"
+      }
+    },
+    {
+      "from": {
+        "node": "clock",
+        "port": "transport"
+      },
+      "to": {
+        "node": "chords",
+        "port": "transport"
+      }
+    },
+    {
+      "from": {
+        "node": "stroke",
+        "port": "passDown"
+      },
+      "to": {
+        "node": "paint",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "moving",
+        "port": "out"
+      },
+      "to": {
+        "node": "paint",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "x"
+      },
+      "to": {
+        "node": "paint",
+        "port": "position"
+      }
+    },
+    {
+      "from": {
+        "node": "chords",
+        "port": "chord"
+      },
+      "to": {
+        "node": "paint",
+        "port": "chord"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "y"
+      },
+      "to": {
+        "node": "paint",
+        "port": "velocity"
+      },
+      "depth": 0.4
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "y"
+      },
+      "to": {
+        "node": "paint",
+        "port": "length"
+      },
+      "depth": 1.2
+    },
+    {
+      "from": {
+        "node": "flick",
+        "port": "flick"
+      },
+      "to": {
+        "node": "spark",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "x"
+      },
+      "to": {
+        "node": "spark",
+        "port": "position"
+      }
+    },
+    {
+      "from": {
+        "node": "chords",
+        "port": "chord"
+      },
+      "to": {
+        "node": "spark",
+        "port": "chord"
+      }
+    },
+    {
+      "from": {
+        "node": "pinch",
+        "port": "pinchIn"
+      },
+      "to": {
+        "node": "gather",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "pinch",
+        "port": "x"
+      },
+      "to": {
+        "node": "gather",
+        "port": "position"
+      }
+    },
+    {
+      "from": {
+        "node": "chords",
+        "port": "chord"
+      },
+      "to": {
+        "node": "gather",
+        "port": "chord"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "x"
+      },
+      "to": {
+        "node": "spread1",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "spread1",
+        "port": "out"
+      },
+      "to": {
+        "node": "bloom1",
+        "port": "position"
+      }
+    },
+    {
+      "from": {
+        "node": "chords",
+        "port": "chord"
+      },
+      "to": {
+        "node": "bloom1",
+        "port": "chord"
+      }
+    },
+    {
+      "from": {
+        "node": "hold",
+        "port": "release"
+      },
+      "to": {
+        "node": "bloom1",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "pinch",
+        "port": "spread"
+      },
+      "to": {
+        "node": "bloom1",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "x"
+      },
+      "to": {
+        "node": "spread2",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "spread2",
+        "port": "out"
+      },
+      "to": {
+        "node": "bloom2",
+        "port": "position"
+      }
+    },
+    {
+      "from": {
+        "node": "chords",
+        "port": "chord"
+      },
+      "to": {
+        "node": "bloom2",
+        "port": "chord"
+      }
+    },
+    {
+      "from": {
+        "node": "hold",
+        "port": "release"
+      },
+      "to": {
+        "node": "bloom2",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "pinch",
+        "port": "spread"
+      },
+      "to": {
+        "node": "bloom2",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "x"
+      },
+      "to": {
+        "node": "spread3",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "spread3",
+        "port": "out"
+      },
+      "to": {
+        "node": "bloom3",
+        "port": "position"
+      }
+    },
+    {
+      "from": {
+        "node": "chords",
+        "port": "chord"
+      },
+      "to": {
+        "node": "bloom3",
+        "port": "chord"
+      }
+    },
+    {
+      "from": {
+        "node": "hold",
+        "port": "release"
+      },
+      "to": {
+        "node": "bloom3",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "pinch",
+        "port": "spread"
+      },
+      "to": {
+        "node": "bloom3",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "x"
+      },
+      "to": {
+        "node": "spread4",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "spread4",
+        "port": "out"
+      },
+      "to": {
+        "node": "bloom4",
+        "port": "position"
+      }
+    },
+    {
+      "from": {
+        "node": "chords",
+        "port": "chord"
+      },
+      "to": {
+        "node": "bloom4",
+        "port": "chord"
+      }
+    },
+    {
+      "from": {
+        "node": "hold",
+        "port": "release"
+      },
+      "to": {
+        "node": "bloom4",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "pinch",
+        "port": "spread"
+      },
+      "to": {
+        "node": "bloom4",
+        "port": "trigger"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "y"
+      },
+      "to": {
+        "node": "depth",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "active",
+        "port": "out"
+      },
+      "to": {
+        "node": "depth",
+        "port": "b"
+      }
+    },
+    {
+      "from": {
+        "node": "depth",
+        "port": "out"
+      },
+      "to": {
+        "node": "closing",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "closing",
+        "port": "out"
+      },
+      "to": {
+        "node": "filter",
+        "port": "cutoff"
+      },
+      "depth": -4.58
+    },
+    {
+      "from": {
+        "node": "hold",
+        "port": "charge"
+      },
+      "to": {
+        "node": "level",
+        "port": "gain"
+      },
+      "depth": -0.2
+    },
+    {
+      "from": {
+        "node": "hold",
+        "port": "charge"
+      },
+      "to": {
+        "node": "room",
+        "port": "mix"
+      },
+      "depth": 0.6
+    },
+    {
+      "from": {
+        "node": "paint",
+        "port": "note"
+      },
+      "to": {
+        "node": "voice",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "spark",
+        "port": "note"
+      },
+      "to": {
+        "node": "voice",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "gather",
+        "port": "note"
+      },
+      "to": {
+        "node": "voice",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "bloom1",
+        "port": "note"
+      },
+      "to": {
+        "node": "voice",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "bloom2",
+        "port": "note"
+      },
+      "to": {
+        "node": "voice",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "bloom3",
+        "port": "note"
+      },
+      "to": {
+        "node": "voice",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "bloom4",
+        "port": "note"
+      },
+      "to": {
+        "node": "voice",
+        "port": "note"
+      }
+    },
+    {
+      "from": {
+        "node": "voice",
+        "port": "audio"
+      },
+      "to": {
+        "node": "filter",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "filter",
+        "port": "out"
+      },
+      "to": {
+        "node": "level",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "level",
+        "port": "out"
+      },
+      "to": {
+        "node": "room",
+        "port": "in"
+      }
+    },
+    {
+      "from": {
+        "node": "room",
+        "port": "out"
+      },
+      "to": {
+        "node": "out",
+        "port": "audio"
+      }
+    },
+    {
+      "from": {
+        "node": "stroke",
+        "port": "passDown"
+      },
+      "to": {
+        "node": "drops",
+        "port": "at"
+      }
+    },
+    {
+      "from": {
+        "node": "moving",
+        "port": "out"
+      },
+      "to": {
+        "node": "drops",
+        "port": "at"
+      }
+    },
+    {
+      "from": {
+        "node": "hold",
+        "port": "release"
+      },
+      "to": {
+        "node": "blooms",
+        "port": "at"
+      }
+    },
+    {
+      "from": {
+        "node": "flick",
+        "port": "flick"
+      },
+      "to": {
+        "node": "blooms",
+        "port": "at"
+      }
+    },
+    {
+      "from": {
+        "node": "pinch",
+        "port": "spread"
+      },
+      "to": {
+        "node": "blooms",
+        "port": "at"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "x"
+      },
+      "to": {
+        "node": "push",
+        "port": "x"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "y"
+      },
+      "to": {
+        "node": "push",
+        "port": "y"
+      }
+    },
+    {
+      "from": {
+        "node": "active",
+        "port": "out"
+      },
+      "to": {
+        "node": "push",
+        "port": "active"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "x"
+      },
+      "to": {
+        "node": "gathering",
+        "port": "x"
+      }
+    },
+    {
+      "from": {
+        "node": "pointer",
+        "port": "y"
+      },
+      "to": {
+        "node": "gathering",
+        "port": "y"
+      }
+    },
+    {
+      "from": {
+        "node": "hold",
+        "port": "charge"
+      },
+      "to": {
+        "node": "gathering",
+        "port": "strength"
+      },
+      "depth": 0.8
+    },
+    {
+      "from": {
+        "node": "fluid",
+        "port": "field"
+      },
+      "to": {
+        "node": "renderer",
+        "port": "field"
+      }
+    },
+    {
+      "from": {
+        "node": "drops",
+        "port": "write"
+      },
+      "to": {
+        "node": "fluid",
+        "port": "writers"
+      }
+    },
+    {
+      "from": {
+        "node": "blooms",
+        "port": "write"
+      },
+      "to": {
+        "node": "fluid",
+        "port": "writers"
+      }
+    },
+    {
+      "from": {
+        "node": "push",
+        "port": "write"
+      },
+      "to": {
+        "node": "fluid",
+        "port": "writers"
+      }
+    },
+    {
+      "from": {
+        "node": "gathering",
+        "port": "write"
+      },
+      "to": {
+        "node": "fluid",
+        "port": "writers"
+      }
+    }
+  ]
+}
