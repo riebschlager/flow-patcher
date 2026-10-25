@@ -1504,6 +1504,44 @@ describe('First wake: the patch starts at 0, even when the clock is a little pas
     expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(8 - IMMEDIATE_OFFSET * 1000, 9);
   });
 
+  it('records the wall time of the wake that set lateCaughtUpMaxMs, its query and schedule() included', () => {
+    // Each window's first event is caught up; the query moves the audio clock by `move` and the wall clock by `wallMs`.
+    let clock: ManualClock | null = null, move = 0, wallMs = 0;
+    const edge: NodeDefinition = {
+      ...metro, type: 'edge', params: [],
+      query: ({ t0 }) => {
+        if (clock) {
+          clock.audio += move;
+          clock.wall += wallMs;
+          move = wallMs = 0;
+        }
+        return { out: [{ time: t0, channel: 0 }] };
+      },
+    };
+    const run = setup(patch([node('e', 'edge'), node('r', 'recorder')], [cable('e', 'r')]), {}, [edge]);
+    clock = run.clock;
+    run.wakeAt(0, 0.025);
+    expect(run.scheduler.stats.lateCaughtUpWakeMs).toBe(0);
+    // A catch-up wake whose query runs 12 ms of wall time while the clock steps 9 ms: 4 ms late, past the lead.
+    run.clock.set(run.scheduler.horizon! + 0.05);
+    [move, wallMs] = [0.009, 12];
+    run.scheduler.wake();
+    expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(4, 6);
+    expect(run.scheduler.stats.lateCaughtUpWakeMs).toBe(12);
+    // A later, less late catch-up (7 ms step, 30 ms wall) doesn't replace the duration kept with the worst.
+    run.clock.set(run.scheduler.horizon! + 0.05);
+    [move, wallMs] = [0.007, 30];
+    run.scheduler.wake();
+    expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(4, 6);
+    expect(run.scheduler.stats.lateCaughtUpWakeMs).toBe(12);
+    // A worse one (14 ms step, 3 ms wall) sets both.
+    run.clock.set(run.scheduler.horizon! + 0.05);
+    [move, wallMs] = [0.014, 3];
+    run.scheduler.wake();
+    expect(run.scheduler.stats.lateCaughtUpMaxMs).toBeCloseTo(9, 6);
+    expect(run.scheduler.stats.lateCaughtUpWakeMs).toBe(3);
+  });
+
   it('counts late caught-up events of every catch-up in lateCaughtUp, mid-session too, with the worst in lateCaughtUpMaxMs', () => {
     // Emits one event at the start of each window, and moves the clock by `move` while it runs when set.
     let clock: ManualClock | null = null, move = 0;

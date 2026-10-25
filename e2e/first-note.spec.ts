@@ -88,7 +88,7 @@ test('the first tap starts audio, and the t=0 Clock note sounds at once, before 
   const ms = (s: number) => (s * 1000).toFixed(2);
   console.log(`[first note] first wake at ${ms(stats.firstWake!)} ms; starts ${seen.map((s) => `${Math.round(s.hz)} Hz at ${ms(s.when)} (called at ${ms(s.at)})`).join(', ')}; ` +
     `catch-ups ${stats.catchUps} (worst ${stats.catchUpMaxMs.toFixed(2)} ms), caught up ${stats.caughtUp}, ` +
-    `late ${stats.lateCaughtUp} caught up (worst ${stats.lateCaughtUpMaxMs.toFixed(2)} ms), ${stats.lateScheduled} scheduled, ${stats.lateImmediate} immediate; stalls ${stats.stalls}; one step ${ms(step)} ms: ${stepLog(steps)}`);
+    `late ${stats.lateCaughtUp} caught up (worst ${stats.lateCaughtUpMaxMs.toFixed(2)} ms, its wake ran ${stats.lateCaughtUpWakeMs.toFixed(2)} ms), ${stats.lateScheduled} scheduled, ${stats.lateImmediate} immediate; stalls ${stats.stalls}; one step ${ms(step)} ms: ${stepLog(steps)}`);
 
   // A startup slower than the catch-up limit starts the patch at the first wake and drops the t=0 tick by design.
   expect(stats.firstWake!, `first wake ${ms(stats.firstWake!)} ms past 0, beyond the ${ms(CATCH_UP_LIMIT)} ms catch-up limit; t=0 dropped by design (ADR 0033)`)
@@ -115,7 +115,8 @@ test('the first tap starts audio, and the t=0 Clock note sounds at once, before 
   // At least the pointerdown was held (the context may already run by the pointerup, under load).
   expect(stats.deferredPushes).toBeGreaterThanOrEqual(1);
   expect(stats.lateScheduled).toBe(0);
-  expect(stats.lateCaughtUpMaxMs).toBeLessThanOrEqual(step * 1000 + 1e-3);
+  // A caught-up event may be late by one step plus its own wake's query and schedule() (ADRs 0027, 0033).
+  expect(stats.lateCaughtUpMaxMs).toBeLessThanOrEqual(step * 1000 + stats.lateCaughtUpWakeMs + 1e-3);
 
   // And it keeps time from there: the next tick at 1 s. That holds because the first wake was within the
   // catch-up limit (asserted above); a slower start begins at now and its first tick would be this one.

@@ -120,6 +120,10 @@ export interface SchedulerStats extends RuntimeCounters {
   catchUps: number;
   /** The latest a catch-up wake has been, in ms past the horizon. */
   catchUpMaxMs: number;
+  /** Wall time, ms, of the wake's query (its schedule() calls included) that handed over the event behind
+   *  `lateCaughtUpMaxMs`, on the injected wall clock: a caught-up event may be late by one clock step plus
+   *  that, as a tap's note by one step plus its re-run (ADRs 0027, 0033). 0 until a wake sets the max. */
+  lateCaughtUpWakeMs: number;
   pushes: number;
   /** Pushes that rewound. */
   rewinds: number;
@@ -167,7 +171,7 @@ export class Scheduler {
   private readonly audioTime = (): number => this.clock.audioTime();
   private stop: (() => void) | null = null;
   private log: LoggedEvent[] | null;
-  private readonly own = { windows: 0, skipped: 0, stalls: 0, catchUps: 0, catchUpMaxMs: 0, pushes: 0, rewinds: 0, pushQueries: 0, pushMsMax: 0, pushMsTotal: 0, deferredPushes: 0, swaps: 0, pushFallbacks: 0 };
+  private readonly own = { windows: 0, skipped: 0, stalls: 0, catchUps: 0, catchUpMaxMs: 0, lateCaughtUpWakeMs: 0, pushes: 0, rewinds: 0, pushQueries: 0, pushMsMax: 0, pushMsTotal: 0, deferredPushes: 0, swaps: 0, pushFallbacks: 0 };
 
   constructor(runtime: Runtime, options: SchedulerOptions) {
     this.runtime = runtime;
@@ -286,7 +290,10 @@ export class Scheduler {
     const t1 = now + (this.clock.hidden?.() ? this.hiddenLookahead : this.lookahead);
     // An extra wake (a visibility change, a push, a resume) may find the window already queried.
     if (t1 > t0) {
+      const worstBefore = this.runtime.counters.lateCaughtUpMaxMs, queryStart = this.clock.wallTime();
       const events = this.runtime.query(t0, t1, { now, currentTime: this.audioTime, catchUp, path: 'scheduled' });
+      // This wake set a new worst caught-up lateness: keep how long it ran, the work that lateness may include.
+      if (this.runtime.counters.lateCaughtUpMaxMs > worstBefore) this.own.lateCaughtUpWakeMs = this.clock.wallTime() - queryStart;
       this.log?.push(...events);
       this.next = t1;
       this.own.windows++;

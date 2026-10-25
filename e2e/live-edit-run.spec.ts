@@ -154,7 +154,7 @@ test('scripted edits on the playing demo hand no scheduled event late, and no ta
   const worstLate = Math.max(0, ...audio.late.map((s) => s.currentTime - s.when));
   console.log(
     `${edits} edits, ${final.swaps - first.swaps} swaps, ${final.pushes} pushes; ${final.delivered - first.delivered} events delivered, ${audio.starts} start() calls; ` +
-      `late: ${final.lateScheduled} scheduled, ${final.lateImmediate} immediate (worst ${final.lateImmediateMaxMs.toFixed(2)} ms), ${final.lateCaughtUp} caught up (worst ${final.lateCaughtUpMaxMs.toFixed(2)} ms), ${audio.late.length} start() (worst ${(worstLate * 1000).toFixed(2)} ms); one step ${(step * 1000).toFixed(2)} ms (${stepLog(steps)}); ${final.skipped} windows skipped, ${final.pushFallbacks} push fallbacks`,
+      `late: ${final.lateScheduled} scheduled, ${final.lateImmediate} immediate (worst ${final.lateImmediateMaxMs.toFixed(2)} ms), ${final.lateCaughtUp} caught up (worst ${final.lateCaughtUpMaxMs.toFixed(2)} ms, its wake ran ${final.lateCaughtUpWakeMs.toFixed(2)} ms), ${audio.late.length} start() (worst ${(worstLate * 1000).toFixed(2)} ms); one step ${(step * 1000).toFixed(2)} ms (${stepLog(steps)}); ${final.skipped} windows skipped, ${final.pushFallbacks} push fallbacks`,
   );
   expect(edits).toBe(ROUNDS * 9);
   expect(final.swaps - first.swaps).toBeGreaterThanOrEqual(edits);
@@ -163,8 +163,8 @@ test('scripted edits on the playing demo hand no scheduled event late, and no ta
   expect(final.lateScheduled).toBe(0);
   // A tap's notes may reach Web Audio behind the clock, by at most one step (ADR 0027); Web Audio plays them at the next quantum.
   expect(final.lateImmediateMaxMs).toBeLessThanOrEqual(step * 1000 + 1e-3);
-  // A caught-up event (any catch-up, the first tap's included; ADR 0033) may land behind the clock by a step too.
-  expect(final.lateCaughtUpMaxMs).toBeLessThanOrEqual(step * 1000 + 1e-3);
+  // A caught-up event (any catch-up, the first tap's included; ADR 0033) may land behind the clock by a step plus its own wake's query and schedule().
+  expect(final.lateCaughtUpMaxMs).toBeLessThanOrEqual(step * 1000 + final.lateCaughtUpWakeMs + 1e-3);
   expect(worstLate).toBeLessThanOrEqual(step + 1e-6);
   expect(final.skipped).toBe(0);
   expect(final.pushFallbacks).toBe(0);
