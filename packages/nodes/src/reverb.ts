@@ -10,8 +10,9 @@
 //   same at any sample rate.
 // - Flow let Web Audio normalize the impulse, which makes the wet level grow with the square root of
 //   the length (measured: 0.14 of the dry level at 0.3 s, 0.71 at 8 s). The impulse is scaled here
-//   instead, so low tones come back at their own level whatever Decay or the sample rate, and Damping
-//   takes off highs rather than boosting lows (`reverbImpulse`).
+//   instead, so low tones come back at their own level on average whatever Decay or the sample rate,
+//   and Damping takes off highs rather than boosting lows (`reverbImpulse`). Single pitches vary by up
+//   to about ±8 dB around that: a noise impulse's response is uneven from one frequency to the next.
 // - Flow fed the reverb as a send with a separate dry level. Here it is an insert with one Mix
 //   knob, equal-power, so a half mix doesn't dip.
 import {
@@ -25,6 +26,7 @@ import {
   type NodeDefinition,
   type ParamValues,
 } from '@flow-patcher/engine';
+import { mixGains } from './mix';
 
 /** Flow's envelope exponent: the tail falls as (1 − t / decay)^2.8. */
 const DECAY_CURVE = 2.8;
@@ -32,7 +34,8 @@ const DECAY_CURVE = 2.8;
 const FADE_IN = 0.02;
 /** How long a Decay, Damping, Predelay or Variant edit crossfades between impulses, seconds. *(tune)* */
 export const IMPULSE_CROSSFADE = 0.05;
-/** Convolvers left ringing at once: the playing one and the tails of up to three before it. *(tune)* */
+/** Convolvers left ringing at once: the playing one and the tails of up to three before it. A fifth
+ *  fades the oldest out on its return over IMPULSE_CROSSFADE. *(tune)* */
 export const MAX_TAILS = 4;
 
 export const REVERB_LIMITS = { decay: [0.3, 8], damping: [0, 0.95], predelay: [0, 0.2] } as const;
@@ -58,9 +61,10 @@ const clamp = (v: number, [lo, hi]: readonly [number, number], fallback: number)
 
 /**
  * The impulse response, one Float32Array per channel (stereo: two independent noise streams,
- * so a mono input comes back wide). Each is scaled so its expected power gain at low frequencies
- * is 1: unit energy (white noise in, white noise out at the same level) times (1 − a) / (1 + a) for
- * the damping pole a, whose low-pass gathers the energy below its corner. A pure function of its
+ * so a mono input comes back wide). Each is scaled so its power gain at low frequencies is 1 on
+ * average: unit energy (white noise in, white noise out at the same level) times (1 − a) / (1 + a)
+ * for the damping pole a, whose low-pass gathers the energy below its corner. Single pitches vary by
+ * up to about ±8 dB around that average (a noise impulse's response is uneven). A pure function of its
  * arguments: the same key, options and sample rate give the same samples. Out-of-range options are
  * clamped, NaN takes the default.
  */
@@ -89,12 +93,6 @@ export function reverbImpulse(sampleRate: number, { seed, nodeId }: ImpulseKey, 
     out.push(data);
   }
   return out;
-}
-
-/** Dry and wet gains for a mix of 0–1, equal-power. */
-export function mixGains(mix: number): { dry: number; wet: number } {
-  const m = Number.isFinite(mix) ? Math.max(0, Math.min(1, mix)) : 0;
-  return { dry: Math.cos((m * Math.PI) / 2), wet: Math.sin((m * Math.PI) / 2) };
 }
 
 const impulseOf = (params: ParamValues): ImpulseOptions => ({
@@ -126,7 +124,7 @@ function buildSlot(audio: AudioContextLike, key: ImpulseKey, input: GainNodeLike
   data.forEach((channel, i) => buffer.getChannelData(i).set(channel));
   const send = audio.createGain(), convolver = audio.createConvolver(), ret = audio.createGain();
   send.gain.value = level;
-  // reverbImpulse normalizes it already (unit energy), the same in every browser.
+  // reverbImpulse scales it already, the same in every browser.
   convolver.normalize = false;
   convolver.buffer = buffer;
   input.connect(send);
@@ -172,12 +170,38 @@ export const reverb: NodeDefinition = {
     input.connect(dry);
     dry.connect(out);
     wet.connect(out);
-    let impulse = impulseOf(params);
+    // The impulse playing, and the one the knobs ask for. A new one is built at most once per
+    // IMPULSE_CROSSFADE of audio-clock time, so a knob drag (about 60 edits a second) builds about 20
+    // impulses a second, not 60, and crossfades never overlap; the latest wanted one wins.
+    let playing = impulseOf(params), wanted = playing, lastStart = -Infinity;
+    // The latest time automate or update covered: input can reach the convolvers until then (idleAt).
+    let lastT1 = audio.currentTime;
     // The playing impulse is last; earlier ones ring out their tails and are dropped once silent.
-    const slots: Slot[] = [buildSlot(audio, key, input, wet, impulse, 1)];
+    const slots: Slot[] = [buildSlot(audio, key, input, wet, playing, 1)];
     const prune = () => {
       for (let i = slots.length - 2; i >= 0; i--) {
         if (slots[i]!.silentAt <= audio.currentTime) disposeSlot(slots.splice(i, 1)[0]!);
+      }
+    };
+    /** Crossfades to `wanted` from `time`, if it differs from the playing impulse and the last crossfade is over by then. */
+    const settle = (time: number) => {
+      if (sameImpulse(wanted, playing) || !(time >= lastStart + IMPULSE_CROSSFADE)) return;
+      playing = wanted;
+      lastStart = time;
+      // A new impulse fades in on the input while the playing one fades out there, so its tail
+      // rings on and the wet signal never steps or drops out. The old one is silent once its
+      // tail has played through.
+      const old = slots.at(-1)!;
+      old.sendRamp.set(0, time);
+      old.silentAt = time + IMPULSE_CROSSFADE + old.length;
+      slots.push(buildSlot(audio, key, input, wet, playing, 0));
+      slots.at(-1)!.sendRamp.set(1, time);
+      // Too many tails (a knob dragged through many values): the oldest fade out on their return.
+      const ringing = slots.filter((slot) => !slot.evicted);
+      for (const tail of ringing.slice(0, Math.max(0, ringing.length - MAX_TAILS))) {
+        tail.returnRamp.set(0, time);
+        tail.silentAt = Math.min(tail.silentAt, time + IMPULSE_CROSSFADE);
+        tail.evicted = true;
       }
     };
     // Fixed for the instance's life: a change to the cables into params builds a new one.
@@ -189,6 +213,9 @@ export const reverb: NodeDefinition = {
       outputs: { out },
       automate(t0, t1, clock) {
         prune();
+        lastT1 = Math.max(lastT1, t1);
+        // An impulse an edit asked for while the last crossfade ran.
+        settle(t0);
         // A bus has no event channels: modulation is read on channel 0.
         if (!cabled) return;
         automation.dry.follow(t0, t1, (t) => mixGains(param('mix', t)).dry, clock);
@@ -196,29 +223,19 @@ export const reverb: NodeDefinition = {
       },
       update(next, time) {
         prune();
+        lastT1 = Math.max(lastT1, time);
         if (!cabled) {
           const gains = mixGains(next.mix as number);
           edits.dry.set(gains.dry, time);
           edits.wet.set(gains.wet, time);
         }
-        const wanted = impulseOf(next);
-        if (sameImpulse(wanted, impulse)) return;
-        impulse = wanted;
-        // A new impulse fades in on the input while the playing one fades out there, so its tail
-        // rings on and the wet signal never steps or drops out. The old one is silent once its
-        // tail has played through.
-        const playing = slots.at(-1)!;
-        playing.sendRamp.set(0, time);
-        playing.silentAt = time + IMPULSE_CROSSFADE + playing.length;
-        slots.push(buildSlot(audio, key, input, wet, impulse, 0));
-        slots.at(-1)!.sendRamp.set(1, time);
-        // Too many tails (a knob dragged through many values): the oldest fade out on their return.
-        const ringing = slots.filter((slot) => !slot.evicted);
-        for (const old of ringing.slice(0, Math.max(0, ringing.length - MAX_TAILS))) {
-          old.returnRamp.set(0, time);
-          old.silentAt = Math.min(old.silentAt, time + IMPULSE_CROSSFADE);
-          old.evicted = true;
-        }
+        wanted = impulseOf(next);
+        settle(time);
+      },
+      // Retired by a rebuild (a cable into Mix, a seed change), it rings until its longest tail is
+      // over: input reaches it until the last time it covered, and a crossfade may still be running.
+      idleAt() {
+        return lastT1 + IMPULSE_CROSSFADE + Math.max(...slots.map((slot) => (slot.evicted ? 0 : slot.length)));
       },
       dispose() {
         for (const slot of slots) disposeSlot(slot);

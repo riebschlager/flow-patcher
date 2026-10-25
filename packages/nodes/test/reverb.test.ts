@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { createRng, type AudioContextLike, type AudioInstance, type AudioNodeLike, type AudioParamLike } from '@flow-patcher/engine';
-import { IMPULSE_CROSSFADE, MAX_TAILS, mixGains, reverb, reverbImpulse } from '../src/reverb';
+import { mixGains } from '../src/mix';
+import { IMPULSE_CROSSFADE, MAX_TAILS, reverb, reverbImpulse } from '../src/reverb';
 import { blockLoudness, maxDifference, peak, renderOffline, RENDER_TOLERANCE, type RenderedAudio } from '../../../tools/lib/audio';
 import { expectGoldenClose } from '../../../test-support/golden';
-import { audioSetup, busRms, sine, swapRun, type ContextOptions } from './helpers';
+import { audioSetup, busRms, sine, swapRun, tailRun, type ContextOptions } from './helpers';
 
 const SINE = 0.5 / Math.SQRT2;
 const RATE = 48000;
@@ -260,32 +261,63 @@ describe('reverb', () => {
     // The new 4 s tail is playing: half a second after the sine stops it still rings, where 0.3 s is long gone.
     expect(busRms(short, 2, 0.3)).toBeLessThan(1e-6);
     expect(busRms(lengthened, 2, 0.3)).toBeGreaterThan(0.01);
-    // Shortened: the old 4 s tail keeps what came in before 0.55 s and rings on rather than being cut.
-    expect(busRms(shortened, 1.7, 0.3)).toBeGreaterThan(1e-3);
+    // Shortened: the old 4 s tail keeps what came in before 0.55 s and rings on rather than being cut,
+    // past where the 0.3 s tail of the sine (stopped at 1.5 s) is long gone.
+    expect(busRms(short, 1.85, 0.3)).toBeLessThan(1e-6);
+    expect(busRms(shortened, 1.85, 0.3)).toBeGreaterThan(1e-3);
   });
 
-  it('keeps at most MAX_TAILS convolvers ringing and disposes tails once silent', () => {
+  it('builds at most one impulse per crossfade while a knob is dragged, and the latest value wins', () => {
     const fake = fakeContext();
     const instance = reverb.audio!(audioSetup(reverb, fake.context, { params: { decay: 1 } }));
-    // A knob dragged through ten values in 100 ms.
+    // A knob dragged through ten values in 100 ms (one edit a 10 ms).
     const decays = Array.from({ length: 10 }, (_, i) => 1.05 + i * 0.1);
     decays.forEach((decay, i) => instance.update!({ ...DEFAULTS, decay }, 0.01 * i));
-    expect(fake.convolvers.length).toBe(11);
-    // All but MAX_TAILS were faded out on their returns.
-    const returns = fake.gains.filter((g) => g.ramps.some((r) => r.value === 0 && r.kind === 'ret'));
-    expect(returns.length).toBeGreaterThanOrEqual(11 - MAX_TAILS);
+    // Builds at 0 s (1.05) and 0.05 s (1.55); the rest wait for the next crossfade slot.
+    expect(fake.buffers).toEqual([1, 1.05, 1.55].map((d) => Math.round(d * 8000)));
+    // Too soon: nothing new.
+    instance.automate!(0.09, 0.1, 0.09);
+    expect(fake.buffers).toHaveLength(3);
+    // Once the last crossfade is over, the latest wanted value, not the ones in between.
+    instance.automate!(0.1, 0.125, 0.1);
+    expect(fake.buffers.at(-1)).toBe(Math.round(decays.at(-1)! * 8000));
+    expect(fake.buffers).toHaveLength(4);
+    // A Mix edit alone builds no impulse.
+    instance.update!({ ...DEFAULTS, decay: decays.at(-1)!, mix: 0.8 }, 0.2);
+    expect(fake.buffers).toHaveLength(4);
+  });
+
+  it('keeps at most MAX_TAILS convolvers ringing, fades out exactly the extra ones and disposes tails once silent', () => {
+    const fake = fakeContext();
+    const instance = reverb.audio!(audioSetup(reverb, fake.context, { params: { decay: 1 } }));
+    // Seven edits a crossfade apart: eight impulses, so the oldest four fade out on their returns.
+    for (let i = 0; i < 7; i++) instance.update!({ ...DEFAULTS, decay: 1.1 + i * 0.1 }, 0.1 * i);
+    expect(fake.convolvers).toHaveLength(8);
+    const returns = fake.gains.filter((g) => g.kind === 'ret' && g.ramps.some((r) => r.value === 0));
+    expect(returns).toHaveLength(8 - MAX_TAILS);
+    // At no time do more than MAX_TAILS sound, plus the one fading out on its return for one crossfade.
     // Past every evicted fade but inside the ringing tails: only the evicted are gone.
-    fake.now = 0.2;
-    instance.automate!(0.2, 0.3, 0.2);
-    expect(fake.convolvers.filter((c) => c.disconnected).length).toBe(11 - MAX_TAILS);
+    fake.now = 0.7;
+    instance.automate!(0.7, 0.725, 0.7);
+    expect(fake.convolvers.filter((c) => c.disconnected)).toHaveLength(8 - MAX_TAILS);
     // Past every tail: only the playing one is left.
     fake.now = 10;
     instance.automate!(10, 10.1, 10);
-    expect(fake.convolvers.filter((c) => !c.disconnected).length).toBe(1);
+    expect(fake.convolvers.filter((c) => !c.disconnected)).toHaveLength(1);
     expect(fake.convolvers.at(-1)!.disconnected).toBe(false);
-    // A Mix edit alone builds no impulse.
-    instance.update!({ ...DEFAULTS, decay: decays.at(-1)!, mix: 0.8 }, 10.2);
-    expect(fake.convolvers.length).toBe(11);
+  });
+
+  it('rings out its tail after a rebuild: a cable into Mix mid-tail doesn\'t cut it', async () => {
+    // A burst at 0.05 s into a 4 s Reverb; at 0.31 s a cable into Mix rebuilds the node.
+    const { reports, built, audio } = await tailRun(reverb, { mix: 1, decay: 4 }, 'mix', 2);
+    expect(reports[0]!.updated).toEqual([]);
+    expect(built).toBe(2);
+    // The new instance never heard the burst; the old one keeps ringing until its idleAt.
+    expect(busRms(audio, 1.3, 0.2)).toBeGreaterThan(1e-3);
+    const fake = fakeContext();
+    const instance = reverb.audio!(audioSetup(reverb, fake.context, { params: { decay: 4 } }));
+    instance.automate!(0, 0.4, 0);
+    expect(instance.idleAt!()).toBeCloseTo(0.4 + IMPULSE_CROSSFADE + 4, 9);
   });
 
   it('keeps its instance through the runtime for every knob, Decay and Variant included', async () => {
@@ -304,21 +336,24 @@ describe('reverb', () => {
 });
 
 interface FakeParam extends AudioParamLike {
-  ramps: { value: number; kind: string }[];
+  kind: string;
+  ramps: { value: number }[];
 }
 
 /** A context that builds nothing audible, recording convolvers and gain ramps, with a settable clock. */
 function fakeContext() {
   const convolvers: { disconnected: boolean }[] = [];
   const gains: FakeParam[] = [];
+  /** The length in frames of each impulse built. */
+  const buffers: number[] = [];
   const state = { now: 0 };
   // The n-th gain made after the shared ones (input, dry, wet, out) alternates send, return.
   let made = 0;
   const param = (kind: string): FakeParam => {
     const p: FakeParam = {
-      value: 1, ramps: [],
+      value: 1, kind, ramps: [],
       setValueAtTime: () => p,
-      linearRampToValueAtTime: (value: number) => (p.ramps.push({ value, kind }), p),
+      linearRampToValueAtTime: (value: number) => (p.ramps.push({ value }), p),
       exponentialRampToValueAtTime: () => p,
       setTargetAtTime: () => p,
       cancelScheduledValues: () => p,
@@ -344,12 +379,13 @@ function fakeContext() {
       return convolver;
     },
     createBuffer: (channels: number, length: number, sampleRate: number) => {
+      buffers.push(length);
       const data = Array.from({ length: channels }, () => new Float32Array(length));
       return { sampleRate, length, duration: length / sampleRate, numberOfChannels: channels, getChannelData: (i: number) => data[i]! };
     },
   } as unknown as AudioContextLike;
   return {
-    context, convolvers, gains,
+    context, convolvers, gains, buffers,
     set now(t: number) {
       state.now = t;
     },
