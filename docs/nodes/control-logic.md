@@ -4,7 +4,7 @@ Routing, conversion and signal shaping: the glue between other families. All new
 
 | Node | What it does | Milestone |
 | --- | --- | --- |
-| Gate | Passes events while a Signal or toggle is high | As needed |
+| Gate | Passes events while Open is on and the Gate Signal, read at each event's time on its channel, is at or above Level (unwired: everything passes); Open off blocks everything. To pass at or below a level, negate the signal with Math (Multiply, Constant −1) and use a negative Level | M2 (Paint mode) |
 | Switch / Select | Routes events to one of 4 outputs, chosen by the Index knob/cable or latched by the Select input (`value` picks the output, no value steps to the next), whichever changed last; a contact stays on the output its down picked | M2 (tool-mode examples) |
 | Merge / Split Channels | Combines or separates per-pointer channels | As needed |
 | Counter | Counts events; wraps at N; outputs count as a Signal | As needed |

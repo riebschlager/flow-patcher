@@ -41,7 +41,7 @@
     {
       "id": "lowDrag",
       "type": "drag",
-      "typeVersion": 1,
+      "typeVersion": 2,
       "params": {
         "claim": false,
         "minDistance": 0.025
@@ -54,7 +54,7 @@
     {
       "id": "highDrag",
       "type": "drag",
-      "typeVersion": 1,
+      "typeVersion": 2,
       "params": {
         "claim": false,
         "minDistance": 0.025
