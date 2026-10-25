@@ -79,6 +79,12 @@ const dispatch = (page: Page, type: string, init: Init) =>
     element.dispatchEvent(new PointerEvent(t as string, { bubbles: true, cancelable: true, pointerId: 1, isPrimary: true, clientX: r.left + r.width * fx, clientY: r.top + r.height * fy, ...(rest as PointerEventInit) }));
   }, [type, init] as const);
 
+/** Waits until the audio clock is 10 ms past where it is now, so what comes next lands on a later stamp
+ *  than anything sent before (stamps are the clock + 5 ms), however the runner schedules the audio thread. */
+async function nextStamp(page: Page) {
+  const now = await page.evaluate(() => window.flowPatcher!.clock.currentTime);
+  await expect.poll(() => page.evaluate(() => window.flowPatcher!.clock.currentTime), { intervals: [5] }).toBeGreaterThan(now + 0.01);
+}
 const signal = (page: Page, node: string, port: string) => page.evaluate(([n, p]) => window.flowPatcher!.probe(n!, p!)?.value as number | undefined, [node, port]);
 const has = (e: EngineEvent, field: string) => e[field] !== undefined;
 
@@ -109,7 +115,7 @@ test('Payload: mouse, touch, pen, wheel and key input give every documented fiel
   await page.keyboard.up('Shift');
   await page.mouse.up();
   // Each contact here is pointerId 1, so keep one's end and the next one's down on different stamps (#122).
-  await page.waitForTimeout(30);
+  await nextStamp(page);
 
   // Touch, with a contact size; then a second touch that's cancelled.
   const touch = { pointerType: 'touch', width: 20, height: 24 };
@@ -121,13 +127,13 @@ test('Payload: mouse, touch, pen, wheel and key input give every documented fiel
   await expect.poll(() => signal(page, 'touch-extras', 'width')).toBe(20);
   expect(await signal(page, 'touch-extras', 'height')).toBe(24);
   await dispatch(page, 'pointerup', { fx: 0.3, fy: 0.5, ...touch, pressure: 0, button: 0, buttons: 0 });
-  await page.waitForTimeout(30);
+  await nextStamp(page);
   await dispatch(page, 'pointerdown', { fx: 0.4, fy: 0.6, ...touch, pressure: 0.4, button: 0, buttons: 1 });
   await page.waitForTimeout(20);
   await dispatch(page, 'pointermove', { fx: 0.42, fy: 0.6, ...touch, pressure: 0.4, buttons: 1 });
   await page.waitForTimeout(20);
   await dispatch(page, 'pointercancel', { fx: 0.42, fy: 0.6, ...touch, pressure: 0, buttons: 0 });
-  await page.waitForTimeout(30);
+  await nextStamp(page);
 
   // Pen, tilted and twisted.
   const pen = { pointerType: 'pen', tiltX: 20, tiltY: -10, twist: 30, tangentialPressure: 0.2 };
@@ -139,8 +145,8 @@ test('Payload: mouse, touch, pen, wheel and key input give every documented fiel
   await dispatch(page, 'pointerup', { fx: 0.7, fy: 0.4, ...pen, pressure: 0, button: 0, buttons: 0 });
 
   // The pointer checks below cover what came before here: the clicks after it press and release on one
-  // stamp, which is Click's to check. The pen's up is stamped 5 ms ahead of the clock, so wait it out.
-  await page.waitForTimeout(30);
+  // stamp, which is Click's to check. The pen's up is stamped 5 ms ahead of the clock, so wait past it.
+  await nextStamp(page);
   const pointersEnd = await page.evaluate(() => window.flowPatcher!.clock.currentTime);
 
   // Wheel, plain and with Ctrl (a trackpad pinch).
@@ -205,7 +211,7 @@ test('Payload: mouse, touch, pen, wheel and key input give every documented fiel
     // Every contact's end was checked: an up per pointer type, and the touch's cancel.
     const ends = all[`${source}.all`]!.filter((e) => e.time < pointersEnd && (e.phase === 'up' || e.phase === 'cancel')).map((e) => `${e.pointerType} ${e.phase}`);
     const expected = source === 'pen' ? ['pen up'] : ['mouse up', 'touch up', 'touch cancel', 'pen up'];
-    expect(ends.sort(), source).toEqual(expect.arrayContaining(expected));
+    expect(ends, source).toEqual(expect.arrayContaining(expected));
   }
   // Each kind of pointer reached Pointer, and only pens reached Pen.
   expect(new Set(all['pointer.all']!.map((e) => e.pointerType))).toEqual(new Set(['mouse', 'touch', 'pen']));
