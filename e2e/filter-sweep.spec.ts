@@ -25,7 +25,9 @@ declare global {
 }
 
 // Filter (#88): a Signal-swept cutoff on a sustained note, through the browser's
-// Web Audio. The cutoff's automation is mirrored call for call onto a
+// Web Audio. The cutoff is log-scaled (#104, ADR 0032): the sweep's depth is in
+// octaves, so the cutoff runs base × 2^(OCTAVES × phase), exponential in Hz, in
+// linear ramps between 60 Hz grid points. The cutoff's automation is mirrored call for call onto a
 // ConstantSourceNode's offset, whose output an AudioWorklet records sample by
 // sample. Knob turns on the cabled cutoff re-run the windows from the swap
 // (ADR 0031): automate keeps the ramp being played whole, cancels after it and
@@ -40,6 +42,11 @@ declare global {
 // value and then goes on along its line, with or without edits (a control run
 // without knob turns showed 5 in 20 runs, #103); up to 3 a run are allowed and
 // logged. The test requires no other hold and no step.
+
+/** filter-sweep's cable from the sweep Clock's phase into the cutoff: 300 Hz × 2^3.17 ≈ 2.7 kHz at the top. */
+const OCTAVES = 3.17;
+/** The sweep Clock's period: one bar of 1/1 at 60 bpm. */
+const SWEEP_SECONDS = 4;
 
 const field = (page: Page, node: string, param: string) =>
   page.locator(`.react-flow__node[data-id="${node}"] .param-row[data-param="${param}"] [data-testid="param-field"]`);
@@ -138,13 +145,16 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
   const TURNS = 16;
   // The largest base change of a turn: a bound on any one swap's change, since a turn's swaps go one way.
   const base = async () => Number(await cutoff.getAttribute('data-value'));
-  let largestTurn = 0;
+  let largestTurn = 0, lowestBase = await base(), highestBase = lowestBase;
   for (let i = 0; i < TURNS; i++) {
     const before = (await stats(page)).swaps;
     const from = await base();
     await dragBy(page, cutoff, i % 2 ? -8 : 8);
     await expect.poll(async () => (await stats(page)).swaps).toBeGreaterThan(before);
-    largestTurn = Math.max(largestTurn, Math.abs((await base()) - from));
+    const to = await base();
+    largestTurn = Math.max(largestTurn, Math.abs(to - from));
+    lowestBase = Math.min(lowestBase, to);
+    highestBase = Math.max(highestBase, to);
     await page.waitForTimeout(150);
   }
   await page.waitForTimeout(1500);
@@ -178,7 +188,8 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
       largest = Math.max(largest, x);
     }
     // Holds: a whole render quantum where the cutoff stands still. The sweep never does (its slope is
-    // 2400 Hz per 4 s, 0.0125 Hz a sample at 48 kHz, steeper at the wrap); a held quantum is flat.
+    // base × ln 2 × OCTAVES per 4 s, slowest at the bottom: 165 Hz/s from 300 Hz, 0.0034 Hz a sample at
+    // 48 kHz, checked below against the lowest base; steeper at the wrap); a held quantum is flat.
     // A freeze is Chromium's: exactly one render quantum held at the previous sample's value, from the
     // quantum's first sample (the sample before it still moved) to its last, then back onto the line it
     // left (the change from before it to after it is what 129 samples of the slope on either side would
@@ -228,7 +239,7 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
       }
     }
     // Steps: a sample-to-sample change far past any slope the automation has (its steepest, the wrap,
-    // is 2400 Hz over one 1/60 s grid step, 3 Hz a sample), off the 60 Hz grid, and outside the range of
+    // is base × (2^OCTAVES − 1), 2400 Hz from 300 Hz, over one 1/60 s grid step, 3 Hz a sample), off the 60 Hz grid, and outside the range of
     // the changes on either side by more than 0.5 Hz: a jump in value. Before #103 an exposed re-run cancel
     // made one. A bend changes the slope from one sample on and lands between its neighbours (or equal to
     // one); a re-run's ramp to the new base starts on the grid, so bends off it are only counted, with the
@@ -286,7 +297,7 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
     `filter sweep: ${result.seconds.toFixed(2)} s recorded at ${result.rate} Hz, cutoff ${result.smallest.toFixed(0)}–${result.largest.toFixed(0)} Hz; ` +
       `${final.swaps - first.swaps} swaps; ${result.cancels} cancels, ${result.reruns} re-run cancels, ${result.exposed} exposed (leads ms: ${result.leads.join(', ')}); ` +
       `${result.holds.length} held quanta ${JSON.stringify(result.holds)}; ${result.freezes.length} frozen quanta back on their line ${JSON.stringify(result.freezes)} (${result.nearReruns} within four quanta after a re-run cancel); ${result.steps.length} steps off the grid ${JSON.stringify(result.steps)}; ` +
-      `${result.bends} bends off the grid; steepest ${result.steepest.toFixed(2)} Hz a sample (largest turn ${largestTurn.toFixed(0)} Hz); ${result.gaps} samples missing from the recording, ${result.besideGaps} steps beside them; brightness vs cutoff r = ${result.r.toFixed(3)} over ${result.blocks} blocks; ` +
+      `${result.bends} bends off the grid; steepest ${result.steepest.toFixed(2)} Hz a sample (largest turn ${largestTurn.toFixed(0)} Hz, base ${lowestBase}–${highestBase} Hz); ${result.gaps} samples missing from the recording, ${result.besideGaps} steps beside them; brightness vs cutoff r = ${result.r.toFixed(3)} over ${result.blocks} blocks; ` +
       `late ${final.lateScheduled} (${first.lateScheduled} before the turns), skipped ${final.skipped}`,
   );
 
@@ -303,16 +314,22 @@ test('a cabled Filter cutoff sweeps a sustained note, and re-runs on knob turns 
   expect(result.largest - result.smallest).toBeGreaterThan(1500);
   expect(result.blocks).toBeGreaterThan(40);
   expect(result.r).toBeGreaterThan(0.8);
+  // The hold check needs the sweep to move more than its 0.002 Hz flatness threshold a sample everywhere: at its
+  // slowest, the bottom of the lowest base, with half again to spare.
+  expect((lowestBase * Math.LN2 * OCTAVES) / SWEEP_SECONDS / result.rate).toBeGreaterThan(0.003);
   // No quantum held at the previous value (ADR 0031, Consequences), other than Chromium's freezes that go on along their line.
   expect(result.holds).toEqual([]);
   // And few of those. Seen without knob turns: at most 1 a run (5 of 20 runs). With them: at most 2 a run, about
   // 0.15 a run on average, and 2 in 3 runs under a parallel full suite (#103). At that loaded rate, more than 3
   // in a run has a Poisson chance of about 0.5 %; a steady stream of them would be something new.
   expect(result.freezes.length).toBeLessThanOrEqual(3);
-  // Slopes stay bounded (ADR 0031, Decision): no faster than the sweep's wrap (its depth, 2400 Hz, in one 1/60 s grid
-  // step) plus the largest knob turn over a grid step, with 10 % to spare. Adding a point at a re-run's t0 instead
-  // made ramps of a few samples, up to 80 Hz a sample.
-  expect(result.steepest).toBeLessThanOrEqual((1.1 * (2400 + largestTurn) * 60) / result.rate);
+  // Slopes stay bounded (ADR 0031, Decision): no faster than the sweep's wrap plus the largest knob turn, each over one
+  // 1/60 s grid step, with 10 % to spare. With depth in octaves (ADR 0032) both scale with the base: the wrap falls
+  // from base × 2^OCTAVES to base, at most the highest base × (2^OCTAVES − 1) plus the turn the wrap may straddle,
+  // and a turn of the base moves the cutoff by up to 2^OCTAVES times the turn, at the top of the sweep. Adding a point
+  // at a re-run's t0 instead made ramps of a few samples, up to 80 Hz a sample.
+  const top = 2 ** OCTAVES;
+  expect(result.steepest).toBeLessThanOrEqual((1.1 * (highestBase * (top - 1) + largestTurn * top) * 60) / result.rate);
   // No jump: re-runs keep the ramp in progress up to their start (#103).
   expect(result.steps).toEqual([]);
   expect(final.lateScheduled - first.lateScheduled).toBe(0);
